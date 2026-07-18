@@ -1,0 +1,2 @@
+historical_total_requests,historical_average_daily_requests,ytd_2026_growth_pct,model_mape_pct,baseline_mape_pct,mape_improvement_pct,forecast_30_day_requests,forecast_average_daily_requests,planning_capacity_threshold,capacity_shortfall_days,total_forecast_capacity_gap,maximum_forecast_utilization_pct,first_shortfall_date,advance_warning_days
+12331111,9656.31,13.4,4.93,8.23,40.1,330941,11031.37,11609,5,566,101.81,2026-07-13,13

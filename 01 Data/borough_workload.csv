@@ -1,0 +1,6 @@
+borough,total_requests,average_daily_requests,highest_daily_requests,lowest_daily_requests,days_recorded,workload_share_pct,workload_rank
+BROOKLYN,3741882,2930.21,7001,1635,1277,30.38,1
+QUEENS,2979442,2333.16,5108,1457,1277,24.19,2
+BRONX,2604648,2039.66,7109,878,1277,21.15,3
+MANHATTAN,2519723,1973.16,3625,959,1277,20.46,4
+STATEN ISLAND,472137,369.72,4698,155,1277,3.83,5

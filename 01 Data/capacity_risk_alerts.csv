@@ -1,0 +1,31 @@
+request_date,weekday_name,forecast_requests,forecast_week,forecast_month,days_ahead,planning_capacity,capacity_utilization_pct,capacity_gap_requests,available_capacity,risk_level,capacity_shortfall_flag,recommended_action
+2026-07-01,Wednesday,10992,2026-06-29/2026-07-05,2026-07,1,11609,94.69,0,617,Low,0,Normal operating plan
+2026-07-02,Thursday,10876,2026-06-29/2026-07-05,2026-07,2,11609,93.69,0,733,Low,0,Normal operating plan
+2026-07-03,Friday,10937,2026-06-29/2026-07-05,2026-07,3,11609,94.21,0,672,Low,0,Normal operating plan
+2026-07-04,Saturday,9969,2026-06-29/2026-07-05,2026-07,4,11609,85.87,0,1640,Low,0,Normal operating plan
+2026-07-05,Sunday,10336,2026-06-29/2026-07-05,2026-07,5,11609,89.03,0,1273,Low,0,Normal operating plan
+2026-07-06,Monday,11597,2026-07-06/2026-07-12,2026-07,6,11609,99.9,0,12,Medium,0,Monitor closely and prepare backup capacity
+2026-07-07,Tuesday,11531,2026-07-06/2026-07-12,2026-07,7,11609,99.33,0,78,Medium,0,Monitor closely and prepare backup capacity
+2026-07-08,Wednesday,11159,2026-07-06/2026-07-12,2026-07,8,11609,96.12,0,450,Medium,0,Monitor closely and prepare backup capacity
+2026-07-09,Thursday,10996,2026-07-06/2026-07-12,2026-07,9,11609,94.72,0,613,Low,0,Normal operating plan
+2026-07-10,Friday,11040,2026-07-06/2026-07-12,2026-07,10,11609,95.1,0,569,Medium,0,Monitor closely and prepare backup capacity
+2026-07-11,Saturday,10026,2026-07-06/2026-07-12,2026-07,11,11609,86.36,0,1583,Low,0,Normal operating plan
+2026-07-12,Sunday,10294,2026-07-06/2026-07-12,2026-07,12,11609,88.67,0,1315,Low,0,Normal operating plan
+2026-07-13,Monday,11621,2026-07-13/2026-07-19,2026-07,13,11609,100.1,12,0,High,1,Add capacity and prioritize high-impact requests
+2026-07-14,Tuesday,11608,2026-07-13/2026-07-19,2026-07,14,11609,99.99,0,1,Medium,0,Monitor closely and prepare backup capacity
+2026-07-15,Wednesday,11201,2026-07-13/2026-07-19,2026-07,15,11609,96.49,0,408,Medium,0,Monitor closely and prepare backup capacity
+2026-07-16,Thursday,11053,2026-07-13/2026-07-19,2026-07,16,11609,95.21,0,556,Medium,0,Monitor closely and prepare backup capacity
+2026-07-17,Friday,11080,2026-07-13/2026-07-19,2026-07,17,11609,95.44,0,529,Medium,0,Monitor closely and prepare backup capacity
+2026-07-18,Saturday,10101,2026-07-13/2026-07-19,2026-07,18,11609,87.01,0,1508,Low,0,Normal operating plan
+2026-07-19,Sunday,10390,2026-07-13/2026-07-19,2026-07,19,11609,89.5,0,1219,Low,0,Normal operating plan
+2026-07-20,Monday,11693,2026-07-20/2026-07-26,2026-07,20,11609,100.72,84,0,High,1,Add capacity and prioritize high-impact requests
+2026-07-21,Tuesday,11667,2026-07-20/2026-07-26,2026-07,21,11609,100.5,58,0,High,1,Add capacity and prioritize high-impact requests
+2026-07-22,Wednesday,11323,2026-07-20/2026-07-26,2026-07,22,11609,97.54,0,286,Medium,0,Monitor closely and prepare backup capacity
+2026-07-23,Thursday,11176,2026-07-20/2026-07-26,2026-07,23,11609,96.27,0,433,Medium,0,Monitor closely and prepare backup capacity
+2026-07-24,Friday,11231,2026-07-20/2026-07-26,2026-07,24,11609,96.74,0,378,Medium,0,Monitor closely and prepare backup capacity
+2026-07-25,Saturday,10214,2026-07-20/2026-07-26,2026-07,25,11609,87.98,0,1395,Low,0,Normal operating plan
+2026-07-26,Sunday,10468,2026-07-20/2026-07-26,2026-07,26,11609,90.17,0,1141,Low,0,Normal operating plan
+2026-07-27,Monday,11811,2026-07-27/2026-08-02,2026-07,27,11609,101.74,202,0,High,1,Add capacity and prioritize high-impact requests
+2026-07-28,Tuesday,11819,2026-07-27/2026-08-02,2026-07,28,11609,101.81,210,0,High,1,Add capacity and prioritize high-impact requests
+2026-07-29,Wednesday,11442,2026-07-27/2026-08-02,2026-07,29,11609,98.56,0,167,Medium,0,Monitor closely and prepare backup capacity
+2026-07-30,Thursday,11290,2026-07-27/2026-08-02,2026-07,30,11609,97.25,0,319,Medium,0,Monitor closely and prepare backup capacity

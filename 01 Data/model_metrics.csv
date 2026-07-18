@@ -1,0 +1,3 @@
+model_name,mae,rmse,mape_pct,r_squared,mape_improvement_pct
+Linear Regression Forecast,514.3,676.7,4.93,0.5787,40.1
+7-Day Seasonal Baseline,851.16,1107.24,8.23,-0.1279,0.0

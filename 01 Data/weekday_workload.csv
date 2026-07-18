@@ -1,0 +1,8 @@
+weekday_number,weekday_name,total_requests,average_daily_requests,highest_daily_requests,lowest_daily_requests,days_recorded,workload_share_pct,average_workload_rank
+0,Sunday,1631909,8917.54,15684,6209,183,13.23,6
+1,Monday,1873447,10237.42,16388,5596,183,15.19,2
+2,Tuesday,1881843,10283.3,22806,7373,183,15.26,1
+3,Wednesday,1801709,9899.5,16982,6461,182,14.61,3
+4,Thursday,1772932,9741.38,15361,6216,182,14.38,5
+5,Friday,1778553,9772.27,17962,7340,182,14.42,4
+6,Saturday,1590718,8740.21,13022,6423,182,12.9,7

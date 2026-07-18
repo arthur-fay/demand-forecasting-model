@@ -1,0 +1,5 @@
+request_year,total_requests,average_daily_requests,highest_daily_requests,lowest_daily_requests,days_recorded,previous_year_requests,year_over_year_growth_pct
+2023,3224723,8834.86,17962,5596,365,,
+2024,3456770,9444.73,15899,6423,366,3224723.0,7.2
+2025,3655034,10013.79,16388,6216,365,3456770.0,5.74
+2026,1994584,11019.8,22806,7334,181,3655034.0,-45.43

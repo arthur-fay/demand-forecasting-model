@@ -1,0 +1,4 @@
+risk_level,forecast_days,total_forecast_requests,average_utilization_pct,total_capacity_gap
+High,5,58611,100.97,566
+Medium,13,146731,97.23,0
+Low,12,125599,90.16,0

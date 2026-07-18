@@ -1,0 +1,3 @@
+request_year,total_requests,average_daily_requests,highest_daily_requests,lowest_daily_requests,days_recorded,previous_ytd_requests,ytd_growth_pct
+2025,1758816,9717.22,15023,7215,181,,
+2026,1994584,11019.8,22806,7334,181,1758816.0,13.4
