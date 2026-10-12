@@ -173,11 +173,27 @@ def resolve_in_repo(repo_root: Path, relative: str) -> Path:
 
 
 def _read_header_and_rows(path: Path) -> tuple[tuple[str, ...], list[list[str]]]:
-    with path.open(encoding="utf-8", newline="") as handle:
-        records = list(csv.reader(handle, strict=True))
+    try:
+        with path.open(encoding="utf-8", newline="") as handle:
+            records = list(csv.reader(handle, strict=True))
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise SnapshotError(f"{path} is not a readable UTF-8 CSV file: {exc}") from exc
     if not records:
         raise SnapshotError(f"{path} is empty")
     return tuple(records[0]), records[1:]
+
+
+def _date_range(
+    header: tuple[str, ...], rows: list[list[str]], date_column: str, label: str
+) -> tuple[date | None, date | None]:
+    if date_column not in header:
+        raise SnapshotError(f"{label} has no date column {date_column!r}")
+    position = header.index(date_column)
+    try:
+        dates = [date.fromisoformat(row[position]) for row in rows if row[position]]
+    except (ValueError, IndexError) as exc:
+        raise SnapshotError(f"{label}: unparseable {date_column!r}: {exc}") from exc
+    return (min(dates), max(dates)) if dates else (None, None)
 
 
 def describe_table(repo_root: Path, spec: TableSpec) -> ManifestFile:
@@ -189,15 +205,7 @@ def describe_table(repo_root: Path, spec: TableSpec) -> ManifestFile:
     date_min: date | None = None
     date_max: date | None = None
     if spec.date_column is not None:
-        if spec.date_column not in header:
-            raise SnapshotError(f"{spec.path} has no date column {spec.date_column!r}")
-        position = header.index(spec.date_column)
-        try:
-            dates = [date.fromisoformat(row[position]) for row in rows if row[position]]
-        except (ValueError, IndexError) as exc:
-            raise SnapshotError(f"{spec.path}: unparseable {spec.date_column!r}: {exc}") from exc
-        if dates:
-            date_min, date_max = min(dates), max(dates)
+        date_min, date_max = _date_range(header, rows, spec.date_column, spec.path)
     return ManifestFile(
         table=spec.table,
         path=spec.path,
@@ -253,9 +261,12 @@ def load_manifest(path: Path) -> SnapshotManifest:
     if not path.is_file():
         raise SnapshotError(f"Snapshot manifest not found: {path}")
     try:
-        return SnapshotManifest.model_validate_json(path.read_text(encoding="utf-8"))
+        # Bytes, not text: invalid UTF-8 then surfaces as a ValidationError, not a crash.
+        return SnapshotManifest.model_validate_json(path.read_bytes())
     except ValidationError as exc:
         raise SnapshotError(f"Invalid snapshot manifest {path}:\n{exc}") from exc
+    except OSError as exc:
+        raise SnapshotError(f"Cannot read snapshot manifest {path}: {exc}") from exc
 
 
 # --- Integrity verification ---------------------------------------------------------
@@ -321,7 +332,7 @@ def verify_snapshot(repo_root: Path, manifest: SnapshotManifest) -> CheckReport:
             continue
         try:
             header, rows = _read_header_and_rows(path)
-        except (SnapshotError, UnicodeDecodeError, csv.Error) as exc:
+        except SnapshotError as exc:
             issues.append(Issue("unreadable_file", Severity.ERROR, entry.table, str(exc)))
             continue
         if header != entry.columns:
@@ -342,6 +353,22 @@ def verify_snapshot(repo_root: Path, manifest: SnapshotManifest) -> CheckReport:
                     f"{len(rows)} data rows on disk, manifest records {entry.rows}.",
                 )
             )
+        if entry.date_column is not None:
+            try:
+                observed = _date_range(header, rows, entry.date_column, entry.path)
+            except SnapshotError as exc:
+                issues.append(Issue("date_range_mismatch", Severity.ERROR, entry.table, str(exc)))
+            else:
+                if observed != (entry.date_min, entry.date_max):
+                    issues.append(
+                        Issue(
+                            "date_range_mismatch",
+                            Severity.ERROR,
+                            entry.table,
+                            f"{entry.date_column} spans {observed[0]}..{observed[1]} on disk, "
+                            f"manifest records {entry.date_min}..{entry.date_max}.",
+                        )
+                    )
 
     for artifact in manifest.artifacts:
         _, artifact_issues = _verify_bytes(

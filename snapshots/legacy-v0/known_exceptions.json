@@ -8,8 +8,8 @@
       "title": "Segments cover only the five named boroughs; city-wide totals include all records.",
       "cause": "The legacy daily_total query has no borough filter, while the daily_segments query keeps only BRONX, BROOKLYN, MANHATTAN, QUEENS and STATEN ISLAND. Requests whose borough was any other value were never fetched at segment level, so the segment sum is lower than the city-wide total on most dates. The excluded records cannot be recovered from this snapshot and no records are imputed.",
       "evidence": [
-        "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb cell 2: daily_total $where filters only on created_date",
-        "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb cell 3: daily_segments $where adds borough IN (five named boroughs)",
+        "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb cell index 2 (daily_total query): $where filters only on created_date",
+        "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb cell index 3 (daily_segments query): $where adds borough IN (five named boroughs)",
         "03 SQL/Project2_Demand_Forecasting_Analysis.sql lines 203-214: zero-tolerance reconciliation query that this gap would fail"
       ],
       "policy": "accept",
@@ -21,7 +21,9 @@
         "max_gap": 2434,
         "max_gap_date": "2023-09-15",
         "share_threshold_pct": 2.0,
-        "dates_above_share_threshold": ["2023-09-15"]
+        "dates_above_share_threshold": [
+          "2023-09-15"
+        ]
       }
     },
     {
@@ -30,7 +32,7 @@
       "title": "Legacy regression RMSE was computed from unrounded predictions that were not exported.",
       "cause": "The notebook computed metrics on unrounded predictions but exported predictions rounded to integers. Every other metric still reproduces within its published precision; the regression RMSE does not (676.69 from the exported values versus 676.70 published).",
       "evidence": [
-        "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb cell 15: metrics use unrounded test_predictions; model_forecast is exported with np.round(...).astype(int)"
+        "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb cell index 15 (STEP 16): metrics use unrounded test_predictions; model_forecast is exported with np.round(...).astype(int)"
       ],
       "policy": "accept",
       "expected": {

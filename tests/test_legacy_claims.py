@@ -76,6 +76,9 @@ def test_thirty_day_forecast_total_is_below_thirty_days_of_threshold(
     legacy_tables: dict[str, LoadedTable],
 ) -> None:
     forecast = frame(legacy_tables, "future_30_day_forecast")["forecast_requests"].astype(int)
+    threshold = round(
+        summaries.demand_percentile_threshold(frame(legacy_tables, "daily_total"), 180, 0.75)
+    )
     assert int(forecast.sum()) == 330_941
-    assert 30 * 11_609 == 348_270
-    assert int(forecast.sum()) < 30 * 11_609  # aggregate "utilisation" is about 95 %
+    assert len(forecast) * threshold == 348_270
+    assert int(forecast.sum()) < len(forecast) * threshold  # aggregate "utilisation" ~95 %

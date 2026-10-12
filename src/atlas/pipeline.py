@@ -10,12 +10,12 @@ from __future__ import annotations
 from enum import IntEnum
 
 from atlas.config import Settings
-from atlas.issues import CheckReport
+from atlas.issues import CheckReport, Issue, Severity
 from atlas.loader import LoadedTable, load_table
-from atlas.registry import contracts_for
+from atlas.registry import REPRODUCIBLE_SNAPSHOTS, contracts_for
 from atlas.reproduce import reproduce_tables
 from atlas.snapshot import SnapshotManifest, load_manifest, resolve_in_repo, verify_snapshot
-from atlas.validation import KnownExceptions, load_exceptions, validate_tables
+from atlas.validation import load_exceptions, validate_tables
 
 
 class Stage(IntEnum):
@@ -43,8 +43,6 @@ def _skipped(name: str, reason: str) -> CheckReport:
 def run(settings: Settings, through: Stage = Stage.REPRODUCTION) -> list[CheckReport]:
     """Run stages up to and including ``through``; raises only on unusable configuration."""
     manifest = load_manifest(settings.manifest_path)
-    register: KnownExceptions = load_exceptions(settings.exceptions_path, settings.snapshot_id)
-
     integrity = verify_snapshot(settings.repo_root, manifest)
     reports = [integrity]
     if through is Stage.INTEGRITY:
@@ -55,6 +53,8 @@ def run(settings: Settings, through: Stage = Stage.REPRODUCTION) -> list[CheckRe
             reports.append(_skipped("reproduction", "snapshot integrity check failed"))
         return reports
 
+    # Loaded only when needed, so a broken register cannot block `atlas snapshot verify`.
+    register = load_exceptions(settings.exceptions_path, settings.snapshot_id)
     tables = load_snapshot_tables(settings, manifest)
     validation = validate_tables(tables, contracts_for(settings.snapshot_id), register)
     reports.append(validation)
@@ -64,5 +64,14 @@ def run(settings: Settings, through: Stage = Stage.REPRODUCTION) -> list[CheckRe
         reports.append(_skipped("reproduction", "data validation failed"))
         return reports
 
+    if settings.snapshot_id not in REPRODUCIBLE_SNAPSHOTS:
+        not_applicable = Issue(
+            "not_applicable",
+            Severity.INFO,
+            "reproduction",
+            f"No reproduction rules are registered for snapshot {settings.snapshot_id!r}.",
+        )
+        reports.append(CheckReport(name="reproduction", issues=(not_applicable,)))
+        return reports
     reports.append(reproduce_tables(tables, register))
     return reports

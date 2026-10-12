@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from atlas import summaries
+from atlas import legacy, summaries
 from atlas.issues import CheckReport, Issue, Severity, examples
 from atlas.loader import LoadedTable
 from atlas.validation import KnownExceptions, MetricReproductionException
@@ -79,8 +79,21 @@ def _to_float(value: object) -> float:
 
 
 def within_rounding(committed: float, exact: float, decimals: int) -> bool:
-    """True when ``committed`` is a valid rounding of ``exact`` to ``decimals`` places."""
-    return abs(committed - exact) <= 0.5 * 10.0**-decimals + _FLOAT_SLACK
+    """True when ``committed`` is a valid rounding of ``exact`` to ``decimals`` places.
+
+    The committed value must itself carry at most ``decimals`` decimal places, and must
+    lie within half a unit in the last place of the exact value.
+    """
+    at_precision = math.isclose(committed, round(committed, decimals), abs_tol=_FLOAT_SLACK)
+    return at_precision and abs(committed - exact) <= 0.5 * 10.0**-decimals + _FLOAT_SLACK
+
+
+def _as_date(value: object) -> date | None:
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
 
 
 def _values_match(committed: object, recomputed: object, rule: Rule) -> bool:
@@ -88,6 +101,8 @@ def _values_match(committed: object, recomputed: object, rule: Rule) -> bool:
         return _is_null(committed) and _is_null(recomputed)
     if rule.decimals is not None:
         return within_rounding(_to_float(committed), _to_float(recomputed), rule.decimals)
+    if _as_date(committed) is not None or _as_date(recomputed) is not None:
+        return _as_date(committed) == _as_date(recomputed)
     if isinstance(committed, str) or isinstance(recomputed, str):
         return str(committed) == str(recomputed)
     return _to_float(committed) == _to_float(recomputed)
@@ -233,6 +248,110 @@ HISTORICAL_TABLES: dict[
 }
 
 
+def _legacy_threshold(frames: Mapping[str, pd.DataFrame]) -> int:
+    # Python round() as in the legacy notebook (int(round(q))); half-even, but q ends in .75.
+    return round(summaries.demand_percentile_threshold(frames["daily_total"], 180, 0.75))
+
+
+def _recomputed_alerts(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    return legacy.capacity_alerts(
+        frames["future_30_day_forecast"],
+        _legacy_threshold(frames),
+        summaries.last_observed_date(frames["daily_total"]),
+    )
+
+
+def _calendar_bounds(frames: Mapping[str, pd.DataFrame]) -> tuple[date, date]:
+    first = summaries.daily_counts(frames["daily_total"]).index.min()
+    last = frames["future_30_day_forecast"]["request_date"].max()
+    return pd.Timestamp(first).date(), pd.Timestamp(last).date()
+
+
+# Legacy output tables: every column the notebook derived arithmetically is re-derived from
+# the base data (and, where unavoidable, from the exported model predictions).
+LEGACY_OUTPUT_TABLES: dict[
+    str, tuple[str, Callable[[Mapping[str, pd.DataFrame]], pd.DataFrame], tuple[Rule, ...]]
+] = {
+    # table: (key, recompute function, rules)
+    "forecast_test_results": (
+        "request_date",
+        lambda t: legacy.holdout_results(t["daily_total"], t["forecast_test_results"]),
+        (
+            *_exact("actual_requests", "baseline_forecast", "model_error", "absolute_error"),
+            *_rounded(2, "absolute_percentage_error"),
+        ),
+    ),
+    "future_30_day_forecast": (
+        "request_date",
+        lambda t: legacy.forecast_calendar(t["future_30_day_forecast"]),
+        _exact("weekday_name", "forecast_week", "forecast_month"),
+    ),
+    "capacity_risk_alerts": (
+        "request_date",
+        _recomputed_alerts,
+        (
+            *_exact(
+                "weekday_name",
+                "forecast_requests",
+                "forecast_week",
+                "forecast_month",
+                "days_ahead",
+                "planning_capacity",
+                "capacity_gap_requests",
+                "available_capacity",
+                "risk_level",
+                "capacity_shortfall_flag",
+                "recommended_action",
+            ),
+            *_rounded(2, "capacity_utilization_pct"),
+        ),
+    ),
+    "capacity_risk_summary": (
+        "risk_level",
+        lambda t: legacy.capacity_summary(_recomputed_alerts(t)),
+        (
+            *_exact("forecast_days", "total_forecast_requests", "total_capacity_gap"),
+            *_rounded(2, "average_utilization_pct"),
+        ),
+    ),
+    "date_dimension": (
+        "date",
+        lambda t: legacy.date_dimension(*_calendar_bounds(t)),
+        _exact(
+            "year",
+            "quarter",
+            "month_number",
+            "month_name",
+            "month_short",
+            "year_month",
+            "year_month_sort",
+            "day_name",
+            "weekday_number",
+            "day_of_month",
+            "week_of_year",
+            "week_start",
+            "is_weekend",
+        ),
+    ),
+    "actual_forecast_series": (
+        "date",
+        lambda t: legacy.actual_forecast_series(t["daily_total"], t["future_30_day_forecast"]),
+        _exact("actual_requests", "forecast_requests", "record_type"),
+    ),
+}
+
+REQUIRED_TABLES = frozenset(
+    {
+        "daily_total",
+        "daily_segments",
+        "project_kpis",
+        "model_metrics",
+        *HISTORICAL_TABLES,
+        *LEGACY_OUTPUT_TABLES,
+    }
+)
+
+
 # --- Legacy KPIs ----------------------------------------------------------------------
 
 
@@ -247,6 +366,8 @@ class KpiResult:
 
     def to_dict(self) -> dict[str, Any]:
         def render(value: object) -> object:
+            if _is_null(value):
+                return None
             if isinstance(value, (date, pd.Timestamp)):
                 return value.isoformat()
             if isinstance(value, (np.integer,)):
@@ -351,8 +472,7 @@ def recompute_kpis(frames: Mapping[str, pd.DataFrame]) -> dict[str, object]:
     baseline = holdout_metrics(tests, "baseline_forecast")
     forecast = frames["future_30_day_forecast"].sort_values("request_date")
     values = forecast["forecast_requests"].astype("int64")
-    # Python round() as in the legacy notebook (int(round(q))); half-even, but q ends in .75.
-    threshold = round(summaries.demand_percentile_threshold(daily_total, 180, 0.75))
+    threshold = _legacy_threshold(frames)
     above = forecast[values > threshold]
     first: date | None = above["request_date"].iloc[0].date() if not above.empty else None
     last_observed = summaries.last_observed_date(daily_total)
@@ -457,6 +577,7 @@ def reconcile_model_metrics(
 
     issues: list[Issue] = []
     results: list[dict[str, Any]] = []
+    matched: set[str] = set()
     committed = frames["model_metrics"].set_index("model_name")
     unknown = sorted(set(committed.index) - set(recomputed))
     if unknown:
@@ -488,6 +609,7 @@ def reconcile_model_metrics(
             status = "reproduced" if ok else "mismatch"
             exception = _metric_exception(register, model_name, column)
             if exception is not None:
+                matched.add(exception.id)
                 expected = exception.expected
                 declared_match = math.isclose(
                     expected.committed, committed_value, abs_tol=_FLOAT_SLACK
@@ -549,6 +671,18 @@ def reconcile_model_metrics(
                     "status": status,
                 }
             )
+    for exception in register.metric_exceptions:
+        if exception.id not in matched:
+            issues.append(
+                Issue(
+                    "stale_exception",
+                    Severity.WARNING,
+                    "model_metrics",
+                    f"Declared exception for row {exception.expected.row!r}, column "
+                    f"{exception.expected.column!r} matches no reproduced metric.",
+                    exception_id=exception.id,
+                )
+            )
     return issues, results
 
 
@@ -557,6 +691,21 @@ def reconcile_model_metrics(
 
 def reproduce_tables(tables: Mapping[str, LoadedTable], register: KnownExceptions) -> CheckReport:
     """Recompute every derived summary and legacy KPI and compare with the committed values."""
+    missing = sorted(REQUIRED_TABLES - set(tables))
+    if missing:
+        return CheckReport(
+            name="reproduction",
+            issues=(
+                Issue(
+                    "table_missing",
+                    Severity.ERROR,
+                    "reproduction",
+                    "Tables required for reproduction were not loaded.",
+                    count=len(missing),
+                    examples=examples(missing),
+                ),
+            ),
+        )
     frames = {name: table.frame for name, table in tables.items()}
     issues: list[Issue] = []
     reproduced: list[str] = []
@@ -565,6 +714,12 @@ def reproduce_tables(tables: Mapping[str, LoadedTable], register: KnownException
         issues.extend(table_issues)
         if not table_issues:
             reproduced.append(name)
+    cross_checked: list[str] = []
+    for name, (key, recompute, rules) in LEGACY_OUTPUT_TABLES.items():
+        table_issues = compare_table(name, frames[name], recompute(frames), key, rules)
+        issues.extend(table_issues)
+        if not table_issues:
+            cross_checked.append(name)
 
     kpi_issues, kpis = reconcile_kpis(frames)
     metric_issues, metrics = reconcile_model_metrics(frames, register)
@@ -581,6 +736,7 @@ def reproduce_tables(tables: Mapping[str, LoadedTable], register: KnownException
             frames["daily_total"], 180, 0.75
         ),
         "tables_reproduced": reproduced,
+        "legacy_outputs_cross_checked": cross_checked,
         "kpis": [result.to_dict() for result in kpis],
         "model_metrics": metrics,
     }

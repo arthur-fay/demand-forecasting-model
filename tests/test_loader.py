@@ -11,15 +11,15 @@ import pytest
 
 from atlas.contracts import Column, Kind, TableContract
 from atlas.issues import Severity
-from atlas.loader import load_table
+from atlas.loader import LoadedTable, load_table
 from tests.conftest import write_csv
 
 TOTAL_HEADER = ["request_date", "request_count"]
 SEGMENT_HEADER = ["request_date", "agency", "borough", "request_count"]
 
 
-def codes(table: object) -> set[str]:
-    return {issue.code for issue in table.issues}  # type: ignore[attr-defined]
+def codes(table: LoadedTable) -> set[str]:
+    return {issue.code for issue in table.issues}
 
 
 def test_valid_table_loads_with_declared_types(
@@ -50,7 +50,6 @@ def test_loading_is_deterministic_and_independent_of_row_order(
 
     pd.testing.assert_frame_equal(first, second)
     pd.testing.assert_frame_equal(first, from_shuffled)
-    assert pd.util.hash_pandas_object(first).sum() == pd.util.hash_pandas_object(second).sum()
 
 
 def test_missing_file_is_reported(tmp_path: Path, small_total_contract: TableContract) -> None:
@@ -247,3 +246,109 @@ def test_row_limits_are_enforced(tmp_path: Path) -> None:
     assert "too_many_rows" in codes(load_table(four, contract))
     narrowed = dataclasses.replace(contract, min_rows=1, max_rows=None)
     assert load_table(four, narrowed).ok
+
+
+def test_csv_quoting_errors_are_reported(
+    tmp_path: Path, small_total_contract: TableContract
+) -> None:
+    path = tmp_path / "quotes.csv"
+    path.write_text('request_date,request_count\n"2024-01-01"x,5\n', encoding="utf-8")
+    table = load_table(path, small_total_contract)
+    assert codes(table) == {"csv_syntax_error"}
+    assert not table.ok
+
+
+@pytest.mark.parametrize("bad_date", ["0024-03-05", "9999-12-31", "1500-06-01", "2262-04-12"])
+def test_dates_outside_the_supported_range_are_reported_not_raised(
+    tmp_path: Path,
+    small_total_contract: TableContract,
+    total_rows: list[list[object]],
+    bad_date: str,
+) -> None:
+    rows = [list(row) for row in total_rows]
+    rows[0][0] = bad_date
+    table = load_table(write_csv(tmp_path / "t.csv", TOTAL_HEADER, rows), small_total_contract)
+    assert "malformed_value" in codes(table)
+
+
+@pytest.mark.parametrize(
+    "count", ["9223372036854775808", "-9223372036854775809", "9" * 20, "9" * 5000]
+)
+def test_integers_beyond_64_bits_are_reported_not_raised(
+    tmp_path: Path,
+    small_total_contract: TableContract,
+    total_rows: list[list[object]],
+    count: str,
+) -> None:
+    rows = [list(row) for row in total_rows]
+    rows[1][1] = count
+    table = load_table(write_csv(tmp_path / "t.csv", TOTAL_HEADER, rows), small_total_contract)
+    assert "malformed_value" in codes(table)
+
+
+def test_largest_int64_value_is_accepted_exactly(
+    tmp_path: Path, small_total_contract: TableContract, total_rows: list[list[object]]
+) -> None:
+    rows = [list(row) for row in total_rows]
+    rows[1][1] = str(2**63 - 1)
+    table = load_table(write_csv(tmp_path / "t.csv", TOTAL_HEADER, rows), small_total_contract)
+    assert table.ok, table.issues
+    assert table.frame.loc[1, "request_count"] == 2**63 - 1
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [(0, "\u0662\u0660\u0662\u0664-01-05"), (1, "\uff11\uff12"), (1, "\u0661\u0662")],
+)
+def test_non_ascii_digits_are_rejected(
+    tmp_path: Path,
+    small_total_contract: TableContract,
+    total_rows: list[list[object]],
+    column: int,
+    value: str,
+) -> None:
+    rows = [list(row) for row in total_rows]
+    rows[4][column] = value
+    table = load_table(write_csv(tmp_path / "t.csv", TOTAL_HEADER, rows), small_total_contract)
+    assert "malformed_value" in codes(table)
+
+
+def test_decimals_must_be_finite_ascii_numbers(tmp_path: Path) -> None:
+    contract = TableContract(
+        name="d",
+        description="test",
+        columns=(Column("key", Kind.INTEGER), Column("x", Kind.DECIMAL)),
+        primary_key=("key",),
+    )
+    rows = [[1, "1e999"], [2, "-1e999"], [3, "\u0663.25"], [4, "\uff11"], [5, "2.5e3"]]
+    issues = load_table(write_csv(tmp_path / "d.csv", ["key", "x"], rows), contract).issues
+    malformed = next(i for i in issues if i.code == "malformed_value")
+    assert malformed.count == 4
+    assert [i.code for i in issues] == ["malformed_value"]
+
+
+@pytest.mark.parametrize("token", ["NAN", "nan", "NA", "None", "null", "N/A"])
+def test_null_like_text_is_rejected_in_text_columns(
+    tmp_path: Path,
+    small_segments_contract: TableContract,
+    segment_rows: list[list[object]],
+    token: str,
+) -> None:
+    rows = [list(row) for row in segment_rows]
+    rows[0][1] = token  # the legacy notebook turned a missing agency into "NAN"
+    table = load_table(write_csv(tmp_path / "s.csv", SEGMENT_HEADER, rows), small_segments_contract)
+    assert "null_token" in codes(table)
+    assert not table.ok
+
+
+def test_line_numbers_account_for_multiline_quoted_fields(tmp_path: Path) -> None:
+    contract = TableContract(
+        name="m",
+        description="test",
+        columns=(Column("key", Kind.INTEGER), Column("note", Kind.STRING)),
+        primary_key=("key",),
+    )
+    path = tmp_path / "m.csv"
+    path.write_text('key,note\n1,"first\nsecond"\nx,ok\n', encoding="utf-8")
+    issue = next(i for i in load_table(path, contract).issues if i.code == "malformed_value")
+    assert issue.examples == ("line 4: 'x'",)

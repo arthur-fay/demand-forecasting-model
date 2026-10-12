@@ -58,9 +58,10 @@ class ReconciliationGapException(_Frozen):
 
 
 class MetricExpectation(_Frozen):
-    table: str
+    # Only legacy model metrics can be declared today; anything else is a schema error.
+    table: Literal["model_metrics"]
     row: str
-    column: str
+    column: Literal["mae", "rmse", "mape_pct", "r_squared", "mape_improvement_pct"]
     committed: float
     recomputed_rounded: float
     decimals: int = Field(ge=0, le=10)
@@ -113,9 +114,11 @@ def load_exceptions(path: Path, snapshot_id: str) -> KnownExceptions:
     if not path.is_file():
         return KnownExceptions(schema_version=1, snapshot_id=snapshot_id)
     try:
-        register = KnownExceptions.model_validate_json(path.read_text(encoding="utf-8"))
+        register = KnownExceptions.model_validate_json(path.read_bytes())
     except ValidationError as exc:
         raise SnapshotError(f"Invalid known-exception register {path}:\n{exc}") from exc
+    except OSError as exc:
+        raise SnapshotError(f"Cannot read known-exception register {path}: {exc}") from exc
     if register.snapshot_id != snapshot_id:
         raise SnapshotError(
             f"{path} declares snapshot {register.snapshot_id!r}, expected {snapshot_id!r}"

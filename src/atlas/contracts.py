@@ -5,8 +5,11 @@ every value, nullability, ranges, allowed categories, the primary key and, for
 date-indexed tables, the calendar window the dates must cover. The loader and
 validator enforce these contracts and fail closed on any violation.
 
-The two *base* tables (``daily_total`` and ``daily_segments``) are the raw
-aggregates returned by the legacy Socrata queries. Every other table is an output
+The two *base* tables (``daily_total`` and ``daily_segments``) are the aggregates
+returned by the legacy Socrata queries, after the notebook's type coercion and
+upper-casing (cell index 2-3) and date formatting for export (cell index 18). Notebook
+cells are referenced by their 0-based index in the .ipynb file; the notebook's own
+headings call cell index N "STEP N+1". Every other table is an output
 of the legacy notebook and carries the legacy conventions verbatim (for example
 the SQLite ``%w`` weekday numbering, Sunday = 0); M0 records those conventions
 instead of silently "fixing" them.
@@ -256,7 +259,7 @@ DATE_DIMENSION = TableContract(
         Column("month_number", Kind.INTEGER, minimum=1, maximum=12),
         Column("month_name", Kind.STRING, allowed=MONTH_NAMES),
         Column("month_short", Kind.STRING, allowed=MONTH_SHORT_NAMES),
-        Column("year_month", Kind.STRING, pattern=r"\d{4}-(0[1-9]|1[0-2])"),
+        Column("year_month", Kind.STRING, pattern=r"[0-9]{4}-(0[1-9]|1[0-2])"),
         Column("year_month_sort", Kind.INTEGER, minimum=200001, maximum=210012),
         Column("day_name", Kind.STRING, allowed=WEEKDAY_NAMES),
         Column("weekday_number", Kind.INTEGER, minimum=1, maximum=7),
@@ -314,13 +317,20 @@ _FORECAST_COLUMNS = (
     Column("request_date", Kind.DATE),
     Column("weekday_name", Kind.STRING, allowed=WEEKDAY_NAMES),
     _count("forecast_requests"),
-    Column("forecast_week", Kind.STRING, pattern=r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}"),
-    Column("forecast_month", Kind.STRING, pattern=r"\d{4}-(0[1-9]|1[0-2])"),
+    Column(
+        "forecast_week",
+        Kind.STRING,
+        pattern=r"[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}",
+    ),
+    Column("forecast_month", Kind.STRING, pattern=r"[0-9]{4}-(0[1-9]|1[0-2])"),
 )
 
 FUTURE_30_DAY_FORECAST = TableContract(
     name="future_30_day_forecast",
-    description="Legacy recursive 30-day point forecast (never evaluated beyond h=1).",
+    description=(
+        "Legacy recursive 30-day point forecast from a model refitted on all data that was "
+        "never evaluated; the h=1 holdout score belongs to the pre-refit model."
+    ),
     columns=_FORECAST_COLUMNS,
     primary_key=("request_date",),
     date_column="request_date",

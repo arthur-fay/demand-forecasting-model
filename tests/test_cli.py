@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from atlas import __version__
-from atlas.cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE, main
+from atlas.cli import EXIT_FAILED, EXIT_INTERNAL, EXIT_OK, EXIT_USAGE, main
 from tests.conftest import REPO_ROOT
 
 
@@ -118,3 +118,47 @@ def test_python_module_entry_point_reports_version() -> None:
     )
     assert result.returncode == 0
     assert result.stdout.strip() == f"atlas {__version__}"
+
+
+@pytest.mark.integration
+def test_stage_commands_print_prerequisite_stages_in_text_mode() -> None:
+    code, output = run_cli("--repo-root", str(REPO_ROOT), "validate")
+    assert code == EXIT_OK
+    assert "[PASS] integrity" in output
+    assert "[PASS] validation" in output
+    assert "LEGACY-V0-EX-001" in output
+    assert "[PASS] reproduction" not in output
+
+
+def test_unexpected_errors_exit_with_internal_error_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("atlas.cli.run", explode)
+    code, _ = run_cli("--repo-root", str(REPO_ROOT), "check")
+    assert code == EXIT_INTERNAL
+    err = capsys.readouterr().err
+    assert "internal error" in err
+    assert "RuntimeError: boom" in err
+
+
+def test_broken_exception_register_does_not_block_integrity_check(repo_copy: Path) -> None:
+    (repo_copy / "snapshots" / "legacy-v0" / "known_exceptions.json").write_text(
+        "{not json", encoding="utf-8"
+    )
+    assert run_cli("--repo-root", str(repo_copy), "snapshot", "verify")[0] == EXIT_OK
+    assert run_cli("--repo-root", str(repo_copy), "validate")[0] == EXIT_USAGE
+
+
+@pytest.mark.integration
+def test_snapshot_without_reproduction_rules_reports_not_applicable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("atlas.pipeline.REPRODUCIBLE_SNAPSHOTS", frozenset())
+    code, output = run_cli("--repo-root", str(REPO_ROOT), "--format", "json", "check")
+    reproduction = json.loads(output)["reports"][-1]
+    assert code == EXIT_OK
+    assert reproduction["ok"] is True
+    assert [i["code"] for i in reproduction["issues"]] == ["not_applicable"]

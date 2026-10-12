@@ -4,7 +4,13 @@ Files are read with the standard-library ``csv`` module and every field is kept 
 text until it is parsed against the column's declared :class:`~atlas.contracts.Kind`.
 Nothing is type-inferred, so results do not depend on pandas inference rules that
 differ between pandas versions. An empty field is the only representation of
-null; strings such as ``"NaN"`` or ``"NA"`` are treated as malformed values.
+null: null-like text (``"NaN"``, ``"NA"``, ``"None"``, ``"null"``, ``"N/A"`` in any
+case) is a malformed value in every column kind, including text columns, because the
+legacy notebook turned missing agency values into the string ``"NAN"``.
+
+Digits must be ASCII (``[0-9]``), integers must fit in 64 bits, dates must fit the
+``datetime64[ns]`` range and decimals must be finite. Out-of-range inputs are reported
+as issues; the loader never raises on bad data.
 
 Every violation of the single-table contract is collected as an
 :class:`~atlas.issues.Issue` (rather than raising on the first one) so that a
@@ -14,6 +20,7 @@ report shows all problems in a file at once.
 from __future__ import annotations
 
 import csv
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,12 +29,15 @@ import pandas as pd
 from atlas.contracts import Column, Kind, TableContract
 from atlas.issues import Issue, Severity, examples
 
-DATE_PATTERN = r"\d{4}-\d{2}-\d{2}"
-INTEGER_PATTERN = r"[+-]?\d+"
-INTEGRAL_PATTERN = r"[+-]?\d+(?:\.0+)?"
-DECIMAL_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+# ASCII digits only: in Python regular expressions \d also matches other Unicode digits.
+DATE_PATTERN = r"[0-9]{4}-[0-9]{2}-[0-9]{2}"
+INTEGER_PATTERN = r"[+-]?[0-9]{1,19}"
+INTEGRAL_PATTERN = r"[+-]?[0-9]{1,19}(?:\.0+)?"
+DECIMAL_PATTERN = r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+NULL_TOKENS = frozenset({"nan", "na", "n/a", "none", "null"})
 
-_HEADER_LINE = 1
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
 
 
 @dataclass(frozen=True)
@@ -67,9 +77,17 @@ def read_csv_strict(path: Path, table: str) -> tuple[RawTable | None, list[Issue
     issues: list[Issue] = []
     if not path.is_file():
         return None, [_error("file_missing", table, f"File not found: {path}")]
+    records: list[list[str]] = []
+    start_lines: list[int] = []
     try:
         with path.open(encoding="utf-8", newline="") as handle:
-            records = list(csv.reader(handle, strict=True))
+            reader = csv.reader(handle, strict=True)
+            previous_end = 0
+            for record in reader:
+                # A quoted field may span several physical lines; report where it starts.
+                start_lines.append(previous_end + 1)
+                previous_end = reader.line_num
+                records.append(record)
     except UnicodeDecodeError as exc:
         return None, [_error("encoding_error", table, f"File is not valid UTF-8: {exc}")]
     except csv.Error as exc:
@@ -98,8 +116,7 @@ def read_csv_strict(path: Path, table: str) -> tuple[RawTable | None, list[Issue
     rows: list[tuple[str, ...]] = []
     lines: list[int] = []
     bad_lines: list[str] = []
-    for offset, record in enumerate(records[1:]):
-        line = _HEADER_LINE + 1 + offset
+    for record, line in zip(records[1:], start_lines[1:], strict=True):
         if len(record) != len(header):
             bad_lines.append(f"line {line}: {len(record)} fields")
             continue
@@ -149,20 +166,33 @@ def _parse_column(
         parsed = pd.to_datetime(
             values.where(present & wellformed), format="%Y-%m-%d", errors="coerce"
         )
-        typed = parsed.astype("datetime64[ns]")
+        # Dates outside the datetime64[ns] range (e.g. the typo 0024-03-05) are malformed.
+        in_range = parsed.notna() & (parsed >= pd.Timestamp.min) & (parsed <= pd.Timestamp.max)
+        typed = parsed.where(in_range).astype("datetime64[ns]")
         malformed = present & typed.isna()
     elif column.kind in (Kind.INTEGER, Kind.INTEGRAL):
         pattern = INTEGER_PATTERN if column.kind is Kind.INTEGER else INTEGRAL_PATTERN
         wellformed = values.str.fullmatch(pattern)
-        malformed = present & ~wellformed
         digits = values.str.replace(r"\.0+$", "", regex=True)
-        # Python int parsing is exact for arbitrarily large counts (no float round-trip).
-        as_int = digits.where(present & wellformed).map(int, na_action="ignore")
-        typed = as_int.astype("Int64")
+        # Parse to Python ints explicitly: exact for any size (Series.map would return
+        # float64 when nulls are present), then require the value to fit in int64.
+        as_ints: list[int | None] = [
+            int(text) if isinstance(text, str) else None
+            for text in digits.where(present & wellformed)
+        ]
+        fits = [v is not None and _INT64_MIN <= v <= _INT64_MAX for v in as_ints]
+        in_range = pd.Series(fits, index=values.index, dtype=bool)
+        malformed = present & ~(wellformed & in_range)
+        typed = pd.Series(
+            [v if ok else None for v, ok in zip(as_ints, fits, strict=True)],
+            index=values.index,
+            dtype="Int64",
+        )
     elif column.kind is Kind.DECIMAL:
         wellformed = values.str.fullmatch(DECIMAL_PATTERN)
-        malformed = present & ~wellformed
         typed = pd.to_numeric(values.where(present & wellformed), errors="coerce").astype("float64")
+        finite = typed.abs().lt(math.inf)  # NaN and +/-inf (e.g. "1e999") are not finite
+        malformed = present & ~(wellformed & finite)
     else:
         malformed = present & (values != values.str.strip())
         typed = values.where(present)
@@ -177,6 +207,20 @@ def _parse_column(
                 sample=_line_examples(values, malformed, lines),
             )
         )
+
+    if column.kind is Kind.STRING:
+        null_like = present & ~malformed & values.str.lower().isin(sorted(NULL_TOKENS))
+        if bool(null_like.any()):
+            issues.append(
+                _error(
+                    "null_token",
+                    subject,
+                    "Null-like text is not a value; a missing value must be an empty field.",
+                    count=int(null_like.sum()),
+                    sample=_line_examples(values, null_like, lines),
+                )
+            )
+            malformed = malformed | null_like
 
     valid = present & ~malformed
     if column.kind is Kind.STRING:

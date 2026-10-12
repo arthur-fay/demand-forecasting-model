@@ -268,7 +268,7 @@
       "table": "future_30_day_forecast",
       "path": "01 Data/future_30_day_forecast.csv",
       "role": "legacy_model_output",
-      "description": "Legacy recursive 30-day point forecast (never evaluated beyond h=1).",
+      "description": "Legacy recursive 30-day point forecast from a model refitted on all data that was never evaluated; the h=1 holdout score belongs to the pre-refit model.",
       "sha256": "9db733ac1e452536d00be1bb13360b1e09f08fe0f83dfc6a3b287747b808194a",
       "bytes": 1729,
       "rows": 30,

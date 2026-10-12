@@ -135,6 +135,8 @@ LEGACY_V0_SPEC = SnapshotSpec(
 
 SNAPSHOT_SPECS: dict[str, SnapshotSpec] = {LEGACY_V0_SPEC.snapshot_id: LEGACY_V0_SPEC}
 SNAPSHOT_CONTRACTS: dict[str, dict[str, TableContract]] = {"legacy-v0": LEGACY_V0_CONTRACTS}
+# Snapshots whose tables the reproduction stage knows how to recompute (atlas.reproduce).
+REPRODUCIBLE_SNAPSHOTS: frozenset[str] = frozenset({"legacy-v0"})
 
 
 def spec_for(snapshot_id: str) -> SnapshotSpec:

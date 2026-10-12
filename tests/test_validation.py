@@ -10,7 +10,18 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from atlas.contracts import DAILY_SEGMENTS, DAILY_TOTAL, TableContract
+from atlas.contracts import (
+    BOROUGHS,
+    CALENDAR_WINDOW,
+    DAILY_SEGMENTS,
+    DAILY_TOTAL,
+    FORECAST_WINDOW,
+    HISTORY_WINDOW,
+    HOLDOUT_WINDOW,
+    LEGACY_V0_CONTRACTS,
+    RISK_LEVELS,
+    TableContract,
+)
 from atlas.errors import SnapshotError
 from atlas.issues import Severity
 from atlas.loader import LoadedTable, load_table
@@ -107,13 +118,26 @@ def test_missing_calendar_dates_are_rejected(
     assert issue.examples == ("2024-01-01", "2024-01-07", "2024-01-14")
 
 
+@pytest.mark.parametrize("extra_date", ["2023-12-31", "2024-02-01"])
 def test_dates_outside_the_window_are_rejected(
-    tmp_path: Path, small_total_contract: TableContract, total_rows: list[list[object]]
+    tmp_path: Path,
+    small_total_contract: TableContract,
+    total_rows: list[list[object]],
+    extra_date: str,
 ) -> None:
-    rows = [*total_rows, ["2024-02-01", 5]]
+    rows = [*total_rows, [extra_date, 5]]
     table = load_table(write_csv(tmp_path / "t.csv", TOTAL_HEADER, rows), small_total_contract)
     issue = next(i for i in table.issues if i.code == "date_out_of_window")
-    assert issue.examples == ("2024-02-01",)
+    assert issue.examples == (extra_date,)
+
+
+def test_segment_dates_must_cover_the_calendar(
+    tmp_path: Path, small_segments_contract: TableContract, segment_rows: list[list[object]]
+) -> None:
+    rows = [row for row in segment_rows if row[0] != "2024-01-09"]
+    table = load_table(write_csv(tmp_path / "s.csv", SEGMENT_HEADER, rows), small_segments_contract)
+    issue = next(i for i in table.issues if i.code == "missing_dates")
+    assert issue.examples == ("2024-01-09",)
 
 
 @settings(max_examples=40, suppress_health_check=[HealthCheck.function_scoped_fixture])
@@ -173,8 +197,40 @@ def test_gap_that_drifts_from_declaration_fails(
     tables = load_pair(tmp_path, *contracts.values(), total_rows, rows)
     report = validate_tables(tables, contracts, register_with(MATCHING))
     drift = next(i for i in report.errors if i.code == "exception_drift")
-    assert "total_gap: declared 70, observed 170" in drift.examples
-    assert "max_gap: declared 5, observed 105" in drift.examples
+    # 105 of 1,000 requests (10.5 %) also crosses the 2 % share threshold on 2024-01-01.
+    assert drift.examples == (
+        "total_gap: declared 70, observed 170",
+        "max_gap: declared 5, observed 105",
+        "dates_above_share_threshold: declared (), observed (datetime.date(2024, 1, 1),)",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "declared", "observed"),
+    [
+        ("dates_compared", 15, 14),
+        ("dates_with_gap", 13, 14),
+        ("dates_reconciled", 1, 0),
+        ("total_gap", 71, 70),
+        ("max_gap", 6, 5),
+        ("max_gap_date", date(2024, 1, 2), date(2024, 1, 1)),
+        ("dates_above_share_threshold", (date(2024, 1, 3),), ()),
+    ],
+)
+def test_every_declared_statistic_is_enforced(
+    tmp_path: Path,
+    contracts: dict[str, TableContract],
+    total_rows: list[list[object]],
+    segment_rows: list[list[object]],
+    field: str,
+    declared: object,
+    observed: object,
+) -> None:
+    tables = load_pair(tmp_path, *contracts.values(), total_rows, segment_rows)
+    expectation = MATCHING.model_copy(update={field: declared})
+    report = validate_tables(tables, contracts, register_with(expectation))
+    drift = next(i for i in report.errors if i.code == "exception_drift")
+    assert drift.examples == (f"{field}: declared {declared}, observed {observed}",)
 
 
 def test_segments_exceeding_total_is_always_an_error(
@@ -248,6 +304,58 @@ def test_exception_ids_must_be_unique() -> None:
         KnownExceptions(schema_version=1, snapshot_id="t", exceptions=(exception, exception))
 
 
-def test_real_contracts_cover_full_legacy_window() -> None:
-    assert DAILY_TOTAL.window == (date(2023, 1, 1), date(2026, 6, 30))
-    assert DAILY_SEGMENTS.primary_key == ("request_date", "agency", "borough")
+def test_only_one_reconciliation_exception_is_allowed() -> None:
+    first = register_with(MATCHING).exceptions[0]
+    second = first.model_copy(update={"id": "TEST-EX-2"})
+    with pytest.raises(ValueError, match="at most one"):
+        KnownExceptions(schema_version=1, snapshot_id="t", exceptions=(first, second))
+
+
+def test_unreadable_exception_register_is_a_snapshot_error(tmp_path: Path) -> None:
+    path = tmp_path / "known_exceptions.json"
+    path.write_bytes(b'{"schema_version": 1, "snapshot_id": "\xff"}')
+    with pytest.raises(SnapshotError, match="Invalid known-exception register"):
+        load_exceptions(path, "legacy-v0")
+
+
+# Key properties of every legacy contract: loosening any of them must fail a test.
+CONTRACT_PROPERTIES = {
+    # table: (window, require_every_date, min_rows, max_rows, primary_key)
+    "daily_total": (HISTORY_WINDOW, True, 1, None, ("request_date",)),
+    "daily_segments": (HISTORY_WINDOW, True, 1, None, ("request_date", "agency", "borough")),
+    "yearly_workload": (None, False, 1, None, ("request_year",)),
+    "ytd_workload": (None, False, 1, None, ("request_year",)),
+    "monthly_workload": (None, False, 1, None, ("month_start",)),
+    "weekday_workload": (None, False, 7, 7, ("weekday_number",)),
+    "borough_workload": (None, False, 1, 5, ("borough",)),
+    "agency_workload": (None, False, 1, None, ("agency",)),
+    "date_dimension": (CALENDAR_WINDOW, True, 1, None, ("date",)),
+    "actual_forecast_series": (CALENDAR_WINDOW, True, 1, None, ("date",)),
+    "forecast_test_results": (HOLDOUT_WINDOW, True, 1, None, ("request_date",)),
+    "future_30_day_forecast": (FORECAST_WINDOW, True, 1, None, ("request_date",)),
+    "capacity_risk_alerts": (FORECAST_WINDOW, True, 1, None, ("request_date",)),
+    "capacity_risk_summary": (None, False, 1, 4, ("risk_level",)),
+    "model_metrics": (None, False, 1, None, ("model_name",)),
+    "project_kpis": (None, False, 1, 1, ()),
+}
+
+
+@pytest.mark.parametrize("name", sorted(LEGACY_V0_CONTRACTS))
+def test_legacy_contract_properties_are_pinned(name: str) -> None:
+    contract = LEGACY_V0_CONTRACTS[name]
+    window, every_date, min_rows, max_rows, key = CONTRACT_PROPERTIES[name]
+    assert contract.window == window
+    assert contract.require_every_date is every_date
+    assert (contract.min_rows, contract.max_rows) == (min_rows, max_rows)
+    assert contract.primary_key == key
+
+
+def test_categorical_vocabularies_are_pinned() -> None:
+    assert DAILY_SEGMENTS.column("borough").allowed == BOROUGHS
+    assert {"BRONX", "BROOKLYN", "MANHATTAN", "QUEENS", "STATEN ISLAND"} == BOROUGHS
+    alerts = LEGACY_V0_CONTRACTS["capacity_risk_alerts"]
+    assert (
+        alerts.column("risk_level").allowed == RISK_LEVELS == {"Low", "Medium", "High", "Critical"}
+    )
+    assert DAILY_TOTAL.column("request_count").minimum == 0
+    assert DAILY_SEGMENTS.column("request_count").minimum == 1

@@ -6,11 +6,16 @@ import dataclasses
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
+from atlas.config import Settings
 from atlas.issues import CheckReport, Severity
+from atlas.legacy import risk_level
 from atlas.loader import LoadedTable
 from atlas.reproduce import (
     KPI_MEANINGS,
+    LEGACY_OUTPUT_TABLES,
+    KpiResult,
     Rule,
     compare_table,
     reconcile_kpis,
@@ -31,11 +36,8 @@ def by_name(reports: list[CheckReport]) -> dict[str, CheckReport]:
 
 
 @pytest.fixture(scope="module")
-def register(repo_settings: object) -> KnownExceptions:
-    return load_exceptions(
-        repo_settings.exceptions_path,  # type: ignore[attr-defined]
-        "legacy-v0",
-    )
+def register(repo_settings: Settings) -> KnownExceptions:
+    return load_exceptions(repo_settings.exceptions_path, "legacy-v0")
 
 
 # --- End-to-end on the committed snapshot -----------------------------------------------
@@ -200,6 +202,8 @@ def test_metric_exception_policy(legacy_tables: dict[str, LoadedTable]) -> None:
         (0.5787, 0.578741, 4, True),
         (40.1, 40.1036, 2, True),
         (40.11, 40.1036, 2, False),
+        (9656.3125, 9656.3125, 2, False),  # committed value is not at the stated precision
+        (9656.31, 9656.315, 2, True),
     ],
 )
 def test_within_rounding(committed: float, exact: float, decimals: int, expected: bool) -> None:
@@ -214,3 +218,181 @@ def test_compare_table_reports_missing_keys_and_value_mismatches() -> None:
     assert by_code["reproduction_key_mismatch"].examples == ("3", "4")
     assert by_code["reproduction_mismatch"].count == 1
     assert by_code["reproduction_mismatch"].examples == ("k=2 n: committed 20, recomputed 21",)
+
+
+def test_compare_table_fails_on_out_of_tolerance_and_null_differences() -> None:
+    committed = pd.DataFrame({"k": [1, 2, 3], "x": [1.25, None, 3.0]})
+    recomputed = pd.DataFrame({"k": [1, 2, 3], "x": [1.26, 2.0, None]})
+    issues = compare_table("t", committed, recomputed, "k", [Rule("x", 2)])
+    assert [i.code for i in issues] == ["reproduction_mismatch"]
+    assert issues[0].count == 3
+
+
+def test_compare_table_handles_dates_and_text() -> None:
+    committed = pd.DataFrame(
+        {"k": ["a", "b"], "d": pd.to_datetime(["2024-01-01", "2024-01-02"]), "t": ["x", "y"]}
+    )
+    recomputed = committed.assign(d=pd.to_datetime(["2024-01-01", "2024-01-03"]), t=["x", "z"])
+    issues = compare_table("t", committed, recomputed, "k", [Rule("d"), Rule("t")])
+    assert issues[0].examples == (
+        "k=b d: committed Timestamp('2024-01-02 00:00:00'), "
+        "recomputed Timestamp('2024-01-03 00:00:00')",
+        "k=b t: committed 'y', recomputed 'z'",
+    )
+
+
+def test_kpi_result_renders_nulls_as_json_null() -> None:
+    result = KpiResult("first_shortfall_date", pd.NaT, None, None, "m", ok=True)
+    assert result.to_dict()["committed"] is None
+    assert KpiResult("x", pd.NA, 1, None, "m", ok=False).to_dict()["committed"] is None
+
+
+@pytest.mark.integration
+def test_every_legacy_output_table_is_cross_checked(legacy_reports: list[CheckReport]) -> None:
+    checked = by_name(legacy_reports)["reproduction"].facts["legacy_outputs_cross_checked"]
+    assert sorted(checked) == sorted(LEGACY_OUTPUT_TABLES)
+
+
+def _frames(tables: dict[str, LoadedTable]) -> dict[str, pd.DataFrame]:
+    return {name: table.frame.copy() for name, table in tables.items()}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("table", "column", "selector", "value"),
+    [
+        # rounded derived value, off by one unit in the last published place
+        ("yearly_workload", "average_daily_requests", ("request_year", 2024), 9444.74),
+        # null in the committed table where the recomputation has a value
+        ("yearly_workload", "previous_year_requests", ("request_year", 2023), 1),
+        ("capacity_risk_alerts", "risk_level", ("days_ahead", 6), "Low"),
+        ("capacity_risk_alerts", "capacity_utilization_pct", ("days_ahead", 1), 94.70),
+        ("capacity_risk_summary", "average_utilization_pct", ("risk_level", "Medium"), 99.99),
+        ("date_dimension", "is_weekend", ("day_of_month", 2), 1),
+        ("actual_forecast_series", "actual_requests", ("record_type", "Actual"), 9999),
+        # (baseline_forecast also feeds the KPIs and metrics; absolute_error feeds nothing else)
+        ("forecast_test_results", "absolute_error", ("model_error", -1138), 1),
+        ("future_30_day_forecast", "forecast_week", ("forecast_requests", 9969), "2026-07-04"),
+    ],
+)
+def test_tampered_values_fail_reproduction(
+    legacy_tables: dict[str, LoadedTable],
+    register: KnownExceptions,
+    table: str,
+    column: str,
+    selector: tuple[str, object],
+    value: object,
+) -> None:
+    frame = legacy_tables[table].frame.copy()
+    rows = frame.index[frame[selector[0]] == selector[1]]
+    frame.loc[rows[0], column] = value
+    report = reproduce_tables(_replace_frame(legacy_tables, table, frame), register)
+    assert [(i.code, i.subject) for i in report.errors] == [("reproduction_mismatch", table)]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [("model_mape_pct", 3.93), ("first_shortfall_date", pd.NaT), ("ytd_2026_growth_pct", 13.41)],
+)
+def test_tampered_rounded_or_null_kpis_fail(
+    legacy_tables: dict[str, LoadedTable], column: str, value: object
+) -> None:
+    frames = _frames(legacy_tables)
+    frames["project_kpis"].loc[0, column] = value
+    issues, results = reconcile_kpis(frames)
+    assert [i.code for i in issues] == ["legacy_kpi_mismatch"]
+    assert [r.name for r in results if not r.ok] == [column]
+
+
+@pytest.mark.integration
+def test_model_metric_row_set_is_enforced(legacy_tables: dict[str, LoadedTable]) -> None:
+    frames = _frames(legacy_tables)
+    empty = KnownExceptions(schema_version=1, snapshot_id="legacy-v0")
+    extra = pd.concat(
+        [frames["model_metrics"], frames["model_metrics"].iloc[[0]].assign(model_name="Mystery")],
+        ignore_index=True,
+    )
+    issues, _ = reconcile_model_metrics({**frames, "model_metrics": extra}, empty)
+    assert "unknown_model_row" in [i.code for i in issues]
+
+    metrics = frames["model_metrics"]
+    missing = metrics[metrics["model_name"] != "7-Day Seasonal Baseline"]
+    issues, _ = reconcile_model_metrics({**frames, "model_metrics": missing}, empty)
+    assert "reproduction_key_mismatch" in [i.code for i in issues]
+
+
+def _metric_register(row: str, committed: float, recomputed: float) -> KnownExceptions:
+    exception = MetricReproductionException(
+        id="X",
+        check="legacy_metric_reproduction",
+        title="t",
+        cause="c",
+        evidence=(),
+        policy="accept",
+        expected=MetricExpectation(
+            table="model_metrics",
+            row=row,
+            column="rmse",
+            committed=committed,
+            recomputed_rounded=recomputed,
+            decimals=2,
+        ),
+    )
+    return KnownExceptions(schema_version=1, snapshot_id="legacy-v0", exceptions=(exception,))
+
+
+@pytest.mark.integration
+def test_metric_exception_requires_committed_value_to_match(
+    legacy_tables: dict[str, LoadedTable],
+) -> None:
+    frames = _frames(legacy_tables)
+    issues, _ = reconcile_model_metrics(
+        frames, _metric_register("Linear Regression Forecast", 676.6, 676.69)
+    )
+    assert [i.code for i in issues] == ["exception_drift"]
+
+
+@pytest.mark.integration
+def test_metric_exception_matching_nothing_is_reported_stale(
+    legacy_tables: dict[str, LoadedTable],
+) -> None:
+    frames = _frames(legacy_tables)
+    issues, _ = reconcile_model_metrics(
+        frames,
+        _metric_register("Linear Regresion Forecast", 676.7, 676.69),  # typo in row
+    )
+    codes = [(i.code, i.severity) for i in issues]
+    assert ("stale_exception", Severity.WARNING) in codes
+    assert ("reproduction_mismatch", Severity.ERROR) in codes
+
+
+def test_metric_exception_schema_is_restricted() -> None:
+    with pytest.raises(ValidationError):
+        MetricExpectation.model_validate(
+            {
+                "table": "project_kpis",
+                "row": "r",
+                "column": "rmse",
+                "committed": 1.0,
+                "recomputed_rounded": 1.0,
+                "decimals": 2,
+            }
+        )
+
+
+def test_reproduction_reports_missing_tables(legacy_tables: dict[str, LoadedTable]) -> None:
+    partial = {k: v for k, v in legacy_tables.items() if k != "date_dimension"}
+    report = reproduce_tables(partial, KnownExceptions(schema_version=1, snapshot_id="legacy-v0"))
+    assert [(i.code, i.examples) for i in report.errors] == [("table_missing", ("date_dimension",))]
+
+
+def test_capacity_rules_match_the_legacy_tiers() -> None:
+    assert [risk_level(u) for u in (94.99, 95.0, 100.0, 100.01, 109.99, 110.0)] == [
+        "Low",
+        "Medium",
+        "Medium",
+        "High",
+        "High",
+        "Critical",
+    ]

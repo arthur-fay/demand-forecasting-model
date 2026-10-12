@@ -1,7 +1,10 @@
 """Command-line interface: ``atlas`` (or ``python -m atlas``).
 
 Exit codes: 0 = all requested checks passed, 1 = a check failed, 2 = usage or
-configuration error.
+configuration error, 3 = unexpected internal error (a bug; the traceback is printed).
+
+Every stage that ran is printed, so prerequisite stages (and the documented exceptions
+they accepted) stay visible for every command.
 """
 
 from __future__ import annotations
@@ -9,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TextIO
@@ -24,6 +28,7 @@ from atlas.snapshot import build_manifest, manifest_to_json
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
+EXIT_INTERNAL = 3
 
 _STAGES = {
     "snapshot": Stage.INTEGRITY,
@@ -67,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "reproduce", help="Integrity, validation, then reproduce historical summaries and KPIs."
     )
-    commands.add_parser("check", help="Run every stage and print every report (CI entry point).")
+    commands.add_parser("check", help="Run every stage (CI entry point; same as reproduce).")
     return parser
 
 
@@ -117,7 +122,7 @@ def _render_facts(report: CheckReport, stream: TextIO) -> None:
             f"{_format_value(r['segment_requests'])}: gap {_format_value(r['total_gap'])} "
             f"({r['gap_share_pct']}%) on {r['dates_with_gap']} of {r['dates_compared']} dates\n"
         )
-    elif report.name == "reproduction":
+    elif report.name == "reproduction" and "historical_totals" in facts:
         totals = facts["historical_totals"]
         stream.write(
             f"  history {totals['first_date']}..{totals['last_date']}: "
@@ -125,6 +130,10 @@ def _render_facts(report: CheckReport, stream: TextIO) -> None:
             f"mean {_format_value(totals['average_daily_requests'])}/day\n"
         )
         stream.write(f"  tables reproduced: {', '.join(facts['tables_reproduced']) or 'none'}\n")
+        stream.write(
+            "  legacy outputs cross-checked against base data: "
+            f"{', '.join(facts['legacy_outputs_cross_checked']) or 'none'}\n"
+        )
         stream.write("  legacy KPIs (arithmetic reproduction; meaning in brackets):\n")
         for kpi in facts["kpis"]:
             mark = "ok " if kpi["ok"] else "BAD"
@@ -151,12 +160,10 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
     except AtlasError as exc:
         sys.stderr.write(f"atlas: error: {exc}\n")
         return EXIT_USAGE
+    except Exception:  # an unexpected failure is a bug, not a data-quality result
+        sys.stderr.write("atlas: internal error (please report):\n" + traceback.format_exc())
+        return EXIT_INTERNAL
 
-    shown = (
-        reports
-        if args.command == "check"
-        else [r for r in reports if r.name == reports[-1].name or not r.ok]
-    )
     if args.format == "json":
         payload = {
             "snapshot": settings.snapshot_id,
@@ -165,5 +172,5 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
         }
         out.write(json.dumps(payload, indent=2, default=str) + "\n")
     else:
-        render_text(shown, out)
+        render_text(reports, out)
     return EXIT_OK if all(report.ok for report in reports) else EXIT_FAILED
