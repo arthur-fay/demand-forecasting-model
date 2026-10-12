@@ -28,6 +28,7 @@ from atlas.quality import (
     quality_report,
     same_weekday_scores,
     segment_interruptions,
+    unassigned_share_flags,
 )
 from atlas.series import DemandSeries
 from atlas.validation import KnownExceptions, load_exceptions
@@ -202,33 +203,31 @@ def flagged_days(flags: list[QualityFlag]) -> set[tuple[str, str, date]]:
     }
 
 
-@pytest.mark.parametrize("seed", range(5))
-def test_flags_up_to_a_day_ignore_later_data(seed: int) -> None:
+@pytest.mark.parametrize("seed", range(3))
+def test_flags_are_prefix_consistent(seed: int) -> None:
+    """For every cut-off k, flags computed from data up to k equal the full run's up to k."""
     rng = random.Random(seed)
-    days = 200
+    days = 150
     dates = day_range(date(2024, 1, 1), days)
     totals = [rng.choice([8000, 9000, 10000, 15000, 4000]) for _ in range(days)]
     hpd = [rng.choice([0, *[300] * 12, 900]) for _ in range(days)]
-    cut = 120
-    original = DemandSeries.from_observations(dates, totals)
-    totals_b = totals[: cut + 1] + [rng.randint(0, 30000) for _ in range(days - cut - 1)]
-    hpd_b = hpd[: cut + 1] + [rng.randint(0, 3000) for _ in range(days - cut - 1)]
-    changed = DemandSeries.from_observations(dates, totals_b)
 
-    def segments(values: list[int]) -> pd.DataFrame:
-        return pd.DataFrame(
+    def flags_until(k: int) -> set[tuple[str, str, date]]:
+        series = DemandSeries.from_observations(dates[: k + 1], totals[: k + 1])
+        segments = pd.DataFrame(
             {
-                "request_date": pd.to_datetime(dates),
+                "request_date": pd.to_datetime(dates[: k + 1]),
                 "agency": "HPD",
                 "borough": "BRONX",
-                "request_count": values,
+                "request_count": hpd[: k + 1],
             }
         )
+        return flagged_days(detect_flags(series, segments))
 
-    boundary = dates[cut]
-    before = {d for d in flagged_days(detect_flags(original, segments(hpd))) if d[2] <= boundary}
-    after = {d for d in flagged_days(detect_flags(changed, segments(hpd_b))) if d[2] <= boundary}
-    assert before == after
+    full = flags_until(days - 1)
+    assert any(code == "intake_interruption" for code, _, _ in full)  # the test has teeth
+    for k in range(56, days - 1):
+        assert flags_until(k) == {f for f in full if f[2] <= dates[k]}, dates[k]
 
 
 # --- Holidays, severity, reports and contracts ---------------------------------------
@@ -342,7 +341,11 @@ def test_legacy_flag_inventory_is_pinned(legacy_flags: list[QualityFlag]) -> Non
         FlagCode.LOW_VOLUME: 4,
         FlagCode.INTAKE_INTERRUPTION: 8,
         FlagCode.CATCH_UP_SURGE: 4,
+        FlagCode.UNASSIGNED_SHARE: 0,  # needs the residual: see test_legacy_quality_stage
     }
+    edc_christmas = _find(legacy_flags, FlagCode.INTAKE_INTERRUPTION, "agency:EDC", "2023-12-25")
+    assert edc_christmas.holiday == "Christmas Day"
+    assert flag_severity(edc_christmas) is Severity.INFO
     lows = [f for f in legacy_flags if f.code is FlagCode.LOW_VOLUME]
     assert [(f.start.isoformat(), f.holiday) for f in lows] == [
         ("2023-11-23", "Thanksgiving Day"),
@@ -373,7 +376,13 @@ def test_legacy_quality_stage(legacy_tables: dict[str, LoadedTable], repo_settin
     assert residual["dates_positive"] == 1273
     assert residual["share_of_total_pct"] == 0.1077
     assert residual["exception_id"] == "LEGACY-V0-EX-001"
-    assert len(report.facts["flags"]) == 27
+    assert len(report.facts["flags"]) == 28
+    (share,) = [f for f in report.facts["flags"] if f["code"] == "unassigned_share"]
+    assert (share["start_date"], share["observed"]) == ("2023-09-15", 2434.0)
+    day_total = legacy_tables["daily_total"].frame.set_index("request_date")["request_count"]
+    expected_pct = 2434 * 100 / int(day_total[pd.Timestamp("2023-09-15")])
+    assert f"{expected_pct:.2f}%" in share["explanation"]
+    assert report.facts["flag_counts"]["unassigned_share"] == 1
 
 
 def test_assess_snapshot_reports_residual_mismatch(
@@ -395,3 +404,184 @@ def test_assess_snapshot_reports_residual_mismatch(
         legacy_tables["daily_total"].frame, legacy_tables["daily_segments"].frame, register
     )
     assert [i.code for i in report.errors] == ["residual_mismatch"]
+
+
+# --- Regressions from the independent review -----------------------------------------
+
+
+def test_one_day_is_never_the_catch_up_of_two_interruptions() -> None:
+    """[100]*28 + [0, 50, 0, 200]: day 31 is the catch-up of the second interruption only."""
+    flags = segment_interruptions(
+        segment([100.0] * 28 + [0.0, 50.0, 0.0, 200.0, 100.0]), "agency:X"
+    )
+    catch_ups = [f for f in flags if f.code is FlagCode.CATCH_UP_SURGE]
+    assert [(f.start, f.explanation) for f in catch_ups] == [
+        (
+            START + timedelta(31),
+            f"after intake_interruption {START + timedelta(30)}..{START + timedelta(30)}",
+        )
+    ]
+    assert validate_frame(flags_frame(flags), QUALITY_FLAGS).ok
+
+
+def test_catch_up_ratio_boundary() -> None:
+    at_ratio = segment_interruptions(segment([200.0] * 28 + [0.0, 300.0]), "agency:X")
+    assert [f.code for f in at_ratio] == [FlagCode.INTAKE_INTERRUPTION, FlagCode.CATCH_UP_SURGE]
+
+
+def test_score_boundary_is_inclusive() -> None:
+    (flag,) = citywide_anomalies(weekly_series(60, {56: 125.0}))  # score 5.0, ratio 1.25
+    assert flag.code is FlagCode.SURGE
+    assert flag.score == 5.0
+
+
+def test_low_volume_reports_most_extreme_score() -> None:
+    (flag,) = citywide_anomalies(weekly_series(60, {56: 74.0, 57: 60.0}))
+    assert flag.days == 2
+    assert flag.score == pytest.approx((60 - 102) / (0.05 * 102))
+
+
+def test_unknown_total_days_do_not_create_segment_flags() -> None:
+    days = 40
+    values: list[float | None] = [1000.0] * days
+    values[30] = None
+    total = DemandSeries.from_observations(day_range(START, days), values, allow_missing=True)
+    segments = pd.DataFrame(
+        {
+            "request_date": pd.to_datetime([START + timedelta(k) for k in range(days) if k != 30]),
+            "agency": "HPD",
+            "borough": "QUEENS",
+            "request_count": 300,
+        }
+    )
+    codes = [(f.code, f.subject) for f in detect_flags(total, segments)]
+    assert codes == [(FlagCode.MISSING_PERIOD, TOTAL_SUBJECT)]
+
+
+def test_run_extending_past_a_holiday_is_a_warning() -> None:
+    days = day_range(date(2023, 11, 1), 60)
+    total = DemandSeries.from_observations(days, [10000] * 60)
+
+    def run(zero_days: set[date]) -> QualityFlag:
+        counts = [0 if d in zero_days else 300 for d in days]
+        segments = pd.DataFrame(
+            {
+                "request_date": pd.to_datetime(days),
+                "agency": "HPD",
+                "borough": "BRONX",
+                "request_count": counts,
+            }
+        )
+        flags = [f for f in detect_flags(total, segments) if f.subject == "agency:HPD"]
+        assert len(flags) == 1
+        return flags[0]
+
+    long_run = run({date(2023, 12, k) for k in range(21, 25)})  # 21..24: only the 24th is an eve
+    assert long_run.holiday == "eve of Christmas Day"
+    assert flag_severity(long_run) is Severity.WARNING
+    christmas = run({date(2023, 12, 25)})
+    assert flag_severity(christmas) is Severity.INFO
+
+
+def test_surge_links_every_catch_up_on_its_day() -> None:
+    days = 70
+    total_values = [10000.0] * days
+    total_values[60] = 20000.0
+    total = DemandSeries.from_observations(day_range(START, days), total_values)
+    rows = []
+    for k in range(days):
+        for agency in ("HPD", "DOB"):
+            count = 0 if k in (58, 59) else (900 if k == 60 else 300)
+            rows.append(
+                (START + timedelta(k), agency, "BRONX" if agency == "HPD" else "QUEENS", count)
+            )
+    segments = pd.DataFrame(rows, columns=["request_date", "agency", "borough", "request_count"])
+    segments["request_date"] = pd.to_datetime(segments["request_date"])
+    flags = detect_flags(total, segments)
+    (surge,) = [f for f in flags if f.code is FlagCode.SURGE]
+    day = START + timedelta(60)
+    for subject in ("agency:DOB", "agency:HPD", "borough:BRONX", "borough:QUEENS"):
+        assert f"catch_up_surge of {subject} on {day}" in (surge.explanation or "")
+
+
+def test_only_surges_are_linked_to_catch_ups() -> None:
+    days = 70
+    total_values = [10000.0] * days
+    total_values[60] = 5000.0  # low volume on the catch-up day
+    total = DemandSeries.from_observations(day_range(START, days), total_values)
+    counts = [0 if k in (58, 59) else (900 if k == 60 else 300) for k in range(days)]
+    segments = pd.DataFrame(
+        {
+            "request_date": pd.to_datetime(day_range(START, days)),
+            "agency": "HPD",
+            "borough": "BRONX",
+            "request_count": counts,
+        }
+    )
+    (low,) = [f for f in detect_flags(total, segments) if f.code is FlagCode.LOW_VOLUME]
+    assert low.explanation is None
+
+
+def test_holiday_label_of_day_after_uses_the_previous_day() -> None:
+    days = day_range(date(2023, 9, 1), 120)
+    values = [100.0 if d != date(2023, 11, 24) else 50.0 for d in days]
+    series = DemandSeries.from_observations(days, values, integral=False)
+    (flag,) = detect_flags(series)
+    assert flag.holiday == "day after Thanksgiving Day"
+
+
+def test_unassigned_share_flags() -> None:
+    index = pd.date_range(START, periods=4, freq="D")
+    residual = pd.Series([2, 3, 0, 5], index=index)
+    totals = pd.Series([100.0, 100.0, 0.0, 100.0], index=index)
+    flags = unassigned_share_flags(residual, totals, 2.0)
+    assert [(f.start, f.days, f.observed) for f in flags] == [
+        (START + timedelta(1), 1, 3.0),  # 2 % is not above 2 %
+        (START + timedelta(3), 1, 5.0),
+    ]
+    assert "5.00%" in (flags[1].explanation or "")
+
+
+def test_flag_dates_are_ordered() -> None:
+    with pytest.raises(ValueError, match="ends before it starts"):
+        QualityFlag(date(2024, 1, 2), date(2024, 1, 1), FlagCode.SURGE, TOTAL_SUBJECT)
+
+
+def test_assess_snapshot_detects_a_residual_max_mismatch(
+    legacy_tables: dict[str, LoadedTable], repo_settings: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import atlas.quality as quality
+    from atlas.reconciliation import build_borough_components
+
+    def moved(*args: object) -> object:
+        result = build_borough_components(*args)  # type: ignore[arg-type]
+        frame = result.frame.copy()
+        residual_rows = frame["component"] == "UNASSIGNED"
+        largest = frame[residual_rows]["request_count"].idxmax()
+        other = frame[residual_rows].index[0]
+        frame.loc[largest, "request_count"] -= 1  # same total, smaller maximum
+        frame.loc[other, "request_count"] += 1
+        return dataclasses.replace(result, frame=frame)
+
+    monkeypatch.setattr(quality, "build_borough_components", moved)
+    register = load_exceptions(repo_settings.exceptions_path, "legacy-v0")  # type: ignore[attr-defined]
+    report = assess_snapshot(
+        legacy_tables["daily_total"].frame, legacy_tables["daily_segments"].frame, register
+    )
+    assert [i.code for i in report.errors] == ["residual_mismatch"]
+
+
+def test_assess_snapshot_without_any_residual() -> None:
+    total = pd.DataFrame({"request_date": pd.to_datetime(["2024-01-01"]), "request_count": [7]})
+    segments = pd.DataFrame(
+        {
+            "request_date": pd.to_datetime(["2024-01-01"]),
+            "agency": ["NYPD"],
+            "borough": ["BRONX"],
+            "request_count": [7],
+        }
+    )
+    report = assess_snapshot(total, segments, KnownExceptions(schema_version=1, snapshot_id="t"))
+    assert report.ok
+    assert report.facts["residual"]["max_date"] is None
+    assert report.facts["residual"]["exception_id"] is None

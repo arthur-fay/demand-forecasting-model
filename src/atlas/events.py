@@ -3,7 +3,9 @@
 Two sources, both usable as forecast features without look-ahead:
 
 * **US federal holidays** (5 U.S.C. 6103), computed by rule for any year in
-  ``SUPPORTED_YEARS``. A rule-based holiday is known arbitrarily far in advance.
+  ``SUPPORTED_YEARS``. A rule-based holiday is treated as known arbitrarily far in
+  advance. (Juneteenth was enacted on 2021-06-17 and is applied from 2021; for data
+  starting in 2023 the difference is immaterial.)
   Observance follows the federal rule: a holiday on a Saturday is observed on the
   preceding Friday, one on a Sunday on the following Monday (so New Year's Day 2022,
   a Saturday, was observed on Friday 2021-12-31). Juneteenth is a federal holiday
@@ -23,7 +25,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Final
 
 SUPPORTED_YEARS: Final = range(2000, 2101)
@@ -58,6 +60,10 @@ class KnownEvent:
     def __post_init__(self) -> None:
         if not self.name.strip():
             raise ValueError("event name must not be blank")
+        for label in ("start", "end", "announced_on"):
+            value = getattr(self, label)
+            if isinstance(value, datetime) or not isinstance(value, date):
+                raise ValueError(f"event {label} must be a datetime.date, got {value!r}")
         if self.end < self.start:
             raise ValueError(f"event {self.name!r} ends before it starts")
 

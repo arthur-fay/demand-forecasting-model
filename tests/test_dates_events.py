@@ -178,3 +178,26 @@ def test_declared_events_are_gated_by_announcement() -> None:
 def test_invalid_events(factory: object) -> None:
     with pytest.raises(ValueError, match="event"):
         factory()  # type: ignore[operator]
+
+
+def test_juneteenth_starts_in_2021() -> None:
+    by_name = {h.name: h for h in federal_holidays(2021)}
+    juneteenth = by_name["Juneteenth National Independence Day"]
+    assert (juneteenth.actual, juneteenth.observed) == (date(2021, 6, 19), date(2021, 6, 18))
+    assert len(federal_holidays(2021)) == 11
+
+
+def test_as_date_numpy_and_wrong_types() -> None:
+    import numpy as np
+
+    assert as_date(np.datetime64("2024-02-29")) == date(2024, 2, 29)
+    for bad in (np.datetime64("2024-02-29T06:00"), np.datetime64("NaT", "D"), 20240229, 1.5):
+        with pytest.raises(ValueError, match="date"):
+            as_date(bad)  # type: ignore[arg-type]
+
+
+def test_events_require_plain_dates() -> None:
+    from datetime import datetime
+
+    with pytest.raises(ValueError, match="announced_on"):
+        KnownEvent("x", date(2026, 1, 1), date(2026, 1, 1), datetime(2025, 1, 1, 9))  # type: ignore[arg-type]

@@ -161,3 +161,37 @@ def test_validate_frame_on_empty_quality_table() -> None:
     assert {i.code for i in validate_frame(pd.DataFrame({"d": []}), strict).issues} == {
         "empty_table"
     }
+
+
+def test_validate_frame_rejects_integral_floats_in_integer_columns() -> None:
+    frame = pd.DataFrame(
+        {"day": pd.to_datetime(["2024-01-01"]), "n": [6.0], "x": [1.0], "label": ["a"]}
+    )
+    issues = validate_frame(frame, CONTRACT).issues
+    assert [(i.subject, i.code) for i in issues] == [("t.n", "malformed_value")]
+
+
+def test_validate_frame_renders_numpy_scalars_and_rejects_ambiguous_values() -> None:
+    import numpy as np
+
+    good = pd.DataFrame(
+        {
+            "day": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+            "n": pd.Series([np.int64(3), 4], dtype=object),
+            "x": pd.Series([np.float64(100.0), np.float32("nan")], dtype=object),
+            "label": ["a", "b"],
+        }
+    )
+    checked = validate_frame(good, CONTRACT)
+    assert checked.ok, checked.issues
+    assert checked.frame["x"].isna().tolist() == [False, True]
+    bad = pd.DataFrame(
+        {
+            "day": [pd.Timestamp("2024-01-01", tz="UTC"), pd.Timestamp("2024-01-02")],
+            "n": pd.Series([True, 1], dtype=object),
+            "x": [1.0, 2.0],
+            "label": ["a", "b"],
+        }
+    )
+    codes = {(i.subject, i.code) for i in validate_frame(bad, CONTRACT).issues}
+    assert codes == {("t.day", "malformed_value"), ("t.n", "malformed_value")}

@@ -52,7 +52,7 @@ def _parse_dates(raw: Sequence[object], subject: str) -> tuple[list[date | None]
         try:
             if value is None or value is pd.NaT or (isinstance(value, float) and math.isnan(value)):
                 raise ValueError("missing timestamp")
-            if not isinstance(value, date | str):
+            if not isinstance(value, date | str | np.datetime64):
                 raise TypeError(f"unsupported type {type(value).__name__}")
             parsed.append(as_date(value))
         except (TypeError, ValueError):
@@ -143,6 +143,11 @@ class DemandSeries:
             raise DataQualityError(f"{self.name}: index must be consecutive calendar days")
         if self._values.dtype != np.float64:
             raise DataQualityError(f"{self.name}: values must be float64")
+        observed = self._values.dropna()
+        if bool((observed < 0).any()) or bool(np.isinf(observed).any()):
+            raise DataQualityError(f"{self.name}: values must be finite and non-negative")
+        # Own a private copy, so later changes to the caller's Series cannot leak in.
+        object.__setattr__(self, "_values", self._values.copy())
 
     # --- construction ---------------------------------------------------------------
 

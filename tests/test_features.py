@@ -10,7 +10,7 @@ import hashlib
 import math
 import random
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import ClassVar
 
 import numpy as np
@@ -298,8 +298,13 @@ def test_declared_event_visible_only_after_announcement(linear: DemandSeries) ->
     events = EventCalendar((event,))
     feature_set = FeatureSet((DeclaredEventIndicator(), Lag(1)))
     before = forecast_features(
-        linear, origin=date(2024, 2, 4), horizons=(1,), feature_set=feature_set, events=events
+        linear,
+        origin=date(2024, 2, 4),
+        horizons=(6, 7),
+        feature_set=FeatureSet((DeclaredEventIndicator(),)),
+        events=events,
     )
+    assert list(before.frame.index.day) == [10, 11]  # both targets are event days
     assert before.frame["is_declared_event"].sum() == 0
     early = recursive_forecast(
         linear,
@@ -692,3 +697,226 @@ def test_holiday_feature_on_empty_batch() -> None:
         events=EventCalendar(),
     )
     assert HolidayIndicator(HolidayRelation.ON).compute(context).shape == (0,)
+
+
+# --- Regressions from the independent review -----------------------------------------
+
+
+def test_training_rows_see_events_only_from_their_own_origin(linear: DemandSeries) -> None:
+    """An event announced after it began is invisible to rows whose origin precedes it."""
+    late = KnownEvent("late notice", date(2024, 2, 10), date(2024, 2, 25), date(2024, 2, 14))
+    events = EventCalendar((late,))
+    only_event = FeatureSet((DeclaredEventIndicator(),))
+
+    def flagged(horizon: int) -> list[date]:
+        train = training_features(
+            linear, origin=date(2024, 3, 1), horizon=horizon, feature_set=only_event, events=events
+        )
+        return [d.date() for d in train.frame.index[train.frame["is_declared_event"] == 1]]
+
+    # Row t has origin t - h; it sees the event only once t - h >= 2024-02-14.
+    assert flagged(1) == day_range(date(2024, 2, 15), 11)  # 02-15 .. 02-25
+    assert flagged(7) == day_range(date(2024, 2, 21), 5)  # 02-21 .. 02-25
+
+
+def test_direct_rows_see_events_only_as_of_the_origin(linear: DemandSeries) -> None:
+    origin = date(2024, 2, 1)
+    event = KnownEvent(
+        "parade", origin + timedelta(7), origin + timedelta(7), origin + timedelta(1)
+    )
+    calendar_only = FeatureSet((DeclaredEventIndicator(), Trend()))
+    matrix = forecast_features(
+        linear,
+        origin=origin,
+        horizons=(1, 7),
+        feature_set=calendar_only,
+        events=EventCalendar((event,)),
+    )
+    assert list(matrix.frame["is_declared_event"]) == [0.0, 0.0]
+    later = forecast_features(
+        linear,
+        origin=origin + timedelta(1),
+        horizons=(6,),
+        feature_set=calendar_only,
+        events=EventCalendar((event,)),
+    )
+    assert list(later.frame["is_declared_event"]) == [1.0]
+
+
+def test_recursive_and_training_rows_differ_only_by_event_knowledge(noisy: DemandSeries) -> None:
+    """Documented train/serve difference: a recursive row knows events as of the origin."""
+    actual = noisy.to_series()
+    origin = date(2024, 3, 15)
+    event = KnownEvent("fair", date(2024, 3, 25), date(2024, 3, 26), date(2024, 3, 20))
+    events = EventCalendar((event,))
+    forecast = recursive_forecast(
+        noisy, origin=origin, steps=20, predictor=lambda r: float(actual.loc[r.name]), events=events
+    )
+    train = training_features(noisy, origin=origin + timedelta(days=20), events=events)
+    rows = train.frame.loc[forecast.features.frame.index]
+    difference = forecast.features.frame.compare(rows)
+    assert list(difference.columns.get_level_values(0).unique()) == ["is_declared_event"]
+    assert [d.date() for d in difference.index] == [date(2024, 3, 25), date(2024, 3, 26)]
+
+
+def test_training_rows_do_not_depend_on_the_origin(noisy: DemandSeries) -> None:
+    """M2 can build training rows once and slice them for each earlier origin."""
+    early = training_features(noisy, origin=date(2024, 1, 31), horizon=1)
+    late = training_features(noisy, origin=date(2024, 5, 31), horizon=1)
+    pd.testing.assert_frame_equal(early.frame, late.frame.loc[early.frame.index])
+
+
+def test_builders_pass_no_data_after_the_origin(
+    noisy: DemandSeries, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Structural truncation, tested on its own (the runtime guard is tested separately)."""
+    import atlas.features as features
+
+    seen: list[pd.Timestamp] = []
+    original = features._build
+
+    def spy(**kwargs: object) -> object:
+        demand = kwargs["demand"]
+        assert isinstance(demand, pd.Series)
+        seen.append(demand.index.max())
+        return original(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(features, "_build", spy)
+    origin = date(2024, 3, 1)
+    training_features(noisy, origin=origin)
+    forecast_features(noisy, origin=origin)
+    assert max(seen) == pd.Timestamp(origin)
+    seen.clear()
+    recursive_forecast(noisy, origin=origin, steps=3, predictor=lambda r: 1.0)
+    assert seen[0] == pd.Timestamp(origin)  # later steps hold only predictions after it
+
+
+@dataclass(frozen=True)
+class _ReadsTooFarBack(Feature):
+    """Declares offset 1 but reads 400 days back, beyond any window it asked for."""
+
+    kind: ClassVar[FeatureKind] = FeatureKind.LAG
+
+    @property
+    def name(self) -> str:
+        return "far"
+
+    @property
+    def description(self) -> str:
+        return "reads outside its declared window"
+
+    @property
+    def offsets(self) -> tuple[int, ...]:
+        return (1,)
+
+    def compute(self, context: FeatureContext) -> np.ndarray:
+        return context.read(400)
+
+
+def test_reads_before_the_held_window_are_missing_not_wrapped(noisy: DemandSeries) -> None:
+    with pytest.raises(DataQualityError):
+        recursive_forecast(
+            noisy,
+            origin=date(2024, 3, 1),
+            steps=2,
+            predictor=lambda r: 1.0,
+            feature_set=FeatureSet((_ReadsTooFarBack(),)),
+        )
+
+
+@pytest.mark.parametrize("feature", [RollingStd(7), SameWeekdayMean(4), RollingMean(7), Lag(7)])
+def test_each_window_feature_alone_refuses_a_gap(feature: Feature) -> None:
+    dates = day_range(date(2024, 1, 1), 60)
+    values: list[float | None] = [100.0 + k % 5 for k in range(60)]
+    values[49] = None  # 2024-02-19
+    series = DemandSeries.from_observations(dates, values, allow_missing=True)
+    feature_set = FeatureSet((feature,))
+    with pytest.raises(DataQualityError):
+        training_features(
+            series,
+            origin=date(2024, 2, 29),
+            feature_set=feature_set,
+            first_target=date(2024, 2, 20),
+        )
+    matrix = training_features(
+        series,
+        origin=date(2024, 2, 29),
+        feature_set=feature_set,
+        first_target=date(2024, 2, 20),
+        allow_incomplete=True,
+    )
+    gap = pd.Timestamp("2024-02-19")
+    reads_gap = {
+        t
+        for t in matrix.frame.index
+        if any(t - pd.Timedelta(days=k) == gap for k in feature.offsets)
+    }
+    assert set(matrix.frame.index[matrix.frame[feature.name].isna()]) == reads_gap
+    assert reads_gap
+
+
+def test_eve_and_after_are_relative_to_the_actual_holiday() -> None:
+    series = linear_series(date(2022, 1, 1), 1700)
+    frame = training_features(
+        series,
+        origin=date(2026, 7, 31),
+        feature_set=FeatureSet(tuple(HolidayIndicator(r) for r in HolidayRelation)),
+    ).frame
+    # Independence Day 2026 is a Saturday, observed on Friday 07-03.
+    assert frame.loc["2026-07-03", ["is_day_before_holiday", "is_observed_holiday"]].tolist() == [
+        1,
+        1,
+    ]
+    assert frame.loc["2026-07-05", "is_day_after_holiday"] == 1
+    assert frame.loc["2026-07-06", "is_day_after_holiday"] == 0
+    # Christmas 2022 is a Sunday, observed on Monday 12-26.
+    assert frame.loc["2022-12-24", "is_day_before_holiday"] == 1
+    assert frame.loc["2022-12-26", ["is_observed_holiday", "is_day_after_holiday"]].tolist() == [
+        1,
+        1,
+    ]
+
+
+def test_string_parameters_are_coerced_to_their_enums() -> None:
+    by_string = HolidayIndicator("observed")  # type: ignore[arg-type]
+    assert by_string.relation is HolidayRelation.OBSERVED
+    assert by_string.spec() == HolidayIndicator(HolidayRelation.OBSERVED).spec()
+    assert Calendar("month").field is CalendarField.MONTH  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: HolidayIndicator("tomorrow"),  # type: ignore[arg-type]
+        lambda: Calendar("century"),  # type: ignore[arg-type]
+        lambda: WeekdayIndicator(2.0),  # type: ignore[arg-type]
+        lambda: AnnualFourier(1.5, "sin"),  # type: ignore[arg-type]
+        lambda: Trend(datetime(2023, 1, 1, 18)),
+        lambda: Trend("2023-01-01"),  # type: ignore[arg-type]
+        lambda: RollingStd(7, ddof=True),  # type: ignore[arg-type]
+    ],
+)
+def test_mistyped_parameters_are_rejected(factory: object) -> None:
+    with pytest.raises(FeatureError):
+        factory()  # type: ignore[operator]
+
+
+def test_rolling_std_names_are_unique_per_ddof() -> None:
+    assert RollingStd(7).name == "rolling_std_7"
+    assert RollingStd(7, ddof=0).name == "rolling_std_7_ddof_0"
+    FeatureSet((RollingStd(7), RollingStd(7, ddof=0)))  # no duplicate-name error
+
+
+def test_unsorted_horizons_give_sorted_rows(linear: DemandSeries) -> None:
+    weekly = FeatureSet((Lag(7),))
+    matrix = forecast_features(
+        linear, origin=date(2024, 1, 31), horizons=(7, 1, 3), feature_set=weekly
+    )
+    assert matrix.frame.index.is_monotonic_increasing
+    assert matrix.horizon == 7
+
+
+def test_numpy_datetime_origin_is_a_date(linear: DemandSeries) -> None:
+    matrix = forecast_features(linear, origin=np.datetime64("2024-01-31"))  # type: ignore[arg-type]
+    assert matrix.origin == date(2024, 1, 31)
+    assert type(matrix.origin) is date

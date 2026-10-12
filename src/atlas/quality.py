@@ -26,14 +26,18 @@ Detectors (thresholds in :class:`QualityThresholds`, documented in docs/DATA_QUA
     days, provided that percentile is at least 50 requests, and continues while each
     following day stays at or below 10 % of the *same* starting reference.
 ``catch_up_surge``
-    Within three days after an interruption ends, the first day on which the segment
-    reaches at least 1.5 times its median over the 28 days before the interruption:
-    a backlog being entered late, so the interruption was in intake, not in demand.
+    Within three days after an interruption ends (and before the next one starts), the
+    first day on which the segment reaches at least 1.5 times its median over the 28
+    days before the interruption: a backlog being entered late, so the interruption was
+    in intake, not in demand.
+``unassigned_share`` (the UNASSIGNED residual)
+    Days on which the residual exceeds the share declared for the reconciliation
+    exception (2 % of the day's total for legacy-v0).
 
 Flags touching a federal holiday, its observed day, its eve or the day after carry the
-holiday in ``holiday``; a low-volume or interruption flag in such a period is reported as
-``info`` (expected) rather than ``warning``. A city-wide surge on the day of a segment's
-catch-up surge is linked to it in ``explanation``.
+holiday in ``holiday``. A low-volume or interruption flag whose *every* day is
+holiday-related is reported as ``info`` (expected) rather than ``warning``. A city-wide
+surge on the day of a segment's catch-up surge is linked to it in ``explanation``.
 """
 
 from __future__ import annotations
@@ -55,7 +59,7 @@ from atlas.issues import CheckReport, Issue, Severity, examples
 from atlas.loader import validate_frame
 from atlas.reconciliation import build_borough_components
 from atlas.series import DemandSeries
-from atlas.validation import KnownExceptions
+from atlas.validation import DEFAULT_SHARE_THRESHOLD_PCT, KnownExceptions
 
 
 class FlagCode(StrEnum):
@@ -64,6 +68,7 @@ class FlagCode(StrEnum):
     LOW_VOLUME = "low_volume"
     INTAKE_INTERRUPTION = "intake_interruption"
     CATCH_UP_SURGE = "catch_up_surge"
+    UNASSIGNED_SHARE = "unassigned_share"
 
 
 _DESCRIPTIONS: dict[FlagCode, str] = {
@@ -75,6 +80,9 @@ _DESCRIPTIONS: dict[FlagCode, str] = {
     ),
     FlagCode.INTAKE_INTERRUPTION: "A segment's intake collapsed to near zero.",
     FlagCode.CATCH_UP_SURGE: "A segment's volume spiked right after an interruption (backlog).",
+    FlagCode.UNASSIGNED_SHARE: (
+        "An unusually large share of the day's requests is outside the five named boroughs."
+    ),
 }
 
 
@@ -121,7 +129,12 @@ class QualityFlag:
     expected: float | None = None  # reference level summed over the period
     score: float | None = None  # most extreme robust score in the period
     explanation: str | None = None  # links to related flags (catch-up, interruption)
-    holiday: str | None = None  # federal holiday context of a day in the period
+    holiday: str | None = None  # federal holiday context of the days in the period
+    holiday_days: int = 0  # how many days of the period have holiday context
+
+    def __post_init__(self) -> None:
+        if self.end < self.start:
+            raise ValueError(f"flag ends before it starts: {self.start}..{self.end}")
 
     @property
     def days(self) -> int:
@@ -143,6 +156,7 @@ class QualityFlag:
 
 
 TOTAL_SUBJECT = "total:CITYWIDE"
+UNASSIGNED_SUBJECT = "total:UNASSIGNED"
 
 
 # --- Detectors ----------------------------------------------------------------------
@@ -250,7 +264,9 @@ def segment_interruptions(
     dates = [d.date() for d in pd.DatetimeIndex(segment.index)]
     window = thresholds.interruption_window_days
     fraction = thresholds.interruption_max_fraction
-    flags: list[QualityFlag] = []
+
+    # Pass 1: interruption runs (start, end, typical level before the run).
+    runs: list[tuple[int, int, float]] = []
     i = window
     while i < len(values):
         history = values[i - window : i]
@@ -264,18 +280,26 @@ def segment_interruptions(
         end = i
         while end + 1 < len(values) and values[end + 1] <= fraction * reference:
             end += 1
-        typical = float(np.median(history))
+        runs.append((i, end, float(np.median(history))))
+        i = end + 1
+
+    # Pass 2: a catch-up is searched only up to the day before the next interruption,
+    # so a day is never the catch-up of two interruptions.
+    flags: list[QualityFlag] = []
+    for number, (first, last, typical) in enumerate(runs):
         flags.append(
             QualityFlag(
-                dates[i],
-                dates[end],
+                dates[first],
+                dates[last],
                 FlagCode.INTAKE_INTERRUPTION,
                 subject,
-                observed=float(values[i : end + 1].sum()),
-                expected=typical * (end - i + 1),
+                observed=float(values[first : last + 1].sum()),
+                expected=typical * (last - first + 1),
             )
         )
-        for after in range(end + 1, min(end + 1 + thresholds.catch_up_days, len(values))):
+        next_start = runs[number + 1][0] if number + 1 < len(runs) else len(values)
+        stop = min(last + 1 + thresholds.catch_up_days, next_start, len(values))
+        for after in range(last + 1, stop):
             if values[after] >= thresholds.catch_up_ratio * typical:
                 flags.append(
                     QualityFlag(
@@ -285,11 +309,10 @@ def segment_interruptions(
                         subject,
                         observed=float(values[after]),
                         expected=typical,
-                        explanation=f"after intake_interruption {dates[i]}..{dates[end]}",
+                        explanation=f"after intake_interruption {dates[first]}..{dates[last]}",
                     )
                 )
                 break
-        i = end + 1
     return flags
 
 
@@ -337,27 +360,80 @@ def _explain(flags: list[QualityFlag]) -> list[QualityFlag]:
     first = min(flag.start for flag in flags)
     last = max(flag.end for flag in flags)
     holidays = _holiday_context(first, last)
-    catch_ups = {flag.start: flag.subject for flag in flags if flag.code is FlagCode.CATCH_UP_SURGE}
+    catch_ups: dict[date, list[str]] = {}
+    for flag in flags:
+        if flag.code is FlagCode.CATCH_UP_SURGE:
+            catch_ups.setdefault(flag.start, []).append(flag.subject)
     explained: list[QualityFlag] = []
     for flag in flags:
         notes = [flag.explanation] if flag.explanation else []
         days = [flag.start + timedelta(days=k) for k in range(flag.days)]
         if flag.code is FlagCode.SURGE:
-            notes.extend(f"catch_up_surge of {catch_ups[d]} on {d}" for d in days if d in catch_ups)
-        holiday = "; ".join(sorted({holidays[d] for d in days if d in holidays}))
+            notes.extend(
+                f"catch_up_surge of {subject} on {d}"
+                for d in days
+                for subject in sorted(catch_ups.get(d, []))
+            )
+        labels = [holidays[d] for d in days if d in holidays]
         explained.append(
-            dataclasses.replace(flag, explanation="; ".join(notes) or None, holiday=holiday or None)
+            dataclasses.replace(
+                flag,
+                explanation="; ".join(notes) or None,
+                holiday="; ".join(dict.fromkeys(labels)) or None,  # day order, no repeats
+                holiday_days=len(labels),
+            )
         )
     return explained
+
+
+def unassigned_share_flags(
+    residual: pd.Series, totals: pd.Series, share_threshold_pct: float
+) -> list[QualityFlag]:
+    """Days on which the UNASSIGNED residual exceeds ``share_threshold_pct`` of the total.
+
+    Uses only same-day values, so it is causal. The threshold is the one declared for the
+    reconciliation exception (2 % for legacy-v0).
+    """
+    aligned = totals.reindex(residual.index).astype("float64")
+    share = residual.astype("float64") * 100.0 / aligned.where(aligned > 0)
+    days = [
+        d.date() for d in pd.DatetimeIndex(share.index[(share > share_threshold_pct).to_numpy()])
+    ]
+    flags = []
+    for start, end in _runs(days):
+        span = slice(pd.Timestamp(start), pd.Timestamp(end))
+        flags.append(
+            QualityFlag(
+                start,
+                end,
+                FlagCode.UNASSIGNED_SHARE,
+                UNASSIGNED_SUBJECT,
+                observed=float(residual[span].sum()),
+                expected=None,
+                explanation=(
+                    f"UNASSIGNED share up to {float(share[span].max()):.2f}% of the city-wide "
+                    f"total (threshold {share_threshold_pct:g}%)"
+                ),
+            )
+        )
+    return flags
 
 
 def detect_flags(
     total: DemandSeries,
     daily_segments: pd.DataFrame | None = None,
     thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
+    *,
+    residual: pd.Series | None = None,
+    share_threshold_pct: float = DEFAULT_SHARE_THRESHOLD_PCT,
 ) -> list[QualityFlag]:
-    """Run every detector; flags are sorted by start date, code and subject."""
+    """Run every detector; flags are sorted by start date, code and subject.
+
+    ``residual`` (the daily UNASSIGNED component) enables the ``unassigned_share`` flag.
+    """
     flags = missing_periods(total) + citywide_anomalies(total, thresholds)
+    if residual is not None:
+        flags.extend(unassigned_share_flags(residual, total.to_series(), share_threshold_pct))
     if daily_segments is not None and not daily_segments.empty:
         calendar = pd.DatetimeIndex(total.to_series().index)
         unknown = total.to_series().isna().to_numpy()
@@ -380,9 +456,14 @@ def flags_frame(flags: Iterable[QualityFlag]) -> pd.DataFrame:
 
 
 def flag_severity(flag: QualityFlag) -> Severity:
-    """Low volume in a holiday period is expected (``info``); every other flag is a ``warning``."""
+    """``info`` for low volume or an interruption on which *every* day is holiday-related.
+
+    Every other flag is a ``warning``. Severity is a property of the whole run: a run that
+    starts on a holiday eve and continues past the holiday is a ``warning``.
+    """
     expected_low = flag.code in (FlagCode.LOW_VOLUME, FlagCode.INTAKE_INTERRUPTION)
-    return Severity.INFO if expected_low and flag.holiday is not None else Severity.WARNING
+    all_holiday = flag.holiday is not None and flag.holiday_days == flag.days
+    return Severity.INFO if expected_low and all_holiday else Severity.WARNING
 
 
 def quality_report(flags: list[QualityFlag], facts: Mapping[str, Any] | None = None) -> CheckReport:
@@ -455,17 +536,26 @@ def assess_snapshot(
 
     residual = components.residual()
     stats = components.stats
+    largest = int(residual.max())
     facts: dict[str, Any] = {
         "residual": {
             "label": UNASSIGNED_COMPONENT,
             "total": int(residual.sum()),
             "dates": len(residual),
             "dates_positive": int((residual > 0).sum()),
-            "max": int(residual.max()),
-            "max_date": pd.DatetimeIndex(residual.index)[int(residual.to_numpy().argmax())]
-            .date()
-            .isoformat(),
-            "share_of_total_pct": round(float(residual.sum()) * 100 / stats.total_requests, 4),
+            "max": largest,
+            "max_date": (
+                pd.DatetimeIndex(residual.index)[int(residual.to_numpy().argmax())]
+                .date()
+                .isoformat()
+                if largest > 0
+                else None
+            ),
+            "share_of_total_pct": (
+                round(float(residual.sum()) * 100 / stats.total_requests, 4)
+                if stats.total_requests
+                else 0.0
+            ),
             "exception_id": next(
                 (issue.exception_id for issue in components.issues if issue.exception_id), None
             ),
@@ -483,7 +573,16 @@ def assess_snapshot(
         )
 
     total = DemandSeries.from_frame(daily_total, name="daily_total", allow_missing=True)
-    flags = detect_flags(total, daily_segments, thresholds)
+    declared = register.reconciliation
+    flags = detect_flags(
+        total,
+        daily_segments,
+        thresholds,
+        residual=residual,
+        share_threshold_pct=(
+            declared.expected.share_threshold_pct if declared else DEFAULT_SHARE_THRESHOLD_PCT
+        ),
+    )
     flags_frame(flags)  # contract check of the flag table
     report = quality_report(flags, facts)
     return CheckReport(name=report.name, issues=(*issues, *report.issues), facts=report.facts)

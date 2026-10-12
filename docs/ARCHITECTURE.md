@@ -95,8 +95,9 @@ validated daily_total ─► DemandSeries ─► features.py ─► training row
                               │                      ├► forecast rows   (t = o+h, data through o)
                               │                      └► recursive rows  (data through o + predictions)
                               ▼
-validated daily_segments ─► reconciliation.py ─► five boroughs + UNASSIGNED residual
-                        └─► quality.py ─► flags (missing, surge, low volume, interruption, catch-up)
+validated daily_total + daily_segments ─► reconciliation.py ─► five boroughs + UNASSIGNED residual
+                                       └─► quality.py ─► flags (missing, surge, low volume,
+                                                         interruption, catch-up, unassigned share)
 ```
 
 `atlas quality` runs integrity → validation → quality. It does not depend on the reproduction

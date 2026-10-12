@@ -464,7 +464,14 @@ DAILY_BOROUGH_COMPONENTS = TableContract(
 )
 
 QUALITY_FLAG_CODES = frozenset(
-    {"missing_period", "surge", "low_volume", "intake_interruption", "catch_up_surge"}
+    {
+        "missing_period",
+        "surge",
+        "low_volume",
+        "intake_interruption",
+        "catch_up_surge",
+        "unassigned_share",
+    }
 )
 
 QUALITY_FLAGS = TableContract(

@@ -158,3 +158,25 @@ def test_legacy_daily_total_is_a_complete_series(legacy_tables: dict) -> None:  
     assert (series.start, series.end, len(series)) == (date(2023, 1, 1), date(2026, 6, 30), 1277)
     assert series.missing_dates == ()
     assert series.to_series().sum() == 12_331_111
+
+
+def test_numpy_datetimes_from_a_frame_are_accepted() -> None:
+    frame = pd.DataFrame(
+        {"request_date": pd.to_datetime([d.isoformat() for d in DAYS]), "request_count": range(7)}
+    )
+    series = DemandSeries.from_observations(
+        frame["request_date"].to_numpy(), frame["request_count"].tolist()
+    )
+    assert series.end == date(2024, 3, 3)
+
+
+def test_constructor_rejects_bad_values_and_owns_its_data() -> None:
+    index = pd.date_range("2024-01-01", periods=3, freq="D")
+    for bad in ([1.0, -1.0, 2.0], [1.0, math.inf, 2.0]):
+        with pytest.raises(DataQualityError, match="finite and non-negative"):
+            DemandSeries("bad", pd.Series(bad, index=index))
+    source = pd.Series([1.0, float("nan"), 3.0], index=index)
+    series = DemandSeries("ok", source)
+    source.iloc[0] = 999.0
+    assert series.value_on(date(2024, 1, 1)) == 1.0
+    assert series.missing_dates == (date(2024, 1, 2),)

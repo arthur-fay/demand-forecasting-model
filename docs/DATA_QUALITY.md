@@ -9,7 +9,8 @@ uv run atlas quality                  # integrity -> validation -> quality
 uv run atlas --format json quality    # includes every flag as a record
 ```
 
-`atlas check` (the M0 entry point) is unchanged. CI runs both commands.
+`atlas check` (the M0 entry point) is unchanged, and its output is identical to M0's. CI runs
+both commands.
 
 ## 1. Calendar conventions for new ATLAS data
 
@@ -80,7 +81,8 @@ condition stops. Flags are not used as forecast features.
 | `surge` | city-wide | Robust same-weekday score `≥ +5` **and** at least 25 % above the reference |
 | `low_volume` | city-wide | Score `≤ −5` **and** at least 25 % below the reference: a potential intake interruption, or a holiday |
 | `intake_interruption` | each agency and borough | The run starts on a day `≤ 10 %` of the segment's 10th-percentile day over the previous 28 days, provided that percentile is `≥ 50`. It continues while each following day stays `≤ 10 %` of the same starting reference. |
-| `catch_up_surge` | each agency and borough | Within 3 days after an interruption, the first day `≥ 1.5 ×` the segment's 28-day median before the interruption: a backlog entered late |
+| `catch_up_surge` | each agency and borough | Within 3 days after an interruption (and before the next interruption starts), the first day `≥ 1.5 ×` the segment's 28-day median before the interruption: a backlog entered late |
+| `unassigned_share` | the `UNASSIGNED` residual | The residual is above the share declared for the reconciliation exception (2 % of the day's total for `legacy-v0`) |
 
 **Robust same-weekday score.** For day *d*, the reference is the median of the eight preceding
 same-weekday values (*d*−7, …, *d*−56). The scale is `max(1.4826 × MAD, 5 % of the
@@ -95,15 +97,18 @@ are never flagged. For a Poisson count with mean 50, a day at or below 5 has pro
 so this is an illustration, not a false-alarm rate.
 
 **Holidays.** Flags touching a federal holiday, its observed day, its eve or the day after
-carry the holiday name in `holiday`. A `low_volume` or `intake_interruption` flag in such a
-period is reported as `info` (expected). Every other flag is a `warning`. No flag fails the
-stage. A city-wide `surge` on the day of a segment's `catch_up_surge` is linked to it in
-`explanation`.
+carry the holiday context in `holiday`, in day order. A `low_volume` or
+`intake_interruption` flag is reported as `info` (expected) only when **every** day of it is
+holiday-related. Every other flag is a `warning`, so an outage that starts before Christmas
+Eve and runs into it is not hidden as "expected". Severity describes the whole run, so a run
+that later extends past the holiday becomes a `warning`. No flag fails the stage. A
+city-wide `surge` on the day of one or more segments' `catch_up_surge` is linked to each of
+them in `explanation`.
 
 The thresholds were fixed before looking at individual results. They are design choices, not
 estimates: no labelled set of true incidents exists to calibrate them against.
 
-### Results on `legacy-v0` (27 flags; pinned by `tests/test_quality.py`)
+### Results on `legacy-v0` (28 flags; pinned by `tests/test_quality.py`)
 
 | Flag | Count | Notes |
 |---|---|---|
@@ -112,6 +117,7 @@ estimates: no labelled set of true incidents exists to calibrate them against.
 | `surge` | 11 | Largest: 2023-09-29 (17,962 vs reference 9,434; score +18.1). Others include 2024-04-15 (HPD catch-up), 2025-06-23/24 and 2026-02-24 (22,806, the series maximum) |
 | `intake_interruption` | 8 | HPD 2024-04-11..14 (zero requests for 4 days; typically about 1,900 per day); HPD 2024-07-13; DHS 2026-01-31..02-12 (12 requests in 13 days vs about 109 per day); DOB 2025-12-14; EDC on 4 occasions, one on Christmas Day (`info`) |
 | `catch_up_surge` | 4 | HPD 2024-04-15 (7,398, about 3.9 × typical); HPD 2024-07-14 (3,403); EDC 2023-03-03 and 2023-03-16 |
+| `unassigned_share` | 1 | 2023-09-15: 2,434 requests (25.54 % of the day) outside the five boroughs; the only day above 2 % |
 
 What the flags show, and what they do not show:
 

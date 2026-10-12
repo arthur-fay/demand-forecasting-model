@@ -55,7 +55,7 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any, ClassVar, Final
 
@@ -192,6 +192,21 @@ def _jsonable(value: object) -> object:
     return value
 
 
+def _coerce_enum(feature: Feature, attribute: str, enum: type[StrEnum]) -> None:
+    """Store ``attribute`` as a member of ``enum``; plain strings are converted, others refused."""
+    value = getattr(feature, attribute)
+    try:
+        member = enum(value)
+    except ValueError:
+        raise FeatureError(f"{attribute} must be one of {[m.value for m in enum]}") from None
+    object.__setattr__(feature, attribute, member)
+
+
+def _check_int(value: object, label: str, low: int, high: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise FeatureError(f"{label} must be an integer within {low}..{high}, got {value!r}")
+
+
 def _check_offset(value: int, label: str, minimum: int = 1) -> None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise FeatureError(f"{label} must be an integer, got {value!r}")
@@ -273,13 +288,14 @@ class RollingStd(Feature):
     def __post_init__(self) -> None:
         _check_offset(self.window, "window", minimum=2)
         _check_offset(self.lag, "lag")
-        if self.ddof not in (0, 1):
+        if isinstance(self.ddof, bool) or self.ddof not in (0, 1):
             raise FeatureError("ddof must be 0 or 1")
 
     @property
     def name(self) -> str:
         suffix = "" if self.lag == 1 else f"_lag_{self.lag}"
-        return f"rolling_std_{self.window}{suffix}"
+        ddof = "" if self.ddof == 1 else "_ddof_0"
+        return f"rolling_std_{self.window}{suffix}{ddof}"
 
     @property
     def description(self) -> str:
@@ -354,6 +370,9 @@ class Calendar(Feature):
     field: CalendarField
     kind: ClassVar[FeatureKind] = FeatureKind.CALENDAR
 
+    def __post_init__(self) -> None:
+        _coerce_enum(self, "field", CalendarField)
+
     @property
     def name(self) -> str:
         return self.field.value
@@ -394,8 +413,7 @@ class WeekdayIndicator(Feature):
     kind: ClassVar[FeatureKind] = FeatureKind.CALENDAR
 
     def __post_init__(self) -> None:
-        if isinstance(self.iso_weekday, bool) or self.iso_weekday not in range(1, 8):
-            raise FeatureError(f"iso_weekday must be 1..7, got {self.iso_weekday!r}")
+        _check_int(self.iso_weekday, "iso_weekday", 1, 7)
 
     @property
     def name(self) -> str:
@@ -424,8 +442,7 @@ class AnnualFourier(Feature):
     def __post_init__(self) -> None:
         if self.function not in ("sin", "cos"):
             raise FeatureError("function must be 'sin' or 'cos'")
-        if isinstance(self.order, bool) or not 1 <= self.order <= 12:
-            raise FeatureError("order must be within 1..12")
+        _check_int(self.order, "order", 1, 12)
 
     @property
     def name(self) -> str:
@@ -446,6 +463,10 @@ class Trend(Feature):
 
     anchor: date = DEFAULT_TREND_ANCHOR
     kind: ClassVar[FeatureKind] = FeatureKind.TREND
+
+    def __post_init__(self) -> None:
+        if isinstance(self.anchor, datetime) or not isinstance(self.anchor, date):
+            raise FeatureError(f"anchor must be a datetime.date, got {self.anchor!r}")
 
     @property
     def name(self) -> str:
@@ -473,6 +494,9 @@ class HolidayIndicator(Feature):
 
     relation: HolidayRelation
     kind: ClassVar[FeatureKind] = FeatureKind.EVENT
+
+    def __post_init__(self) -> None:
+        _coerce_enum(self, "relation", HolidayRelation)
 
     @property
     def name(self) -> str:
@@ -680,7 +704,7 @@ def _as_targets(targets: Sequence[date] | pd.DatetimeIndex) -> pd.DatetimeIndex:
     index = pd.DatetimeIndex([pd.Timestamp(as_date(t)) for t in targets], name="target_date")
     if index.has_duplicates:
         raise FeatureError("target dates must be unique")
-    return index
+    return index.sort_values()
 
 
 def _build(
@@ -878,22 +902,46 @@ def recursive_forecast(
     # Only the last max_offset days before the first target can be read.
     window_start = pd.Timestamp(origin - timedelta(days=feature_set.max_offset))
     demand = series.known_through(origin).loc[window_start:]
-    rows: list[pd.DataFrame] = []
-    cutoffs: list[pd.Series] = []
-    predictions: dict[pd.Timestamp, float] = {}
-    for step in range(1, steps + 1):
-        target = pd.Timestamp(origin + timedelta(days=step))
-        frame, cutoff = _build(
+    targets = pd.date_range(origin + timedelta(days=1), periods=steps, freq="D", name="target_date")
+    all_cutoffs = targets - pd.Timedelta(days=1)
+
+    # Features that read no demand depend only on the target date and the origin, so they
+    # are computed once for every step; demand features are recomputed at each step from
+    # the actuals plus the predictions so far. Both use the same Feature.compute code.
+    static = tuple(f for f in feature_set if not f.offsets)
+    dynamic = tuple(f for f in feature_set if f.offsets)
+    static_frame = pd.DataFrame(index=targets)
+    if static:
+        static_frame, _ = _build(
             demand=demand,
             history_start=series.start,
-            targets=pd.DatetimeIndex([target], name="target_date"),
-            cutoffs=pd.DatetimeIndex([target - pd.Timedelta(days=1)]),
-            origins=(origin,),
-            feature_set=feature_set,
+            targets=targets,
+            cutoffs=all_cutoffs,
+            origins=(origin,) * steps,
+            feature_set=FeatureSet(static),
             events=events,
             allow_incomplete=False,
         )
-        value = predictor(frame.iloc[0].copy())
+    dynamic_set = FeatureSet(dynamic) if dynamic else None
+    rows: list[pd.DataFrame] = []
+    predictions: dict[pd.Timestamp, float] = {}
+    for step in range(steps):
+        target = targets[step]
+        row = static_frame.iloc[[step]]
+        if dynamic_set is not None:
+            dynamic_row, _ = _build(
+                demand=demand,
+                history_start=series.start,
+                targets=targets[[step]],
+                cutoffs=all_cutoffs[[step]],
+                origins=(origin,),
+                feature_set=dynamic_set,
+                events=events,
+                allow_incomplete=False,
+            )
+            row = pd.concat([row, dynamic_row], axis=1)
+        row = row[list(feature_set.names)]
+        value = predictor(row.iloc[0].copy())
         if isinstance(value, bool) or not isinstance(value, int | float | np.integer | np.floating):
             raise FeatureError(f"predictor returned {type(value).__name__}, expected a number")
         value = float(value)
@@ -901,8 +949,8 @@ def recursive_forecast(
             raise FeatureError(f"predictor returned {value!r} for {target.date()}")
         predictions[target] = value
         demand = pd.concat([demand, pd.Series([value], index=pd.DatetimeIndex([target]))])
-        rows.append(frame)
-        cutoffs.append(cutoff)
+        rows.append(row)
+    cutoffs = [pd.Series(all_cutoffs, index=targets, name="information_cutoff")]
     frame = pd.concat(rows)
     frame.index.name = "target_date"
     matrix = FeatureMatrix(frame, feature_set, origin, steps, pd.concat(cutoffs))

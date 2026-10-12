@@ -3,7 +3,7 @@
 Each milestone requires separate approval. M0 is merged; M1 is implemented on
 `feature/atlas-m1-data-features` and awaits review. Nothing from M2 onward is implemented.
 
-## M0: Foundation (this milestone)
+## M0: Foundation (merged)
 
 - `src/atlas` package, `pyproject.toml`, `uv.lock`, ruff, strict mypy, pytest, CI.
 - `legacy-v0` snapshot:

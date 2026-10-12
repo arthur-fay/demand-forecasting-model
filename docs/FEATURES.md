@@ -32,21 +32,34 @@ All three call one private function (`_build`) with the same `FeatureSet`, so:
 - the training row for `t` at horizon `h` **equals** the forecast row for `t` issued at origin
   `t - h`;
 - a recursive row **equals** the training row whenever the predictions it consumed equal the
-  actual values (teacher forcing).
+  actual values (teacher forcing), with one deliberate exception: declared events. A
+  recursive row knows events as of the origin `o`; a horizon-1 training row for the same
+  date knows them as of `t − 1`. An event announced between `o` and `t − 1` is therefore
+  visible to the training row but not to the forecast. That is the correct leakage
+  behaviour, and a test pins it so M2 can account for it.
 
-Both properties are tested exactly, not approximately (`tests/test_features.py`).
+These properties are tested exactly, not approximately (`tests/test_features.py`).
+
+Training rows do not depend on the origin: row `t` at horizon `h` reads only data through
+`t − h`. M2 can therefore build `training_features` once at the latest origin and slice it
+for each earlier origin; a test checks this.
 
 `recursive_forecast` takes a `predictor` callable (feature row → number). It fits nothing:
 M1 contains no trained model. The predictor's output must be finite and non-negative.
+Features that read no demand (calendar, trend, holidays, events) are computed once for all
+steps; demand features are recomputed per step. A 30-step forecast takes about 0.15 s
+(about 5 ms per step), and a full training matrix takes about 15 ms.
 
 ## Leakage controls
 
 1. **Structural truncation.** Every builder first calls `DemandSeries.known_through(origin)`.
-   Observations after the origin are never passed to a feature.
+   Observations after the origin are never passed to a feature. A test checks the data
+   handed to the builder, independently of the guard below.
 2. **Runtime guard.** Features read demand only through `FeatureContext.read(offset)`, which
    raises `LeakageError` if the day read is after that row's information cutoff. The guard
    does not trust the offsets a feature *declares*: a test feature that declares offset 1 but
-   reads offset 0 is rejected.
+   reads offset 0 is rejected. A read *before* the data held returns `NaN` (and the row is
+   refused); it never wraps around to other days.
 3. **Horizon check.** A feature set whose smallest offset is below the horizon cannot produce
    direct rows for that horizon (`LeakageError`). Use `recursive_forecast`, or a feature set
    whose offsets are all `>= h` (for example `Lag(7)`, `RollingMean(7, lag=7)` for `h <= 7`).
@@ -90,11 +103,21 @@ change to a definition is a deliberate, reviewed change.
 | `rolling_std_7`, `rolling_std_28` | variability | `t-w .. t-1` | Sample standard deviation (ddof = 1) of the same windows |
 | `is_holiday` | event | – | `t` is the actual date of a US federal holiday |
 | `is_observed_holiday` | event | – | `t` is the federal day off (Saturday holidays move to Friday, Sunday holidays to Monday) |
-| `is_day_before_holiday` | event | – | `t + 1` is a federal holiday |
-| `is_day_after_holiday` | event | – | `t − 1` was a federal holiday |
+| `is_day_before_holiday` | event | – | `t + 1` is the *actual* date of a federal holiday |
+| `is_day_after_holiday` | event | – | `t − 1` was the *actual* date of a federal holiday |
 | `is_declared_event` | event | – | A declared event announced on or before the origin covers `t` |
 
 All values are `float64`. Columns follow this order. Rows are indexed by `target_date`.
+
+Eve and day-after are relative to the **actual** holiday date. When Independence Day falls
+on a Saturday (2026), Friday 07-03 is both `is_observed_holiday` and
+`is_day_before_holiday`, and Sunday 07-05 is `is_day_after_holiday`. Juneteenth is applied
+from 2021, the year it was enacted. Holiday rules cover 2000–2100.
+
+Feature parameters are type-checked: enum fields accept their string values (for example,
+`HolidayIndicator("observed")`), while floats where integers are required, a `datetime`
+trend anchor, or unknown enum values raise `FeatureError`. `RollingStd(w, ddof=0)` is named
+`rolling_std_w_ddof_0`, so it cannot collide with the default `ddof=1`.
 
 Differences from the legacy notebook (cell index 14), all deliberate:
 
@@ -139,3 +162,10 @@ train = training_features(series, origin=origin, horizon=7, feature_set=weekly)
 | Gaps by date, insufficient history, invalid timestamps | `test_lags_are_by_calendar_date_not_row_position`, `test_gap_raises_unless_incomplete_rows_are_allowed`, `test_insufficient_history`, `test_invalid_origin_timestamps_are_rejected`, `test_series.py` |
 | Leap years, ISO weeks and year boundaries | `test_leap_day_lags_and_calendar`, `test_year_boundaries_and_iso_weeks` |
 | Determinism | `test_identical_inputs_give_identical_bytes`, `test_input_row_order_does_not_matter`, `test_feature_set_fingerprint_is_pinned` |
+| Declared-event gating per builder and horizon | `test_training_rows_see_events_only_from_their_own_origin`, `test_direct_rows_see_events_only_as_of_the_origin`, `test_declared_event_visible_only_after_announcement`, `test_recursive_and_training_rows_differ_only_by_event_knowledge` |
+| Every window feature alone refuses a gap | `test_each_window_feature_alone_refuses_a_gap` |
+
+The suite was checked by mutation testing: deliberate bugs were planted one at a time (off-by-one
+windows, wrong `ddof`, swapped holiday rules, removed truncation, leaked event knowledge,
+weakened guards). Each must make at least one test fail. Mutants that survived the first
+round led to the targeted tests above.

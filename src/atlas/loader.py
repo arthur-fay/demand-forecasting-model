@@ -24,6 +24,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from atlas.contracts import Column, Kind, TableContract
@@ -411,17 +412,26 @@ def load_table(path: Path, contract: TableContract) -> LoadedTable:
 
 
 def _render_field(value: object) -> str:
-    """Text form of one in-memory value, as it would be written to a CSV file."""
+    """Text form of one in-memory value, as ``pandas.DataFrame.to_csv`` would write it.
+
+    Nulls (``None``, ``NaN`` of any float type, ``pd.NA``, ``NaT``) become an empty field.
+    Floats keep their decimal point (``6.0``), so an INTEGER column rejects them; booleans
+    are written ``True``/``False`` and are therefore not numbers. A timestamp with a time
+    of day or a time zone keeps it, so a DATE column rejects it.
+    """
     if value is None or value is pd.NA or value is pd.NaT:
         return ""
-    if isinstance(value, float) and math.isnan(value):
-        return ""
+    if isinstance(value, bool | np.bool_):
+        return str(bool(value))
+    if isinstance(value, float | np.floating):
+        number = float(value)
+        return "" if math.isnan(number) else repr(number)
     if isinstance(value, pd.Timestamp):
-        return value.strftime("%Y-%m-%d") if value == value.normalize() else value.isoformat()
-    if isinstance(value, bool):
+        if value.tzinfo is None and value == value.normalize():
+            return value.strftime("%Y-%m-%d")
+        return value.isoformat()
+    if isinstance(value, np.integer):
         return str(int(value))
-    if isinstance(value, float) and value.is_integer():
-        return repr(value)  # keep "6.0": an INTEGER column must reject it
     return str(value)
 
 

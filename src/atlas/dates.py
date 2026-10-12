@@ -93,13 +93,18 @@ def year_fraction(dates: pd.DatetimeIndex) -> pd.Index:
     return pd.Index((dates.dayofyear - 1) / days_in_year(dates), dtype="float64")
 
 
-def as_date(value: date | pd.Timestamp | str) -> date:
+def as_date(value: date | pd.Timestamp | np.datetime64 | str) -> date:
     """Normalise a date-like value to :class:`datetime.date`.
 
     Accepts a ``date``, an ISO ``YYYY-MM-DD`` string, or a time-zone-naive timestamp at
-    exactly midnight. Anything carrying a time of day or a time zone is rejected rather
-    than truncated, because truncation could move an event to a different day.
+    exactly midnight (including ``numpy.datetime64``). Anything carrying a time of day or a
+    time zone is rejected rather than truncated, because truncation could move an event to
+    a different day. Every rejection is a ``ValueError``.
     """
+    if isinstance(value, np.datetime64):
+        if np.isnat(value):
+            raise ValueError("expected a calendar date, got NaT")
+        value = pd.Timestamp(value)
     if isinstance(value, str):
         # date.fromisoformat also accepts "20240101" and "2024-W01-1"; require YYYY-MM-DD.
         if not re.fullmatch(DATE_PATTERN, value):
@@ -110,4 +115,6 @@ def as_date(value: date | pd.Timestamp | str) -> date:
         if stamp.tzinfo is not None or stamp != stamp.normalize():
             raise ValueError(f"expected a calendar date, got timestamp {value!r}")
         return stamp.date()
-    return value
+    if isinstance(value, date):
+        return value
+    raise ValueError(f"expected a calendar date, got {type(value).__name__} {value!r}")
