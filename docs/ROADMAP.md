@@ -1,6 +1,7 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. Nothing from M1 onward is implemented in M0.
+Each milestone requires separate approval. M0 is merged; M1 is implemented on
+`feature/atlas-m1-data-features` and awaits review. Nothing from M2 onward is implemented.
 
 ## M0: Foundation (this milestone)
 
@@ -13,22 +14,27 @@ Each milestone requires separate approval. Nothing from M1 onward is implemented
   metrics, each with its meaning stated.
 - Cross-checks of the six legacy output tables against the base data.
 
-## M1: Data and features (deferred)
+## M1: Data and features (implemented; awaiting approval)
 
-- A single calendar convention (ISO 8601, Monday = 1) for new tables; legacy tables keep
-  theirs.
-- Anomaly and event flags, recorded as flags rather than silent edits:
-  - robust outlier scores;
-  - intake gaps such as HPD on 2024-04-11 to 2024-04-14;
-  - a holiday calendar known in advance.
-- One feature-building function shared by training, backtesting and forecasting, with tests
-  that no feature uses data after the forecast origin.
-- An explicit "unassigned borough" component, so totals and segments reconcile by
-  construction. Its daily total is already available as the measured residual; an
-  agency-level breakdown needs a new extraction, and network access requires approval.
-- Optional live ingestion: a paginated Socrata client with a truncation guard, retries, an
-  app token kept as a secret, and immutable snapshots with extraction metadata
-  (`legacy-v1`, ...).
+See [FEATURES.md](FEATURES.md) and [DATA_QUALITY.md](DATA_QUALITY.md).
+
+- ISO 8601 conventions (Monday = 1, ISO weeks) for all new data; legacy tables keep theirs
+  and are converted explicitly.
+- `daily_borough_components`: five boroughs plus the `UNASSIGNED` aggregate residual, so
+  totals and segments reconcile by construction. No agency-level residual is invented.
+- Causal data-quality flags: missing periods, city-wide surges and low volume, segment intake
+  interruptions and catch-up surges, with holiday context. The HPD gap of 2024-04-11 to
+  2024-04-14 is detected.
+- Federal holidays by rule and declared events gated by announcement date.
+- One feature builder shared by training, direct and recursive forecasting, with tests that no
+  feature uses data after the forecast origin.
+
+Still deferred (not part of the approved M1 scope, which excludes network access):
+
+- Live ingestion: a paginated Socrata client with a truncation guard, retries, an app token
+  kept as a secret, and immutable snapshots with extraction metadata (`legacy-v1`, ...).
+- An agency-level breakdown of the residual, which needs a new extraction.
+- New York City and New York State observances that are not federal holidays.
 
 ## M2: Backtesting (deferred)
 

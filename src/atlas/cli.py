@@ -20,8 +20,9 @@ from typing import Any, TextIO
 from atlas import __version__
 from atlas.config import Settings, load_settings
 from atlas.errors import AtlasError
+from atlas.features import default_feature_set
 from atlas.issues import CheckReport, Severity
-from atlas.pipeline import Stage, run
+from atlas.pipeline import Stage, run, run_quality
 from atlas.registry import spec_for
 from atlas.snapshot import build_manifest, manifest_to_json
 
@@ -41,7 +42,10 @@ _STAGES = {
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atlas",
-        description="ATLAS M0: verify, validate and reproduce the registered data snapshot.",
+        description=(
+            "ATLAS: verify, validate and reproduce the registered data snapshot (M0); "
+            "assess data quality and describe forecast features (M1)."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"atlas {__version__}")
     parser.add_argument(
@@ -73,6 +77,13 @@ def build_parser() -> argparse.ArgumentParser:
         "reproduce", help="Integrity, validation, then reproduce historical summaries and KPIs."
     )
     commands.add_parser("check", help="Run every stage (CI entry point; same as reproduce).")
+    commands.add_parser(
+        "quality",
+        help="Integrity, validation, then the reconciled residual and data-quality flags (M1).",
+    )
+    commands.add_parser(
+        "features", help="Describe the default feature set (definitions only; reads no data)."
+    )
     return parser
 
 
@@ -122,6 +133,16 @@ def _render_facts(report: CheckReport, stream: TextIO) -> None:
             f"{_format_value(r['segment_requests'])}: gap {_format_value(r['total_gap'])} "
             f"({r['gap_share_pct']}%) on {r['dates_with_gap']} of {r['dates_compared']} dates\n"
         )
+    elif report.name == "quality" and "residual" in facts:
+        r = facts["residual"]
+        stream.write(
+            f"  {r['label']} residual (city-wide minus five-borough segments): "
+            f"{_format_value(r['total'])} requests ({r['share_of_total_pct']}%) on "
+            f"{r['dates_positive']} of {r['dates']} dates, max {_format_value(r['max'])} on "
+            f"{r['max_date']} ({r['exception_id']})\n"
+        )
+        counts = ", ".join(f"{code} {n}" for code, n in facts["flag_counts"].items())
+        stream.write(f"  flags: {counts}\n")
     elif report.name == "reproduction" and "historical_totals" in facts:
         totals = facts["historical_totals"]
         stream.write(
@@ -142,6 +163,30 @@ def _render_facts(report: CheckReport, stream: TextIO) -> None:
             )
 
 
+def _features(output_format: str, stream: TextIO) -> int:
+    feature_set = default_feature_set()
+    if output_format == "json":
+        payload = {
+            "name": feature_set.name,
+            "fingerprint": feature_set.fingerprint(),
+            "max_offset": feature_set.max_offset,
+            "features": [feature.spec() | {"kind": feature.kind.value} for feature in feature_set],
+        }
+        stream.write(json.dumps(payload, indent=2) + "\n")
+        return EXIT_OK
+    stream.write(
+        f"feature set {feature_set.name}: {len(feature_set)} features, history needed "
+        f"{feature_set.max_offset} days, fingerprint {feature_set.fingerprint()[:16]}\n"
+    )
+    for feature in feature_set:
+        reads = feature.offsets
+        offsets = f"t-{max(reads)}..t-{min(reads)}" if reads else ""
+        stream.write(
+            f"  {feature.name:24} {feature.kind.value:12} {offsets:14} {feature.description}\n"
+        )
+    return EXIT_OK
+
+
 def _manifest(settings: Settings, stream: TextIO) -> int:
     manifest = build_manifest(settings.repo_root, spec_for(settings.snapshot_id))
     stream.write(manifest_to_json(manifest))
@@ -153,10 +198,15 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "features":
+            return _features(args.format, out)
         settings = load_settings(repo_root=args.repo_root, snapshot_id=args.snapshot)
         if args.command == "snapshot" and args.snapshot_command == "manifest":
             return _manifest(settings, out)
-        reports = run(settings, through=_STAGES[args.command])
+        if args.command == "quality":
+            reports = run_quality(settings)
+        else:
+            reports = run(settings, through=_STAGES[args.command])
     except AtlasError as exc:
         sys.stderr.write(f"atlas: error: {exc}\n")
         return EXIT_USAGE

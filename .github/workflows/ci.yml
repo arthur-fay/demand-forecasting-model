@@ -53,3 +53,6 @@ jobs:
 
       - name: Verify, validate and reproduce the legacy-v0 snapshot
         run: uv run atlas check
+
+      - name: Reconciliation residual and data-quality flags (M1)
+        run: uv run atlas quality

@@ -433,3 +433,59 @@ LEGACY_V0_CONTRACTS: dict[str, TableContract] = {
         PROJECT_KPIS,
     )
 }
+
+# --- ATLAS-produced tables (milestone M1; ISO 8601 conventions, see atlas.dates) ----------
+#
+# These tables are computed from the validated base tables; they are not files of the
+# legacy-v0 snapshot and are not registered in its manifest. They are checked with
+# atlas.loader.validate_frame, the same parser used for the legacy CSV files.
+
+UNASSIGNED_COMPONENT = "UNASSIGNED"
+COMPONENT_KINDS = frozenset({"borough_segment", "unassigned_residual"})
+
+DAILY_BOROUGH_COMPONENTS = TableContract(
+    name="daily_borough_components",
+    description=(
+        "City-wide daily total split into the five named boroughs plus one aggregate "
+        "residual, UNASSIGNED = daily_total - sum(daily_segments). The residual is the "
+        "measured count of requests outside the five-borough filter (LEGACY-V0-EX-001); it "
+        "has no agency breakdown and no records are imputed. Components sum to "
+        "daily_total on every date by construction. weekday is ISO 8601 (Monday=1)."
+    ),
+    columns=(
+        Column("request_date", Kind.DATE),
+        Column("iso_weekday", Kind.INTEGER, minimum=1, maximum=7),
+        Column("component", Kind.STRING, allowed=BOROUGHS | {UNASSIGNED_COMPONENT}),
+        Column("component_kind", Kind.STRING, allowed=COMPONENT_KINDS),
+        _count("request_count"),
+    ),
+    primary_key=("request_date", "component"),
+    date_column="request_date",
+)
+
+QUALITY_FLAG_CODES = frozenset(
+    {"missing_period", "surge", "low_volume", "intake_interruption", "catch_up_surge"}
+)
+
+QUALITY_FLAGS = TableContract(
+    name="quality_flags",
+    description=(
+        "Data-quality flags (atlas.quality). A flag annotates a period; it never edits or "
+        "removes data. Scores use only observations dated before the flagged day."
+    ),
+    columns=(
+        Column("code", Kind.STRING, allowed=QUALITY_FLAG_CODES),
+        Column("subject", Kind.STRING, pattern=r"(total|agency|borough):[A-Z0-9][A-Z0-9 -]*"),
+        Column("start_date", Kind.DATE),
+        Column("end_date", Kind.DATE),
+        Column("days", Kind.INTEGER, minimum=1),
+        Column("observed", Kind.DECIMAL, nullable=True, minimum=0),
+        Column("expected", Kind.DECIMAL, nullable=True, minimum=0),
+        Column("score", Kind.DECIMAL, nullable=True),
+        Column("explanation", Kind.STRING, nullable=True),
+        Column("holiday", Kind.STRING, nullable=True),
+    ),
+    primary_key=("code", "subject", "start_date"),
+    date_column="start_date",
+    min_rows=0,
+)

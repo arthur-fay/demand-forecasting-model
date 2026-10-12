@@ -52,6 +52,14 @@ src/atlas/
   reproduce.py    Comparison with the committed tables, KPIs and model metrics
   pipeline.py     Fail-closed stage orchestration
   cli.py          argparse command-line interface (`atlas`)
+
+  M1 additions
+  dates.py           ISO 8601 conventions; explicit conversion of legacy weekday numbers
+  events.py          US federal holidays by rule; declared events gated by announcement date
+  series.py          DemandSeries: validated daily series (the only input to features)
+  reconciliation.py  daily_borough_components with the UNASSIGNED aggregate residual
+  quality.py         Data-quality flags and the `quality` stage
+  features.py        Feature definitions and the training / forecast / recursive builders
 ```
 
 ### Data flow
@@ -79,6 +87,31 @@ snapshots/legacy-v0/manifest.json ──► integrity     every file: size, SHA-
 | Legacy conventions are reproduced, not "fixed" (Sunday = 0 weekdays, active-day averages, the demand-percentile "capacity") | The goal of M0 is to prove what the original numbers are. Corrections belong to later milestones. |
 | Minimal runtime dependencies (pandas, pydantic); argparse rather than a CLI framework | Small attack surface and fewer version conflicts on a small VPS. |
 | `uv.lock` committed; `pandas>=3.0,<3.1` | Reproducible installs; one pandas minor version. |
+
+### M1 data flow
+
+```
+validated daily_total ─► DemandSeries ─► features.py ─► training rows   (t <= o, data through t-h)
+                              │                      ├► forecast rows   (t = o+h, data through o)
+                              │                      └► recursive rows  (data through o + predictions)
+                              ▼
+validated daily_segments ─► reconciliation.py ─► five boroughs + UNASSIGNED residual
+                        └─► quality.py ─► flags (missing, surge, low volume, interruption, catch-up)
+```
+
+`atlas quality` runs integrity → validation → quality. It does not depend on the reproduction
+of legacy outputs, and `atlas check` is unchanged.
+
+| M1 decision | Reason |
+|---|---|
+| One private builder behind training, direct and recursive features | Parity by construction; tests check it exactly |
+| Truncate at the origin, then guard every read against the row's cutoff | Two independent barriers against look-ahead; the guard does not trust declared offsets |
+| Lags by calendar date; gaps raise unless explicitly allowed | A missing day can never shift a lag; nothing is imputed silently |
+| Fixed trend anchor | Feature values do not depend on the training-window length |
+| Residual as one labelled aggregate component, built only when M0 accepts the gap | Totals reconcile by construction without inventing agency records |
+| Flags are causal annotations, never edits or features | Usable in rolling-origin evaluation; the data stays as recorded |
+| M1 tables checked by the M0 loader (`validate_frame`) | One set of contract rules for files and in-memory tables |
+| Pinned feature-set fingerprint and pinned legacy flag inventory | Definition or detection changes must be deliberate |
 
 ### Extending to new snapshots
 

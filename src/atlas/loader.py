@@ -279,7 +279,7 @@ def _check_table_rules(frame: pd.DataFrame, contract: TableContract) -> list[Iss
     name = contract.name
     rows = len(frame)
 
-    if rows == 0:
+    if rows == 0 and contract.min_rows > 0:
         issues.append(_error("empty_table", name, "Table has no data rows."))
     elif rows < contract.min_rows:
         issues.append(
@@ -408,3 +408,34 @@ def load_table(path: Path, contract: TableContract) -> LoadedTable:
         return LoadedTable(name=contract.name, frame=empty, issues=tuple(read_issues))
     loaded = parse_table(raw, contract)
     return LoadedTable(name=loaded.name, frame=loaded.frame, issues=(*read_issues, *loaded.issues))
+
+
+def _render_field(value: object) -> str:
+    """Text form of one in-memory value, as it would be written to a CSV file."""
+    if value is None or value is pd.NA or value is pd.NaT:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%Y-%m-%d") if value == value.normalize() else value.isoformat()
+    if isinstance(value, bool):
+        return str(int(value))
+    if isinstance(value, float) and value.is_integer():
+        return repr(value)  # keep "6.0": an INTEGER column must reject it
+    return str(value)
+
+
+def validate_frame(frame: pd.DataFrame, contract: TableContract) -> LoadedTable:
+    """Check an in-memory table against ``contract`` with the same rules as a CSV file.
+
+    The frame is rendered to text exactly as a CSV export would be and then parsed by
+    :func:`parse_table`, so tables produced by ATLAS are held to the same contracts as
+    the files it reads, and can be exported without a second set of rules.
+    """
+    header = tuple(str(column) for column in frame.columns)
+    rows = tuple(
+        tuple(_render_field(value) for value in record)
+        for record in frame.astype(object).itertuples(index=False, name=None)
+    )
+    raw = RawTable(header=header, rows=rows, line_numbers=tuple(range(2, len(rows) + 2)))
+    return parse_table(raw, contract)
