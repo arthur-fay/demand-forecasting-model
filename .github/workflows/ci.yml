@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, type-check, test and verify legacy-v0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      UV_VERSION: "0.11.32"
+      UV_PYTHON: "3.12"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned uv
+        run: python -m pip install --disable-pip-version-check "uv==${UV_VERSION}"
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Mypy (strict)
+        run: uv run mypy
+
+      - name: Pytest with coverage gate
+        run: uv run pytest
+
+      - name: Verify, validate and reproduce the legacy-v0 snapshot
+        run: uv run atlas check

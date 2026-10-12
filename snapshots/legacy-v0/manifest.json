@@ -1,0 +1,432 @@
+{
+  "schema_version": 1,
+  "snapshot_id": "legacy-v0",
+  "registered_at": "2026-10-12",
+  "immutable": true,
+  "description": "Frozen artifacts of the original NYC 311 demand-forecasting project: two base aggregates, fourteen derived tables and the original report artifacts.",
+  "provenance": {
+    "source_name": "311 Service Requests from 2020 to Present",
+    "source_publisher": "NYC Open Data (City of New York)",
+    "source_dataset_id": "erm2-nwe9",
+    "source_endpoint": "https://data.cityofnewyork.us/resource/erm2-nwe9.json",
+    "extraction_method": "Two aggregate SoQL queries in the legacy notebook (cells 2-3): count(*) grouped by date_trunc_ymd(created_date) with no borough filter (daily_total), and grouped by date, agency and borough restricted to BRONX, BROOKLYN, MANHATTAN, QUEENS and STATEN ISLAND (daily_segments). All other tables were computed from these two in the notebook (cells 8-18) and exported for Power BI.",
+    "extraction_window_start": "2023-01-01",
+    "extraction_window_end_exclusive": "2026-07-01",
+    "extracted_at": null,
+    "extracted_at_note": "Not recorded by the original run. The data ends on 2026-06-30 and the earliest timestamp in the repository is 2026-07-17 (Power BI file); the extraction time cannot be established more precisely from the repository.",
+    "produced_by": "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb (Google Colab), exported by cell 18 and committed manually",
+    "origin_commit": "db4670335dac76628e6f2cd7b1806b2cd536abfb",
+    "completeness": "incomplete",
+    "known_gaps": [
+      "No extraction timestamp, query hash, row-limit check or API response metadata.",
+      "No record of Python or library versions used by the original run.",
+      "Raw API responses were not retained; only the two aggregate tables survive.",
+      "Upstream 311 records may have been revised after extraction, so re-querying the source may not reproduce these counts exactly (not verified)."
+    ],
+    "terms_of_use": "Published by NYC Open Data. The applicable terms of use were not verified in this repository; confirm them before redistribution."
+  },
+  "files": [
+    {
+      "table": "daily_total",
+      "path": "01 Data/daily_total.csv",
+      "role": "base",
+      "description": "City-wide count of NYC 311 service requests per calendar day of created_date (no borough filter).",
+      "sha256": "16a338f4851f62380a706a611e54706f52a29f3ee9a5adcea4f276b9b904d65c",
+      "bytes": 20899,
+      "rows": 1277,
+      "columns": [
+        "request_date",
+        "request_count"
+      ],
+      "date_column": "request_date",
+      "date_min": "2023-01-01",
+      "date_max": "2026-06-30"
+    },
+    {
+      "table": "daily_segments",
+      "path": "01 Data/daily_segments.csv",
+      "role": "base",
+      "description": "Requests per day, agency and borough, restricted to the five named boroughs. Only non-empty segments are present: a missing row means zero requests.",
+      "sha256": "67dee3a0a097bd065b16c6e718ed1a1fc139f895de874a962d132bb0978ac7fc",
+      "bytes": 2113706,
+      "rows": 76458,
+      "columns": [
+        "request_date",
+        "agency",
+        "borough",
+        "request_count"
+      ],
+      "date_column": "request_date",
+      "date_min": "2023-01-01",
+      "date_max": "2026-06-30"
+    },
+    {
+      "table": "yearly_workload",
+      "path": "01 Data/yearly_workload.csv",
+      "role": "derived_aggregate",
+      "description": "Calendar-year totals of daily_total with year-over-year growth (2026 is partial).",
+      "sha256": "2c5860733361f1c573bd1114b92c953455c45ea7e78ea9a7026ff4f3b2722f86",
+      "bytes": 352,
+      "rows": 4,
+      "columns": [
+        "request_year",
+        "total_requests",
+        "average_daily_requests",
+        "highest_daily_requests",
+        "lowest_daily_requests",
+        "days_recorded",
+        "previous_year_requests",
+        "year_over_year_growth_pct"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "ytd_workload",
+      "path": "01 Data/ytd_workload.csv",
+      "role": "derived_aggregate",
+      "description": "January 1 - June 30 totals of daily_total for 2025 and 2026 with growth.",
+      "sha256": "a180033a0ca3e0c2ead523c9d208d4514e9332ff4d64f8d1fc7afa2562d186d9",
+      "bytes": 236,
+      "rows": 2,
+      "columns": [
+        "request_year",
+        "total_requests",
+        "average_daily_requests",
+        "highest_daily_requests",
+        "lowest_daily_requests",
+        "days_recorded",
+        "previous_ytd_requests",
+        "ytd_growth_pct"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "monthly_workload",
+      "path": "01 Data/monthly_workload.csv",
+      "role": "derived_aggregate",
+      "description": "Monthly totals of daily_total with month-over-month and year-over-year growth.",
+      "sha256": "295d7ab31972b69236e72fe934020d81386826324334e249e86d4d2b761a66c0",
+      "bytes": 3279,
+      "rows": 42,
+      "columns": [
+        "month_start",
+        "request_year",
+        "request_month",
+        "total_requests",
+        "average_daily_requests",
+        "highest_daily_requests",
+        "lowest_daily_requests",
+        "days_recorded",
+        "previous_month_requests",
+        "month_over_month_growth_pct",
+        "previous_year_month_requests",
+        "year_over_year_growth_pct"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "weekday_workload",
+      "path": "01 Data/weekday_workload.csv",
+      "role": "derived_aggregate",
+      "description": "Day-of-week totals of daily_total. weekday_number follows SQLite %w (Sunday=0).",
+      "sha256": "29174a28b6aa339d9eb203c8577b28a8fc4d79614422c5e79a12d1e60d93ac05",
+      "bytes": 509,
+      "rows": 7,
+      "columns": [
+        "weekday_number",
+        "weekday_name",
+        "total_requests",
+        "average_daily_requests",
+        "highest_daily_requests",
+        "lowest_daily_requests",
+        "days_recorded",
+        "workload_share_pct",
+        "average_workload_rank"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "borough_workload",
+      "path": "01 Data/borough_workload.csv",
+      "role": "derived_aggregate",
+      "description": "Borough totals of daily_segments (five-borough population, active days only).",
+      "sha256": "3434b8e68f76ad1fbfec3a1b3f610de31e2a972a3627fd46cc8376e390c5863a",
+      "bytes": 373,
+      "rows": 5,
+      "columns": [
+        "borough",
+        "total_requests",
+        "average_daily_requests",
+        "highest_daily_requests",
+        "lowest_daily_requests",
+        "days_recorded",
+        "workload_share_pct",
+        "workload_rank"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "agency_workload",
+      "path": "01 Data/agency_workload.csv",
+      "role": "derived_aggregate",
+      "description": "Agency totals of daily_segments (five-borough population, active days only).",
+      "sha256": "3aafd4a3a5d64c73f877f795bb8d24ef6ca9cd14910a7086a8eab0b1a843d20c",
+      "bytes": 755,
+      "rows": 17,
+      "columns": [
+        "agency",
+        "total_requests",
+        "average_daily_requests",
+        "highest_daily_requests",
+        "lowest_daily_requests",
+        "active_days",
+        "workload_share_pct",
+        "workload_rank"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "date_dimension",
+      "path": "01 Data/date_dimension.csv",
+      "role": "dimension",
+      "description": "Power BI calendar. weekday_number is Monday=1..Sunday=7 and week_of_year is the ISO week, paired with the calendar year (legacy convention).",
+      "sha256": "9a9118a0bf9ddf696eae371b0f6fa8578b93972bd226d78e9389aa2667deff8f",
+      "bytes": 99286,
+      "rows": 1307,
+      "columns": [
+        "date",
+        "year",
+        "quarter",
+        "month_number",
+        "month_name",
+        "month_short",
+        "year_month",
+        "year_month_sort",
+        "day_name",
+        "weekday_number",
+        "day_of_month",
+        "week_of_year",
+        "week_start",
+        "is_weekend"
+      ],
+      "date_column": "date",
+      "date_min": "2023-01-01",
+      "date_max": "2026-07-30"
+    },
+    {
+      "table": "actual_forecast_series",
+      "path": "01 Data/actual_forecast_series.csv",
+      "role": "legacy_model_output",
+      "description": "Observed daily totals followed by the legacy 30-day point forecast. Counts are serialised as floats ('6209.0'); the two series never overlap.",
+      "sha256": "84df1cd8f910a75347ddbb8404d304cc271a9bb89bb44aa3002980986257082d",
+      "bytes": 34562,
+      "rows": 1307,
+      "columns": [
+        "date",
+        "actual_requests",
+        "forecast_requests",
+        "record_type"
+      ],
+      "date_column": "date",
+      "date_min": "2023-01-01",
+      "date_max": "2026-07-30"
+    },
+    {
+      "table": "forecast_test_results",
+      "path": "01 Data/forecast_test_results.csv",
+      "role": "legacy_model_output",
+      "description": "Legacy 90-day holdout. Predictions are one-step-ahead (h=1) using observed lags and were rounded to integers before export.",
+      "sha256": "201574239d8e331e3c2f79b4e6eaa15b9cdc58a1b447f3464847f01fb0a4b9bf",
+      "bytes": 3899,
+      "rows": 90,
+      "columns": [
+        "request_date",
+        "actual_requests",
+        "baseline_forecast",
+        "model_forecast",
+        "model_error",
+        "absolute_error",
+        "absolute_percentage_error"
+      ],
+      "date_column": "request_date",
+      "date_min": "2026-04-02",
+      "date_max": "2026-06-30"
+    },
+    {
+      "table": "future_30_day_forecast",
+      "path": "01 Data/future_30_day_forecast.csv",
+      "role": "legacy_model_output",
+      "description": "Legacy recursive 30-day point forecast (never evaluated beyond h=1).",
+      "sha256": "9db733ac1e452536d00be1bb13360b1e09f08fe0f83dfc6a3b287747b808194a",
+      "bytes": 1729,
+      "rows": 30,
+      "columns": [
+        "request_date",
+        "weekday_name",
+        "forecast_requests",
+        "forecast_week",
+        "forecast_month"
+      ],
+      "date_column": "request_date",
+      "date_min": "2026-07-01",
+      "date_max": "2026-07-30"
+    },
+    {
+      "table": "capacity_risk_alerts",
+      "path": "01 Data/capacity_risk_alerts.csv",
+      "role": "legacy_model_output",
+      "description": "Legacy alert table. 'planning_capacity' is the 75th percentile of the last 180 days of incoming requests, not a measured service capacity.",
+      "sha256": "d516a14c555f9e6a5abb385d8b00de176c923ea97096d860a10a3ee167a6e6ea",
+      "bytes": 3805,
+      "rows": 30,
+      "columns": [
+        "request_date",
+        "weekday_name",
+        "forecast_requests",
+        "forecast_week",
+        "forecast_month",
+        "days_ahead",
+        "planning_capacity",
+        "capacity_utilization_pct",
+        "capacity_gap_requests",
+        "available_capacity",
+        "risk_level",
+        "capacity_shortfall_flag",
+        "recommended_action"
+      ],
+      "date_column": "request_date",
+      "date_min": "2026-07-01",
+      "date_max": "2026-07-30"
+    },
+    {
+      "table": "capacity_risk_summary",
+      "path": "01 Data/capacity_risk_summary.csv",
+      "role": "legacy_model_output",
+      "description": "Legacy alert counts and totals by risk level.",
+      "sha256": "178404f051976c276c88df5947c34e6b3afe05dd20a81b1ecda647c500b12026",
+      "bytes": 163,
+      "rows": 3,
+      "columns": [
+        "risk_level",
+        "forecast_days",
+        "total_forecast_requests",
+        "average_utilization_pct",
+        "total_capacity_gap"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "model_metrics",
+      "path": "01 Data/model_metrics.csv",
+      "role": "legacy_model_output",
+      "description": "Legacy holdout metrics (h=1, observed lags) for the regression and baseline.",
+      "sha256": "3436a4cfa578a79214802c11568df284101e86150c53b23abe091fa2a594508c",
+      "bytes": 172,
+      "rows": 2,
+      "columns": [
+        "model_name",
+        "mae",
+        "rmse",
+        "mape_pct",
+        "r_squared",
+        "mape_improvement_pct"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    },
+    {
+      "table": "project_kpis",
+      "path": "01 Data/project_kpis.csv",
+      "role": "legacy_model_output",
+      "description": "Single-row table of the headline KPIs published by the legacy project.",
+      "sha256": "529d64567c68fb8c20e66430ffca43c064ca1800c08c0d8dd65dccc889490b0a",
+      "bytes": 432,
+      "rows": 1,
+      "columns": [
+        "historical_total_requests",
+        "historical_average_daily_requests",
+        "ytd_2026_growth_pct",
+        "model_mape_pct",
+        "baseline_mape_pct",
+        "mape_improvement_pct",
+        "forecast_30_day_requests",
+        "forecast_average_daily_requests",
+        "planning_capacity_threshold",
+        "capacity_shortfall_days",
+        "total_forecast_capacity_gap",
+        "maximum_forecast_utilization_pct",
+        "first_shortfall_date",
+        "advance_warning_days"
+      ],
+      "date_column": null,
+      "date_min": null,
+      "date_max": null
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "02 Notebooks/Project_2_Demand_Workload_Forecasting.ipynb",
+      "kind": "notebook",
+      "description": "Original Colab notebook (pipeline, model and exports).",
+      "sha256": "3f133a9b3685108dec847512e221e42fd27ed4bc18d6c65f66632eba6c70bf46",
+      "bytes": 453354
+    },
+    {
+      "path": "03 SQL/Project2_Demand_Forecasting_Analysis.sql",
+      "kind": "sql",
+      "description": "Original SQLite analysis script (not executed by ATLAS).",
+      "sha256": "fc0607c20e63a9c1484eb073cb18fe07182c2bef9590ab7aeebb604133cd3c25",
+      "bytes": 13560
+    },
+    {
+      "path": "04 Power BI/Project_2_Demand_Workload_Forecasting.pbix",
+      "kind": "power_bi",
+      "description": "Original Power BI report (binary).",
+      "sha256": "a11f70d9f59dfe4992941243baaf18a4fbb7f2042fc4027a0e0a2efe83e29fa5",
+      "bytes": 335322
+    },
+    {
+      "path": "05 Screenshots/Capacity_Risk_Details.png",
+      "kind": "image",
+      "description": "Dashboard screenshot: capacity risk details page.",
+      "sha256": "95d19bf10156f82b6485a3e55db1c6eae556413f5739cca8d7e53c424a6b3101",
+      "bytes": 344588
+    },
+    {
+      "path": "05 Screenshots/Demand_Forecasting_Data_Model.png",
+      "kind": "image",
+      "description": "Dashboard screenshot: Power BI data model.",
+      "sha256": "87cc48fdec5cbe115215b367593339f02b11538b1539d5d08e62061a91c6c843",
+      "bytes": 77107
+    },
+    {
+      "path": "05 Screenshots/Demand_Forecasting_Overview.png",
+      "kind": "image",
+      "description": "Dashboard screenshot: overview page.",
+      "sha256": "9073876e228cdfe328c6d8a859e8afd463be64788a36d28c693554613edee77e",
+      "bytes": 157244
+    },
+    {
+      "path": "06 Exports/Project2_Demand_Forecasting_Report.pdf",
+      "kind": "pdf",
+      "description": "Original PDF export of the dashboard.",
+      "sha256": "50ae9ac3ea649da91cf08ceaf907462cffbd18697cc62b191b62c31f8ad68217",
+      "bytes": 377397
+    }
+  ]
+}

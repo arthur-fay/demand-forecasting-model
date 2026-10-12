@@ -1,0 +1,94 @@
+[project]
+name = "atlas"
+version = "0.1.0"
+description = "ATLAS decision-intelligence engine: reproducible data foundation for NYC 311 demand analysis (milestone M0)."
+readme = "docs/DEVELOPMENT.md"
+requires-python = ">=3.12"
+authors = [{ name = "Arthur Fay" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Private :: Do Not Upload",
+]
+dependencies = [
+    "pandas>=3.0,<3.1",
+    "pydantic>=2.9,<3",
+]
+
+[project.scripts]
+atlas = "atlas.cli:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.100",
+    "mypy>=1.13",
+    "pandas-stubs>=3.0,<3.1",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+# Legacy research artifacts are preserved as-is and are not linted.
+extend-exclude = ["01 Data", "02 Notebooks", "03 SQL", "04 Power BI", "05 Screenshots", "06 Exports"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "PT",  # flake8-pytest-style
+    "PTH", # prefer pathlib
+    "RUF", # ruff-specific
+    "S",   # flake8-bandit (security)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# S101: assert is how pytest checks; S311: seeded shuffles in tests are not cryptographic.
+"tests/**" = ["S101", "S311"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/atlas"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=atlas",
+    "--cov-branch",
+    "--cov-report=term-missing",
+]
+markers = [
+    "integration: exercises the committed legacy-v0 snapshot end to end",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["atlas"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = false
+exclude_also = ["if TYPE_CHECKING:", "raise AssertionError", "@overload"]

@@ -1,0 +1,10 @@
+# Snapshot integrity is verified byte-for-byte with SHA-256. Never let git rewrite
+# line endings in registered data files (e.g. core.autocrlf on Windows), or the
+# legacy-v0 hashes would no longer match a fresh checkout.
+*.csv -text
+snapshots/** -text
+
+# Legacy binary artifacts.
+*.pbix binary
+*.pdf binary
+*.png binary
