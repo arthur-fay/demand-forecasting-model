@@ -1,0 +1,13 @@
+# Snapshot integrity is verified byte-for-byte with SHA-256. Never let git rewrite line
+# endings in any file registered in a snapshot manifest (e.g. core.autocrlf=true on
+# Windows), or the legacy-v0 hashes would no longer match a fresh checkout.
+# tests/test_snapshot.py checks that every registered path is covered by these rules.
+*.csv -text
+*.ipynb -text
+*.sql -text
+snapshots/** -text
+
+# Legacy binary artifacts.
+*.pbix binary
+*.pdf binary
+*.png binary

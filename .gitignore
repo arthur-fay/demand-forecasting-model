@@ -1,0 +1,42 @@
+# --- Secrets and local configuration --------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- Tooling caches and reports -------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --- Generated local artifacts (never commit run outputs) -----------------
+/outputs/
+/runs/
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Editors and OS -------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Notebooks ------------------------------------------------------------
+.ipynb_checkpoints/

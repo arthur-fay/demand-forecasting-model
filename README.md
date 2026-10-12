@@ -2,6 +2,23 @@
 
 An end-to-end analytics project that transforms historical operational request data into a 30-day demand forecast, evaluates model accuracy, and identifies future dates when forecast demand may exceed planning capacity.
 
+> **ATLAS engineering foundation (milestone M0).** This project is being rebuilt as ATLAS, a
+> reproducible and tested Python application. The original project artifacts (notebook, SQL,
+> Power BI, PDF, screenshots and CSV data) are preserved unchanged; in this README only the
+> broken notebook link was corrected, and the repository tree below shows the original
+> layout (see the [development guide](docs/DEVELOPMENT.md) for the new one). The data (NYC
+> Open Data 311 Service Requests, dataset `erm2-nwe9`) is frozen and hash-verified as the
+> `legacy-v0` snapshot.
+>
+> **Read before relying on the headline figures:** the 4.93% MAPE is a one-step-ahead holdout
+> score using observed values, not validated 30-day forecast accuracy, and "planning capacity"
+> is the 75th percentile of recent incoming requests, not operational service capacity. See
+> [Known limitations of the legacy claims](docs/LEGACY_LIMITATIONS.md).
+>
+> Quick start: `uv sync --locked && uv run atlas check` ·
+> [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
+> [Data snapshot](docs/DATA_SNAPSHOT.md) · [Roadmap](docs/ROADMAP.md)
+
 ## Dashboard Preview
 
 ![Demand Forecasting Overview](05%20Screenshots/Demand_Forecasting_Overview.png)
@@ -164,7 +181,7 @@ demand-forecasting-model/
 │   ├── yearly_workload.csv
 │   └── ytd_workload.csv
 ├── 02 Notebooks/
-│   └── Project2_Demand_Forecasting_Model.ipynb
+│   └── Project_2_Demand_Workload_Forecasting.ipynb
 ├── 03 SQL/
 │   └── Project2_Demand_Forecasting_Analysis.sql
 ├── 04 Power BI/
@@ -180,7 +197,7 @@ demand-forecasting-model/
 
 ## Project Files
 
-- [Open the Google Colab notebook](02%20Notebooks/Project2_Demand_Forecasting_Model.ipynb)
+- [Open the Google Colab notebook](02%20Notebooks/Project_2_Demand_Workload_Forecasting.ipynb)
 - [View the SQL analysis](03%20SQL/Project2_Demand_Forecasting_Analysis.sql)
 - [Download the Power BI dashboard](04%20Power%20BI/Project_2_Demand_Workload_Forecasting.pbix)
 - [View the PDF report](06%20Exports/Project2_Demand_Forecasting_Report.pdf)
