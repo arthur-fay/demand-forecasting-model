@@ -1,0 +1,129 @@
+{
+ "backtest_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+ "config_fingerprint": "5afd32068ebc63b5838cfea545326916f0c4dd835ed294a301acd89d8622244b",
+ "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+ "experiment_id": "atlas-m3-intervals-v1",
+ "record_type": "sealed_interval_selection",
+ "result_fingerprint": "2e67348990ba27eb811f73eddbad5d27d746a21644a2cc6c788b9296e3437194",
+ "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5-m3_selection",
+ "selection": {
+  "criterion": "wis",
+  "eligibility": [
+   {
+    "eligible": true,
+    "n_point_failed": 0,
+    "n_scheduled": 9120,
+    "n_unavailable": 0,
+    "pair_id": "empirical_additive@rolling365",
+    "unavailable_rate": 0.0
+   },
+   {
+    "eligible": true,
+    "n_point_failed": 0,
+    "n_scheduled": 9120,
+    "n_unavailable": 0,
+    "pair_id": "empirical_relative@rolling365",
+    "unavailable_rate": 0.0
+   },
+   {
+    "eligible": true,
+    "n_point_failed": 0,
+    "n_scheduled": 9120,
+    "n_unavailable": 0,
+    "pair_id": "conformal_absolute@rolling365",
+    "unavailable_rate": 0.0
+   },
+   {
+    "eligible": true,
+    "n_point_failed": 0,
+    "n_scheduled": 9120,
+    "n_unavailable": 0,
+    "pair_id": "empirical_additive@fixed365",
+    "unavailable_rate": 0.0
+   },
+   {
+    "eligible": true,
+    "n_point_failed": 0,
+    "n_scheduled": 9120,
+    "n_unavailable": 0,
+    "pair_id": "empirical_relative@fixed365",
+    "unavailable_rate": 0.0
+   },
+   {
+    "eligible": true,
+    "n_point_failed": 0,
+    "n_scheduled": 9120,
+    "n_unavailable": 0,
+    "pair_id": "conformal_absolute@fixed365",
+    "unavailable_rate": 0.0
+   }
+  ],
+  "first_horizon": 1,
+  "last_horizon": 30,
+  "max_unavailable_rate": 0.0,
+  "n_common": 9120,
+  "period": "m3_selection",
+  "point_model": "atlas_linear_regression",
+  "ranking": [
+   {
+    "coverage_80": 0.7266447368421053,
+    "coverage_95": 0.9104166666666667,
+    "mean_width_80": 2137.9566606862954,
+    "mean_width_95": 3940.820499843217,
+    "order": 4,
+    "pair_id": "empirical_relative@fixed365",
+    "wis": 457.9144489434364
+   },
+   {
+    "coverage_80": 0.7480263157894737,
+    "coverage_95": 0.9168859649122807,
+    "mean_width_80": 2459.358276049371,
+    "mean_width_95": 4678.439578338846,
+    "order": 1,
+    "pair_id": "empirical_relative@rolling365",
+    "wis": 460.2221781938389
+   },
+   {
+    "coverage_80": 0.7354166666666667,
+    "coverage_95": 0.9086622807017544,
+    "mean_width_80": 2412.4259916728342,
+    "mean_width_95": 4674.200492318732,
+    "order": 0,
+    "pair_id": "empirical_additive@rolling365",
+    "wis": 462.8293826855043
+   },
+   {
+    "coverage_80": 0.6894736842105263,
+    "coverage_95": 0.8969298245614035,
+    "mean_width_80": 1982.1926272884068,
+    "mean_width_95": 3770.0520144764023,
+    "order": 3,
+    "pair_id": "empirical_additive@fixed365",
+    "wis": 464.5068223500684
+   },
+   {
+    "coverage_80": 0.7026315789473684,
+    "coverage_95": 0.8958333333333334,
+    "mean_width_80": 2122.764557869991,
+    "mean_width_95": 3695.169472523758,
+    "order": 5,
+    "pair_id": "conformal_absolute@fixed365",
+    "wis": 473.1149815160295
+   },
+   {
+    "coverage_80": 0.7557017543859649,
+    "coverage_95": 0.9048245614035088,
+    "mean_width_80": 2394.855900987187,
+    "mean_width_95": 4810.411866665329,
+    "order": 2,
+    "pair_id": "conformal_absolute@rolling365",
+    "wis": 475.8974453853531
+   }
+  ],
+  "reason": "lowest mean WIS on the m3_selection period (457.914)",
+  "rule": "Among the candidate method/scheme pairs, those with an unavailable-forecast rate above max_unavailable_rate on the selection period are ineligible; the others are ranked by mean WIS over the selection horizons on the forecasts every eligible candidate issued, for the primary point model; ties go to the earlier candidate. The evaluation period never selects.",
+  "selected_method": "empirical_relative",
+  "selected_pair": "empirical_relative@fixed365",
+  "selected_scheme": "fixed365"
+ }
+}
