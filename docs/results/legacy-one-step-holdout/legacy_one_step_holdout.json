@@ -1,0 +1,71 @@
+{
+ "check": {
+  "design_rank": 29,
+  "holdout": {
+   "first_date": "2026-04-02",
+   "last_date": "2026-06-30",
+   "max_abs_difference_unrounded": 0.4949083477258682,
+   "metrics": [
+    {
+     "committed": 514.3,
+     "metric": "mae",
+     "ok": true,
+     "recomputed": 514.2964531941547
+    },
+    {
+     "committed": 676.7,
+     "metric": "rmse",
+     "ok": true,
+     "recomputed": 676.7048435762285
+    },
+    {
+     "committed": 4.93,
+     "metric": "mape_pct",
+     "ok": true,
+     "recomputed": 4.927419593961928
+    }
+   ],
+   "n_train_rows": 1159,
+   "predictions_published": 90,
+   "predictions_reproduced": 90,
+   "procedure": "one-step (h = 1) with observed lags, single fit (cell index 15)",
+   "record_type": "legacy_one_step_holdout"
+  },
+  "n_features": 32,
+  "recursive_forecast": {
+   "fed_back_inputs_equal_published": true,
+   "first_date": "2026-07-01",
+   "forecasts_published": 30,
+   "forecasts_reproduced": 30,
+   "last_date": "2026-07-30",
+   "max_abs_raw_minus_rounded": 0.49871014803647995,
+   "procedure": "recursive 30-day forecast through forecast_at_origin, clip at 0 and round half to even before feedback (cell index 16)"
+  }
+ },
+ "first_target": "2026-04-02",
+ "last_target": "2026-06-30",
+ "record_type": "legacy_one_step_holdout",
+ "rows": [
+  {
+   "label": "published legacy one-step holdout (single fit, observed lags)",
+   "mae": 514.3,
+   "mape_pct": 4.93,
+   "n": 90,
+   "rmse": 676.7
+  },
+  {
+   "label": "M2 re-computation of the legacy one-step holdout",
+   "mae": 514.2964531941547,
+   "mape_pct": 4.927419593961928,
+   "n": 90,
+   "rmse": 676.7048435762285
+  },
+  {
+   "label": "published 7-day seasonal baseline y(t-7)",
+   "mae": 851.16,
+   "mape_pct": 8.23,
+   "n": 90,
+   "rmse": 1107.24
+  }
+ ]
+}

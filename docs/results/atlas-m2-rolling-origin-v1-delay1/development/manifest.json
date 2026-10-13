@@ -1,0 +1,399 @@
+{
+ "code": {
+  "code_sha256": "5f3ec3316f10743e50f5fb6f03fff950e0121bf7981d58e1bbaed6891724301a",
+  "files": 33,
+  "uv_lock_sha256": "96fa3fd14990c5317a8e6b8e11b3dc606a00a94876f8d22cdf67ae90a896ea86"
+ },
+ "complete": true,
+ "config": {
+  "comparison_windows": [],
+  "data_delay_days": 1,
+  "description": "Pre-registered sensitivity of atlas-m2-rolling-origin-v1 to data vintage: identical protocol, but every forecast issued at origin o sees data through o-1 only (a one-day reporting delay), while still targeting o+1..o+30. Run on the development period only; it never selects or recommends.",
+  "experiment_id": "atlas-m2-rolling-origin-v1-delay1",
+  "horizon_buckets": [
+   {
+    "first": 1,
+    "label": "day_1",
+    "last": 1
+   },
+   {
+    "first": 2,
+    "label": "days_2_7",
+    "last": 7
+   },
+   {
+    "first": 8,
+    "label": "days_8_14",
+    "last": 14
+   },
+   {
+    "first": 15,
+    "label": "days_15_30",
+    "last": 30
+   }
+  ],
+  "max_horizon": 30,
+  "min_history_days": 365,
+  "models": [
+   {
+    "model_id": "naive",
+    "type": "naive"
+   },
+   {
+    "model_id": "seasonal_naive",
+    "season_days": 7,
+    "type": "seasonal_naive"
+   },
+   {
+    "model_id": "same_weekday_mean_4w",
+    "type": "same_weekday_mean",
+    "weeks": 4
+   },
+   {
+    "model_id": "same_weekday_median_5w",
+    "type": "same_weekday_median",
+    "weeks": 5
+   },
+   {
+    "burn_in_days": 28,
+    "model_id": "seasonal_exponential_smoothing",
+    "season_days": 7,
+    "type": "seasonal_exponential_smoothing"
+   },
+   {
+    "min_training_rows": 365,
+    "model_id": "legacy_linear_regression",
+    "type": "legacy_linear_regression"
+   },
+   {
+    "feature_set": "atlas-m2-regression-v1",
+    "min_training_rows": 365,
+    "model_id": "atlas_linear_regression",
+    "type": "atlas_linear_regression"
+   }
+  ],
+  "observed_input_diagnostic": false,
+  "periods": [
+   {
+    "allow_incomplete_horizons": false,
+    "first_origin": "2024-02-01",
+    "last_origin": "2025-05-31",
+    "name": "development",
+    "origin_stride_days": 1,
+    "role": "selection"
+   }
+  ],
+  "reference_model": "seasonal_naive",
+  "schema_version": 1,
+  "selection": {
+   "alpha": 0.05,
+   "candidates": [
+    "naive",
+    "seasonal_naive",
+    "same_weekday_mean_4w",
+    "same_weekday_median_5w",
+    "seasonal_exponential_smoothing",
+    "atlas_linear_regression"
+   ],
+   "first_horizon": 1,
+   "last_horizon": 30,
+   "max_failure_rate": 0.0,
+   "metric": "mae",
+   "period": "development",
+   "regression_margin_pct": 3.0
+  },
+  "sensitivity": {
+   "exclude_flagged_targets": false,
+   "holiday_stratum": false,
+   "origin_exclusions": []
+  },
+  "snapshot_id": "legacy-v0",
+  "target_table": "daily_total",
+  "training_window": {
+   "days": null,
+   "kind": "expanding"
+  }
+ },
+ "config_fingerprint": "26ef670d6da2bff677235a45dbb6ab04a6a30169aa9a372bfa936a98be56ceb4",
+ "data": {
+  "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+  "first_date": "2023-01-01",
+  "last_date": "2026-06-30",
+  "manifest_sha256": "3a57e7627d5e4eb5ba73cf2127a936a3d58131a79d52d1c2b8a0a695ad75fc5f",
+  "n_days": 1277,
+  "n_missing_days": 0,
+  "series_fingerprint": "7bb663463ef85df960938a2f7cbf7b779fe3cd1102989f198eca39f556378146",
+  "snapshot_id": "legacy-v0",
+  "table": "daily_total",
+  "table_path": "01 Data/daily_total.csv",
+  "table_sha256": "16a338f4851f62380a706a611e54706f52a29f3ee9a5adcea4f276b9b904d65c"
+ },
+ "environment": {
+  "atlas": "0.2.0",
+  "machine": "x86_64",
+  "numpy_blas_lapack": {
+   "blas": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   },
+   "lapack": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   }
+  },
+  "packages": {
+   "numpy": "2.5.4",
+   "pandas": "3.0.6",
+   "pydantic": "2.14.1"
+  },
+  "platform": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+  "python": "3.12.3",
+  "python_implementation": "CPython",
+  "thread_settings": {
+   "MKL_NUM_THREADS": "1",
+   "OMP_NUM_THREADS": "1",
+   "OPENBLAS_NUM_THREADS": "1"
+  }
+ },
+ "experiment_id": "atlas-m2-rolling-origin-v1-delay1",
+ "flagged_target_dates": [],
+ "git": {
+  "available": true,
+  "commit": "28708bda22c35f8caefa4cb15f42c7ecaeb035e4",
+  "dirty": false,
+  "dirty_paths": 0
+ },
+ "informational_not_fingerprinted": {
+  "created_at_utc": "2026-10-13T19:21:38+00:00",
+  "runtime_seconds": 159.0
+ },
+ "label": "HISTORICAL BACKTEST: rolling-origin re-forecasts of past days from a frozen data snapshot, refitted at every origin with data through that origin only and scored against the recorded actuals. Not prospective validation.",
+ "models": [
+  {
+   "description": "Last observed value: yhat(o+h) = y(o) for every horizon.",
+   "family": "baseline",
+   "feature_set": null,
+   "feature_set_fingerprint": null,
+   "implementation_version": 1,
+   "model_id": "naive",
+   "model_type": "naive",
+   "params": {},
+   "procedure": "direct",
+   "spec_fingerprint": "736b11c6486cba19ae080d0ad6fb831bb76d73e8520f8a81e06bf0d193393cd0"
+  },
+  {
+   "description": "Horizon-correct seasonal naive: yhat(o+h) = y(o + h - m*ceil(h/m)), the most recent observed day one or more whole seasons before the target.",
+   "family": "baseline",
+   "feature_set": null,
+   "feature_set_fingerprint": null,
+   "implementation_version": 1,
+   "model_id": "seasonal_naive",
+   "model_type": "seasonal_naive",
+   "params": {
+    "season_days": 7
+   },
+   "procedure": "direct",
+   "spec_fingerprint": "34c4231e50722ad08d8864b71f532391cace3ebdcc9b92f9174ae98b87fcbb8f"
+  },
+  {
+   "description": "Mean of the 4 most recent observed values on the target's weekday (on or before the origin).",
+   "family": "baseline",
+   "feature_set": null,
+   "feature_set_fingerprint": null,
+   "implementation_version": 1,
+   "model_id": "same_weekday_mean_4w",
+   "model_type": "same_weekday_mean",
+   "params": {
+    "weeks": 4
+   },
+   "procedure": "direct",
+   "spec_fingerprint": "c4548a35d1666dae7eb033f05b4e1b409b726bb84b773f623821cfd7c93f2b34"
+  },
+  {
+   "description": "Median of the 5 most recent observed values on the target's weekday (on or before the origin).",
+   "family": "baseline",
+   "feature_set": null,
+   "feature_set_fingerprint": null,
+   "implementation_version": 1,
+   "model_id": "same_weekday_median_5w",
+   "model_type": "same_weekday_median",
+   "params": {
+    "weeks": 5
+   },
+   "procedure": "direct",
+   "spec_fingerprint": "3ba84e3905d5098d83c314877463cd15f0b5b8fca038da59ab1c48cc042a8a86"
+  },
+  {
+   "description": "Additive seasonal exponential smoothing ETS(A,N,A), weekly season, smoothing parameters chosen from a fixed grid by in-sample one-step squared error.",
+   "family": "baseline",
+   "feature_set": null,
+   "feature_set_fingerprint": null,
+   "implementation_version": 1,
+   "model_id": "seasonal_exponential_smoothing",
+   "model_type": "seasonal_exponential_smoothing",
+   "params": {
+    "alphas": [
+     0.05,
+     0.1,
+     0.2,
+     0.3,
+     0.5,
+     0.7
+    ],
+    "burn_in_days": 28,
+    "gammas": [
+     0.01,
+     0.05,
+     0.1,
+     0.2,
+     0.3
+    ],
+    "season_days": 7
+   },
+   "procedure": "direct",
+   "spec_fingerprint": "e17a9d8a757b6c8f278cc91b42626fa2f2a37ee075f12dd7247a6ec7a7ed43f8"
+  },
+  {
+   "description": "Faithful legacy notebook regression: 32 collinear features, minimum-norm least squares with intercept (scikit-learn LinearRegression semantics), recursive 30-day procedure with clip-at-0 and integer rounding before feedback.",
+   "family": "regression",
+   "feature_set": "legacy-notebook-cell-14",
+   "feature_set_fingerprint": "09665f4190a064af9661486af9f451fed295ef235f499111ffa8c15be56c045c",
+   "implementation_version": 1,
+   "model_id": "legacy_linear_regression",
+   "model_type": "legacy_linear_regression",
+   "params": {
+    "clip_at_zero": true,
+    "features": [
+     "trend_days",
+     "year",
+     "day_of_year",
+     "is_weekend",
+     "legacy_annual_sin",
+     "legacy_annual_cos",
+     "lag_1",
+     "lag_7",
+     "lag_14",
+     "lag_28",
+     "rolling_mean_7",
+     "rolling_mean_28",
+     "rolling_std_28",
+     "is_iso_weekday_1",
+     "is_iso_weekday_2",
+     "is_iso_weekday_3",
+     "is_iso_weekday_4",
+     "is_iso_weekday_5",
+     "is_iso_weekday_6",
+     "is_iso_weekday_7",
+     "is_month_1",
+     "is_month_2",
+     "is_month_3",
+     "is_month_4",
+     "is_month_5",
+     "is_month_6",
+     "is_month_7",
+     "is_month_8",
+     "is_month_9",
+     "is_month_10",
+     "is_month_11",
+     "is_month_12"
+    ],
+    "fit_method": "legacy_min_norm",
+    "intercept": true,
+    "min_training_rows": 365,
+    "round_feedback": "half_even_before_feedback",
+    "training_horizon": 1
+   },
+   "procedure": "recursive",
+   "spec_fingerprint": "528d46417129e0dc3aba33ddf17d6ba66aed96a1eb3c82f4a41eb7060b4af6af"
+  },
+  {
+   "description": "Modernised regression atlas-m2-regression-v1: 18 non-collinear M1 features plus intercept, OLS on standardised columns (full rank required), recursive, clipped at 0.",
+   "family": "regression",
+   "feature_set": "atlas-m2-regression-v1",
+   "feature_set_fingerprint": "9e5d3e14cf7eb2aae0692c4ce6fe9d507a9374cf762fd6500c6bfd9e3299f6af",
+   "implementation_version": 1,
+   "model_id": "atlas_linear_regression",
+   "model_type": "atlas_linear_regression",
+   "params": {
+    "clip_at_zero": true,
+    "features": [
+     "is_iso_weekday_2",
+     "is_iso_weekday_3",
+     "is_iso_weekday_4",
+     "is_iso_weekday_5",
+     "is_iso_weekday_6",
+     "is_iso_weekday_7",
+     "year_sin_1",
+     "year_cos_1",
+     "year_sin_2",
+     "year_cos_2",
+     "trend_days",
+     "is_observed_holiday",
+     "is_day_before_holiday",
+     "is_day_after_holiday",
+     "lag_1",
+     "lag_7",
+     "same_weekday_mean_4w",
+     "rolling_mean_28"
+    ],
+    "fit_method": "standardized_ols",
+    "intercept": true,
+    "min_training_rows": 365,
+    "round_feedback": "none",
+    "training_horizon": 1
+   },
+   "procedure": "recursive",
+   "spec_fingerprint": "d71db4b2049760a1c703270c9322af5065a7dce55f706e6ea1bc13448202d0cc"
+  }
+ ],
+ "outputs": {
+  "coefficients.csv": "f90ca70698a4a43e963be8446c86cb6780ceeb2d9d7ca206674995de942d88e9",
+  "config.json": "61ffb00db447f4cc2638f2957a4cde838d06f12c07f5d3cb4d7a37f20401f5d3",
+  "fits.csv": "c1a0ea09f588fc189f020076439bc65ef3b3709de5543552740e1f321f982f1a",
+  "forecasts.csv": "44fdcf14b56871aaac519f8861bb3931a02b8a146eaca11c74f2751829093e6b",
+  "metrics.json": "348347a44cd60400809f1ecc83190a05f1b2ca908b216843b3e03b107289ba71",
+  "observed_inputs.csv": "4c1ce789a2331903e9c91c94bbd1df2dfc16254deb51169c724ddfff6d2b3552",
+  "report.md": "5f319dfc70a988bd28bffe60053bbff8fb0645fee045554076288db742930f9b",
+  "selection.json": "f2f1aefeeef9503339bbecf1df6a4958f662ffe66c3dbbba195746557a1a4254"
+ },
+ "periods_run": [
+  "development"
+ ],
+ "record_type": "historical_backtest",
+ "result_files": [
+  "forecasts.csv",
+  "fits.csv",
+  "coefficients.csv",
+  "observed_inputs.csv",
+  "metrics.json"
+ ],
+ "result_fingerprint": "79d4f7962d2ed022a1b8081028efa84e9a176cd91aa2f9a28c35379f79b7f22d",
+ "run_id": "atlas-m2-rolling-origin-v1-delay1-26ef670d-5ab8b3a5-development",
+ "schema_version": 1,
+ "sealed_selection": null,
+ "status_counts": {
+  "development": {
+   "atlas_linear_regression": {
+    "ok": 14580
+   },
+   "legacy_linear_regression": {
+    "ok": 14580
+   },
+   "naive": {
+    "ok": 14580
+   },
+   "same_weekday_mean_4w": {
+    "ok": 14580
+   },
+   "same_weekday_median_5w": {
+    "ok": 14580
+   },
+   "seasonal_exponential_smoothing": {
+    "ok": 14580
+   },
+   "seasonal_naive": {
+    "ok": 14580
+   }
+  }
+ }
+}

@@ -272,5 +272,28 @@ class DemandSeries:
         """Copy of the observations dated on or before ``origin`` (the information set)."""
         return self._values.loc[: pd.Timestamp(origin)].copy()
 
+    def through(self, origin: DateLike) -> DemandSeries:
+        """A new series holding only the days ``start .. origin`` (M2 backtesting).
+
+        A forecaster given this series cannot see anything after ``origin``: the later
+        days are not merely hidden, they are absent from the object. ``origin`` must lie
+        within ``start .. end``.
+        """
+        return self.window(self.start, origin)
+
+    def window(self, first: DateLike, last: DateLike) -> DemandSeries:
+        """A new series holding only the days ``first .. last`` (both inclusive).
+
+        Used for sliding training windows. Both dates must lie within ``start .. end``.
+        """
+        first_day, last_day = as_date(first), as_date(last)
+        if not self.start <= first_day <= last_day <= self.end:
+            raise DataQualityError(
+                f"{self.name}: window {first_day}..{last_day} is not within "
+                f"{self.start}..{self.end}"
+            )
+        values = self._values.loc[pd.Timestamp(first_day) : pd.Timestamp(last_day)]
+        return DemandSeries(self.name, values)
+
     def value_on(self, day: date) -> float:
         return float(self._values.loc[pd.Timestamp(day)])

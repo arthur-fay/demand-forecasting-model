@@ -62,6 +62,24 @@ def _integrity_and_validation(
     return reports, tables, register
 
 
+def validated_tables(
+    settings: Settings, stage_name: str
+) -> tuple[list[CheckReport], dict[str, LoadedTable] | None]:
+    """Integrity then validation, for a later stage named ``stage_name`` (M2 commands).
+
+    Returns the reports and the validated tables, or ``None`` for the tables (with a
+    skipped report for ``stage_name`` appended) when either stage failed.
+    """
+    reports, tables, register = _integrity_and_validation(settings, Stage.VALIDATION)
+    if register is None:
+        reports.append(_skipped(stage_name, "snapshot integrity check failed"))
+        return reports, None
+    if not reports[-1].ok:
+        reports.append(_skipped(stage_name, "data validation failed"))
+        return reports, None
+    return reports, tables
+
+
 def run(settings: Settings, through: Stage = Stage.REPRODUCTION) -> list[CheckReport]:
     """Run stages up to and including ``through``; raises only on unusable configuration."""
     reports, tables, register = _integrity_and_validation(settings, through)

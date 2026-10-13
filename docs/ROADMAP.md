@@ -1,7 +1,7 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. M0 is merged; M1 is implemented on
-`feature/atlas-m1-data-features` and awaits review. Nothing from M2 onward is implemented.
+Each milestone requires separate approval. M0 and M1 are merged; M2 is implemented on
+`feature/atlas-m2-backtesting` and awaits review. Nothing from M3 onward is implemented.
 
 ## M0: Foundation (merged)
 
@@ -14,7 +14,7 @@ Each milestone requires separate approval. M0 is merged; M1 is implemented on
   metrics, each with its meaning stated.
 - Cross-checks of the six legacy output tables against the base data.
 
-## M1: Data and features (implemented; awaiting approval)
+## M1: Data and features (merged)
 
 See [FEATURES.md](FEATURES.md) and [DATA_QUALITY.md](DATA_QUALITY.md).
 
@@ -36,18 +36,37 @@ Still deferred (not part of the approved M1 scope, which excludes network access
 - An agency-level breakdown of the residual, which needs a new extraction.
 - New York City and New York State observances that are not federal holidays.
 
-## M2: Backtesting (deferred)
+## M2: Forecasting and backtesting (implemented; awaiting approval)
 
-- Rolling-origin evaluation of the forecast actually delivered, recursive or direct, at every
-  horizon from 1 to 30, with expanding windows and a fixed origin schedule.
-- Fair baselines with the same information: naive, weekly seasonal naive at horizon h,
-  seasonal naive with drift, and the mean or median of recent same weekdays. The legacy
-  regression is re-scored under the same protocol.
-- Metrics by horizon (MAE, RMSE, bias, WAPE, MASE), and Diebold-Mariano comparisons against
-  the seasonal-naive baseline. Test-set R² will not be reported.
-- A run registry recording, for every run, the data snapshot hash, configuration hash, git
-  SHA, seed and library versions.
-- If approved: score the archived July 2026 forecast against the realised July 2026 data.
+See [BACKTESTING.md](BACKTESTING.md).
+
+- Rolling-origin evaluation of the forecast actually delivered (recursive for the
+  regressions, direct for the baselines) at every horizon from 1 to 30, with expanding
+  windows, daily origins and a refit at every origin.
+- Baselines with the same information: naive, horizon-correct weekly seasonal naive, mean
+  and median of recent same weekdays, and seasonal exponential smoothing. The legacy
+  regression is re-implemented exactly (it reproduces all 120 published predictions) and
+  re-scored under the same protocol, next to a modernised regression.
+- Metrics by horizon and bucket (MAE, RMSE, bias, WAPE, MASE, MAPE as secondary),
+  improvement over seasonal naive and over the best baseline on common forecasts, and
+  Harvey-Leybourne-Newbold Diebold-Mariano tests with HAC variances. Test-set R² is not
+  reported.
+- A pre-registered protocol: development selection sealed before a later confirmation
+  period, a margin and significance rule for preferring a regression, and Holm-adjusted
+  primary tests.
+- Run records with configuration, data, code and spec fingerprints, git commit, package and
+  BLAS versions; `atlas backtest verify` requires byte-identical results.
+- An independent adversarial review (leakage, recursion and legacy fidelity, statistics and
+  claims, mutation testing, requirements). Its confirmed findings were fixed; the amendments
+  are listed in [BACKTESTING.md](BACKTESTING.md), section 9.
+
+Deliberately not done in M2:
+
+- **Seasonal naive with drift:** replaced by seasonal exponential smoothing, which adapts the
+  level instead of extrapolating a slope.
+- **Seed in the run registry:** M2 has no randomness, so there is no seed to record.
+- **Scoring the archived July 2026 forecast:** it needs data after 2026-06-30, which would be
+  a new extraction (not authorised).
 
 ## Later milestones (deferred, outline only)
 

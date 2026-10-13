@@ -16,8 +16,18 @@ Milestone **M1** adds the data-quality and feature foundation for forecasting:
 - one leakage-safe feature builder for training, direct and recursive forecasting
   ([FEATURES.md](FEATURES.md)).
 
-ATLAS does **not** yet fit or evaluate forecasting models, optimise, serve an API or fetch
-data from the network. See [ROADMAP.md](ROADMAP.md).
+Milestone **M2** adds forecasting and backtesting ([BACKTESTING.md](BACKTESTING.md)):
+
+- seven models behind one typed interface: four naive-family baselines, seasonal exponential
+  smoothing, a faithful re-implementation of the legacy regression and a modernised
+  regression, all built on the M1 feature builder;
+- a rolling-origin engine that refits every model at every origin on data through that origin
+  only, and evaluates the recursive procedure at horizons 1-30;
+- a pre-registered protocol (development selection, sealed before a later confirmation
+  period), dependence-aware statistics and versioned, fingerprinted run records.
+
+ATLAS does **not** provide prediction intervals, optimisation, an API or a dashboard, and it
+does not fetch data from the network. See [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
@@ -46,8 +56,51 @@ uv run atlas --format json check      # machine-readable report
 uv run atlas snapshot manifest        # print the manifest computed from disk (never writes)
 uv run atlas quality                  # M1: integrity -> validation -> residual and quality flags
 uv run atlas features                 # M1: catalogue of the default forecast feature set
+uv run atlas backtest legacy          # M2: refit the legacy model, compare with its outputs
+uv run atlas backtest run --config configs/backtest/smoke.json --output-dir /tmp/smoke
+uv run atlas backtest verify /tmp/smoke   # M2: re-run and require identical result files
+uv run atlas forecast --config configs/backtest/smoke.json   # M2: labelled future projection
 uv run python -m atlas --version      # module entry point
 ```
+
+### Running the M2 protocol
+
+The protocol in `configs/backtest/atlas-m2-rolling-origin-v1.json` is pre-registered. It is
+run in two steps, and the second step refuses to run without the first:
+
+```bash
+# 1. development (selection) period only: writes selection.json next to the results
+uv run atlas backtest run --require-clean --output-dir runs/v1-development
+
+# 2. later periods, using the sealed development choice unchanged
+uv run atlas backtest run --require-clean \
+    --period development --period confirmation --period legacy_window \
+    --sealed-selection runs/v1-development/selection.json --output-dir runs/v1-full
+```
+
+- Without `--period`, only the selection period runs.
+- Any other period needs `--sealed-selection` (same configuration and data fingerprints, a
+  structurally valid selection) and must be run together with the development period, whose
+  recomputed selection must equal the sealed one in every decision field; otherwise the run
+  fails, is marked incomplete and writes no `recommendation.json`.
+- The period rules (at most one selection and one confirmation period, disjoint target
+  windows) are checked when the configuration is loaded, whichever periods a run names.
+- An existing `--output-dir` is refused before anything is computed.
+- `atlas forecast --recommendation` accepts only the `recommendation.json` inside the complete
+  run directory that wrote it.
+- `--require-clean` refuses to run when code, configuration or tests have uncommitted
+  changes, so the recorded git commit identifies the code that ran.
+
+The full protocol takes about six minutes on one core. The run directory holds
+`manifest.json`, `forecasts.csv` (one row per model, origin and horizon), `fits.csv`,
+`coefficients.csv`, `observed_inputs.csv`, `metrics.json`, `report.md`, `config.json`, and
+`selection.json` / `recommendation.json` where applicable.
+
+`runs/` is git-ignored. The reference results quoted in the documentation are a curated copy
+in `docs/results/` (manifests, metrics, reports and selection records, but not the large
+`forecasts.csv`, whose SHA-256 is in the manifest). `atlas backtest verify` regenerates a run
+with the current code (data-quality flags included) and compares every regenerated file byte
+for byte.
 
 Every command prints the report of each stage it ran, prerequisites included. Stages run in
 order, and a stage is **skipped** when an earlier one failed, so nothing is ever computed from
@@ -96,8 +149,9 @@ run subsets with `--no-cov`, for example `uv run pytest -m integration --no-cov`
   (`db46703`). It is skipped when that commit is not in the clone (shallow history); CI
   checks out the full history.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus `atlas check` on
-pushes to `main` and on pull requests. It installs uv from a hash-pinned requirements file
+GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus `atlas check`,
+`atlas quality`, `atlas backtest legacy` and a smoke backtest followed by
+`atlas backtest verify` on pushes to `main` and on pull requests. It installs uv from a hash-pinned requirements file
 (`.github/ci-requirements.txt`).
 
 ## Repository layout
@@ -106,7 +160,10 @@ pushes to `main` and on pull requests. It installs uv from a hash-pinned require
 src/atlas/            Python package (see ARCHITECTURE.md)
 tests/                pytest suite
 snapshots/legacy-v0/  frozen manifest and known-exception register
-docs/                 this guide, architecture, data, limitations, roadmap
+configs/backtest/     versioned M2 experiment configurations (pre-registered protocol)
+docs/                 this guide, architecture, data, limitations, roadmap, backtesting
+docs/results/         curated reference results of the M2 runs (see BACKTESTING.md)
+runs/                 local run directories (git-ignored)
 01 Data/ ... 06 Exports/   original project artifacts, unchanged and hash-verified
 ```
 

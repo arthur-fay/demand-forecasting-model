@@ -14,6 +14,7 @@ Evidence labels:
 | **[code]** | Visible in the legacy notebook source; cells are 0-based indices in the `.ipynb` file, so cell index N is headed "STEP N+1" |
 | **[repo]** | Checkable from repository files or git metadata, but not covered by an automated test |
 | **[expected]** | A reasoned expectation that has not been measured |
+| **[measured, M2]** | Measured by the M2 rolling-origin backtest; see [BACKTESTING.md](BACKTESTING.md) |
 
 ## 1. "Model MAPE 4.93 %" is not 30-day forecast accuracy
 
@@ -34,8 +35,20 @@ Evidence labels:
 
 **Do not quote 4.93 % as validated 30-day accuracy.** The accurate description is:
 "one-step-ahead (h = 1) holdout MAPE with observed lags, single 90-day block, legacy model
-before refitting". A rolling-origin backtest that evaluates every horizon from 1 to 30 is
-planned for M2.
+before refitting".
+
+- **[measured, M2]** M2 re-implements the legacy model exactly: all 90 holdout predictions
+  and all 30 published forecasts are reproduced.
+- **[measured, M2]** Run recursively, as the published forecast was, on the same 90 days:
+  MAPE 5.5-5.9 % at horizons 2-30. Over the whole confirmation year (2025-07..2026-06):
+  9.0-9.8 % from horizon 7 on.
+- **[measured, M2]** In the development period it is worse than three simple baselines
+  beyond day 1, for example the median of the last five same weekdays (MAE 1,041.9 against
+  953.0 over horizons 1-30), although none of these deficits is statistically significant
+  (conservative DM p 0.064-0.601). In the confirmation period it is better than every
+  baseline, by 5.8 % against that median (p = 0.26) and by 23.6 % against seasonal naive
+  (p = 0.002). Neither period shows that it beats simple baselines reliably; see
+  [Backtesting](BACKTESTING.md), finding 2.
 
 ## 2. "Planning capacity 11,609 per day" is not operational capacity
 
@@ -57,8 +70,9 @@ be labelled `HYPOTHETICAL`.
 - **[tested]** The five "High" days exceed the percentile by 12, 84, 58, 202 and 210
   requests, 13 to 28 days ahead. Every one of these is smaller than the model's one-step
   holdout MAE of 514.3.
-- **[expected]** That MAE probably understates the error at 13 to 28 days ahead. This is not
-  measured; see M2.
+- **[measured, M2]** That MAE does understate the error at 13 to 28 days ahead. Over the
+  confirmation year, the legacy model's recursive MAE is about 1,070-1,100 requests per day
+  at horizons 14-30, more than twice the 514.3 one-step holdout MAE.
 - **[code]** (cell index 17) No forecast interval or probability is used anywhere. The risk
   tiers (95 / 100 / 110 % of the percentile) have no documented basis.
 - **[tested]** "Total gap 566" adds up positive daily excesses. Over the same 30 days,
@@ -73,6 +87,10 @@ be labelled `HYPOTHETICAL`.
 - **[code]** (cell index 14) The regression's inputs are linearly dependent: full weekday and
   month dummy sets plus an intercept, an `is_weekend` flag, and overlapping trend terms.
   Predictions are still defined, but the coefficients are not identifiable or interpretable.
+- **[measured, M2]** Fitted on 2023-2024 only, trend, year and day of year are a fourth exact
+  dependency. 465 forecasts of 2025 dates made from December 2024 origins are not
+  estimable. From 2025 on, the model estimates a level step from a few January days and
+  over-forecasts for months: mean bias +1,715 for January 2025 origins.
 - **[code]** (cell index 14) There are no holiday or event features, although the forecast
   window contains July 4.
 - **[code]** (cell index 0-3, 19) The legacy pipeline cannot be re-run offline: it pulls
@@ -80,6 +98,9 @@ be labelled `HYPOTHETICAL`.
   re-running it with verification of the frozen outputs.
 
 ## What M0 does and does not change
+
+M2 measured the accuracy of the published procedure; see [BACKTESTING.md](BACKTESTING.md).
+No legacy file or number is changed by M0, M1 or M2.
 
 M0 does **not** change any legacy file or number. It:
 
