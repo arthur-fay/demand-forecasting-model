@@ -6,11 +6,14 @@ skipped and nothing is computed. Configuration problems raise
 :class:`~atlas.errors.ConfigError` (exit code 2).
 
 Pre-registration is enforced here. ``atlas backtest run`` evaluates only the selection
-(development) period unless other periods are named, and any other period of a protocol
-with a selection rule needs ``--sealed-selection``: the ``selection.json`` written by an
-earlier development run of the *same* configuration on the *same* data. The sealed
-choice is then used unchanged; if the development period is run again it must
-reproduce the sealed choice exactly.
+(development) period unless other periods are named. In a protocol with a selection
+rule, any other period needs ``--sealed-selection`` (the ``selection.json`` written by
+an earlier development run of the *same* configuration on the *same* data) and must be
+run *together with* the selection period: the selection recomputed in that run has to
+reproduce the sealed one in every decision field, so an edited seal cannot pass. The
+sealed choice is then used unchanged. A run with an ERROR issue is marked incomplete and
+writes no ``selection.json`` or ``recommendation.json``; ``atlas forecast`` accepts a
+recommendation only from inside the complete run directory that wrote it.
 """
 
 from __future__ import annotations
@@ -159,6 +162,65 @@ def default_periods(config: ExperimentConfig) -> list[str]:
     return config.period_names
 
 
+def _check_output_dir(directory: Path) -> None:
+    """Refuse an existing output directory before any computation (checked again on write)."""
+    if directory.exists():
+        raise ConfigError(f"output directory {directory} already exists; choose another")
+
+
+def _selection_schema_problems(selection: Mapping[str, Any], config: ExperimentConfig) -> list[str]:
+    """Structural problems of a sealed selection (checked before anything is computed)."""
+    rule = config.selection
+    problems: list[str] = []
+    if rule is None:
+        return ["the configuration has no selection rule"]
+    for key, kind in (
+        ("rule", str),
+        ("reason", str),
+        ("selected_model", str),
+        ("margin_met", bool),
+        ("significant", bool),
+        ("eligibility", list),
+        ("ranking", list),
+    ):
+        if not isinstance(selection.get(key), kind):
+            problems.append(f"{key} is missing or not a {kind.__name__}")
+    if selection.get("period") != rule.period:
+        problems.append(f"period is not the selection period {rule.period!r}")
+    if (selection.get("first_horizon"), selection.get("last_horizon")) != (
+        rule.first_horizon,
+        rule.last_horizon,
+    ):
+        problems.append("the horizons differ from the selection rule")
+    ranking = selection.get("ranking")
+    ranked: list[Any] = []
+    if isinstance(ranking, list):
+        if not ranking:
+            problems.append("ranking is empty")
+        for row in ranking:
+            if not (
+                isinstance(row, dict)
+                and isinstance(row.get("model_id"), str)
+                and isinstance(row.get("mae"), int | float)
+                and not isinstance(row.get("mae"), bool)
+            ):
+                problems.append("every ranking row needs a model_id and an mae")
+                break
+            ranked.append(row["model_id"])
+    if (
+        isinstance(selection.get("selected_model"), str)
+        and selection["selected_model"] not in ranked
+    ):
+        problems.append("selected_model is not in the ranking")
+    for key in ("best_baseline", "best_regression"):
+        value = selection.get(key)
+        if value is not None and value not in ranked:
+            problems.append(f"{key} is not in the ranking")
+    if not isinstance(selection.get("regression_vs_best_baseline"), dict | None):
+        problems.append("regression_vs_best_baseline is not an object")
+    return problems
+
+
 def load_sealed_selection(
     path: Path, config: ExperimentConfig, data_fingerprint: str
 ) -> dict[str, Any]:
@@ -176,6 +238,9 @@ def load_sealed_selection(
     selection = sealed.get("selection")
     if not isinstance(selection, dict) or not selection.get("selected_model"):
         raise ConfigError(f"{path} contains no selection")
+    problems = _selection_schema_problems(selection, config)
+    if problems:
+        raise ConfigError(f"{path} is not a valid sealed selection: " + "; ".join(problems))
     return sealed
 
 
@@ -303,16 +368,6 @@ def _backtest_issues(result: BacktestResult, config: ExperimentConfig) -> list[I
     return issues
 
 
-def _selection_matches(sealed: Mapping[str, Any], recomputed: Mapping[str, Any] | None) -> bool:
-    if recomputed is None:
-        return True
-    keys = ("selected_model", "best_baseline", "best_regression")
-    rank = [r["model_id"] for r in sealed.get("ranking", [])]
-    return all(sealed.get(k) == recomputed.get(k) for k in keys) and rank == [
-        r["model_id"] for r in recomputed.get("ranking", [])
-    ]
-
-
 def run_backtest_command(
     settings: Settings,
     config_path: Path,
@@ -327,23 +382,33 @@ def run_backtest_command(
     _check_snapshot(settings, config)
     chosen = list(periods) if periods else default_periods(config)
     plan = config.plan(chosen)
+    if output_dir is not None:
+        _check_output_dir(output_dir)
     git = git_info(settings.repo_root)
     if require_clean and (not git.get("available") or git.get("dirty")):
         raise ConfigError(
             "refusing a reference run: the code, configuration or tests have uncommitted "
             "changes (or git is unavailable)"
         )
-    needs_seal = config.selection is not None and any(
-        p.role is not PeriodRole.SELECTION for p in plan.periods
-    )
+    selection_period = config.selection.period if config.selection is not None else None
+    needs_seal = selection_period is not None and any(n != selection_period for n in chosen)
     if needs_seal and sealed_selection is None:
         raise ConfigError(
             "periods other than the selection period need --sealed-selection: the "
             "selection.json of a development run of this configuration (pre-registration)"
         )
+    if needs_seal and selection_period not in chosen:
+        raise ConfigError(
+            f"periods other than the selection period must be run together with "
+            f"{selection_period!r} (add --period {selection_period}): the selection "
+            "recomputed in the same run must reproduce the sealed one"
+        )
     reports, data = load_series(settings, "backtest")
     if data is None:
         return reports
+    run_id = _run_id(config, data, chosen)
+    directory = output_dir or settings.repo_root / RUNS_DIRNAME / run_id
+    _check_output_dir(directory)
     sealed = (
         load_sealed_selection(sealed_selection, config, data.fingerprint)
         if sealed_selection is not None
@@ -360,22 +425,41 @@ def run_backtest_command(
         result, config, data, sealed=sealed, flagged_dates=flagged, legacy_block=legacy_block
     )
     payload = outputs.payload
-    run_id = _run_id(config, data, chosen)
     issues = _backtest_issues(result, config)
-    if sealed is not None and not _selection_matches(
-        sealed["selection"], payload.get("selection_recomputed")
-    ):
+    if sealed is not None:
+        differing = (payload.get("selection_seal_check") or {}).get("differences", ["missing"])
+        if differing:
+            issues.append(
+                Issue(
+                    "selection_differs_from_seal",
+                    Severity.ERROR,
+                    "selection",
+                    "Re-running the development period does not reproduce the sealed "
+                    "selection (differs in: " + ", ".join(differing) + ").",
+                )
+            )
+    complete = not any(i.severity is Severity.ERROR for i in issues)
+    files = dict(outputs.files)
+    write_selection = selection_period in chosen and sealed is None and bool(payload["selection"])
+    write_recommendation = bool(payload.get("recommendation"))
+    withheld = [
+        name
+        for name, wanted in (
+            ("selection.json", write_selection),
+            ("recommendation.json", write_recommendation),
+        )
+        if wanted and not complete
+    ]
+    if withheld:
         issues.append(
             Issue(
-                "selection_differs_from_seal",
-                Severity.ERROR,
+                "decision_files_withheld",
+                Severity.WARNING,
                 "selection",
-                "Re-running the development period does not reproduce the sealed selection.",
+                "The run is incomplete, so " + " and ".join(withheld) + " was not written.",
             )
         )
-    files = dict(outputs.files)
-    selection_period_run = config.selection is not None and config.selection.period in chosen
-    if selection_period_run and sealed is None and payload.get("selection"):
+    if complete and write_selection:
         files["selection.json"] = json_bytes(
             {
                 "record_type": SEALED_SELECTION_TYPE,
@@ -387,7 +471,7 @@ def run_backtest_command(
                 "selection": payload["selection"],
             }
         )
-    if payload.get("recommendation"):
+    if complete and write_recommendation:
         files["recommendation.json"] = json_bytes(
             {
                 "record_type": RECOMMENDATION_TYPE,
@@ -398,12 +482,11 @@ def run_backtest_command(
                 "recommendation": payload["recommendation"],
             }
         )
-    directory = output_dir or settings.repo_root / RUNS_DIRNAME / run_id
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "record_type": RECORD_TYPE_BACKTEST,
         "label": RECORD_TYPE_LABELS[RECORD_TYPE_BACKTEST],
-        "complete": not any(i.severity is Severity.ERROR for i in issues),
+        "complete": complete,
         "run_id": run_id,
         "experiment_id": config.experiment_id,
         "periods_run": chosen,
@@ -488,11 +571,14 @@ def _bucket_table(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def verify_command(settings: Settings, run_dir: Path) -> list[CheckReport]:
-    """``atlas backtest verify``: re-run a recorded backtest and compare its result files.
+    """``atlas backtest verify``: re-run a recorded backtest and compare its files.
 
-    Succeeds only when every result file is byte-identical (same result fingerprint). A
-    numeric comparison of the predictions, and any difference in code, git commit or
-    environment, are reported as diagnostics.
+    Everything is recomputed with the current code from the snapshot, including the
+    data-quality flags behind the flagged-target sensitivity (a recorded list that the
+    code no longer produces is an error). Succeeds only when every regenerated file
+    (result files, ``report.md`` and ``config.json``) is byte-identical to the recorded
+    one and the result fingerprint matches. A numeric comparison of the predictions, and
+    any difference in code, git commit or environment, are reported as diagnostics.
     """
     manifest = _read_json(run_dir / "manifest.json", "run manifest")
     if manifest.get("record_type") != RECORD_TYPE_BACKTEST:
@@ -524,23 +610,29 @@ def verify_command(settings: Settings, run_dir: Path) -> list[CheckReport]:
         )
         return reports
     sealed = manifest.get("sealed_selection")
-    flagged = manifest.get("flagged_target_dates") or []
+    issues: list[Issue] = []
+    flagged = _flagged_dates(settings, data) if config.sensitivity.exclude_flagged_targets else []
+    recorded_flags = [str(d) for d in manifest.get("flagged_target_dates") or []]
+    if [d.isoformat() for d in flagged] != recorded_flags:
+        issues.append(
+            Issue(
+                "flagged_dates_differ",
+                Severity.ERROR,
+                "flagged_target_dates",
+                f"The code now flags {len(flagged)} target date(s); the run recorded "
+                f"{len(recorded_flags)}.",
+            )
+        )
     legacy_block: dict[str, Any] | None = None
     if any(w.kind == "legacy_holdout" and w.period in periods for w in config.comparison_windows):
         legacy_block, _ = _legacy_holdout_block(data)
     result = run_backtest(data.series, plan, config.build_models())
     outputs = backtest_outputs(
-        result,
-        config,
-        data,
-        sealed=sealed,
-        flagged_dates=[pd.Timestamp(d).date() for d in flagged],
-        legacy_block=legacy_block,
+        result, config, data, sealed=sealed, flagged_dates=flagged, legacy_block=legacy_block
     )
     recorded = manifest.get("outputs", {})
-    issues: list[Issue] = []
     files: dict[str, str] = {}
-    for name in RESULT_FILES:
+    for name in outputs.outputs:
         same = recorded.get(name) == outputs.outputs[name]
         files[name] = "identical" if same else "different"
         if not same:
@@ -632,6 +724,8 @@ def legacy_refit_command(
     settings: Settings, *, output_dir: Path | None = None
 ) -> list[CheckReport]:
     """``atlas backtest legacy``: refit the legacy model and compare with its outputs."""
+    if output_dir is not None:
+        _check_output_dir(output_dir)
     reports, data = load_series(settings, "legacy_refit")
     if data is None:
         return reports
@@ -655,6 +749,7 @@ def legacy_refit_command(
         data.series, *(data.tables[name].frame for name in LEGACY_TABLES)
     )
     if output_dir is not None:
+        _check_output_dir(output_dir)
         rows = legacy_holdout_rows(holdout, data.tables["model_metrics"].frame)
         files = {
             "legacy_one_step_holdout.csv": csv_bytes(holdout.records()),
@@ -683,6 +778,27 @@ def legacy_refit_command(
 # --- Projection -----------------------------------------------------------------------
 
 
+def _recommendation_source(path: Path, record: Mapping[str, Any]) -> dict[str, Any]:
+    """Check that a recommendation comes, unchanged, from a complete backtest run."""
+    manifest = _read_json(path.parent / "manifest.json", "manifest of the recommending run")
+    problems = []
+    if manifest.get("record_type") != RECORD_TYPE_BACKTEST:
+        problems.append("its directory holds no historical backtest manifest")
+    if manifest.get("complete") is not True:
+        problems.append("the run that wrote it is not complete")
+    if manifest.get("outputs", {}).get(path.name) != sha256_file(path):
+        problems.append("the file is not the one the run recorded")
+    if manifest.get("result_fingerprint") != record.get("result_fingerprint"):
+        problems.append("its result fingerprint differs from the run's")
+    if problems:
+        raise ConfigError(f"{path} cannot be used: " + "; ".join(problems))
+    return {
+        "run_id": manifest.get("run_id"),
+        "result_fingerprint": manifest.get("result_fingerprint"),
+        "recommendation_sha256": sha256_file(path),
+    }
+
+
 def projection_command(
     settings: Settings,
     config_path: Path,
@@ -692,17 +808,22 @@ def projection_command(
 ) -> list[CheckReport]:
     """``atlas forecast``: future projection from the last observed day (not validated).
 
-    With ``--recommendation`` (the ``recommendation.json`` of a confirmation run of the
-    same configuration and data) only the recommended model is projected; otherwise
-    every configured model is, for comparison.
+    With ``--recommendation`` only the recommended model is projected; otherwise every
+    configured model is, for comparison. The recommendation must be the
+    ``recommendation.json`` inside the directory of the complete confirmation run (same
+    configuration and data) that wrote it, unchanged since: its ``manifest.json`` is
+    checked.
     """
     config = load_config(config_path)
     _check_snapshot(settings, config)
+    if output_dir is not None:
+        _check_output_dir(output_dir)
     reports, data = load_series(settings, "projection")
     if data is None:
         return reports
     models = config.build_models()
     recommended: str | None = None
+    source: dict[str, Any] | None = None
     if recommendation is not None:
         record = _read_json(recommendation, "recommendation")
         if record.get("record_type") != RECOMMENDATION_TYPE:
@@ -711,10 +832,14 @@ def projection_command(
             raise ConfigError("the recommendation was made with a different configuration")
         if record.get("data_fingerprint") != data.fingerprint:
             raise ConfigError("the recommendation was made on different data")
+        source = _recommendation_source(recommendation, record)
         recommended = record.get("recommendation", {}).get("recommended_model")
         models = tuple(m for m in models if m.spec.model_id == recommended)
         if not models:
             raise ConfigError(f"recommended model {recommended!r} is not configured")
+    run_id = f"{config.experiment_id}-{config.fingerprint()[:8]}-{data.fingerprint[:8]}"
+    directory = output_dir or settings.repo_root / RUNS_DIRNAME / "projections" / run_id
+    _check_output_dir(directory)
     result = project(
         data.series,
         models,
@@ -750,8 +875,6 @@ def projection_command(
     ]
     files["report.md"] = ("\n".join(lines) + "\n").encode("utf-8")
     outputs = {name: sha256_bytes(content) for name, content in files.items()}
-    run_id = f"{config.experiment_id}-{config.fingerprint()[:8]}-{data.fingerprint[:8]}"
-    directory = output_dir or settings.repo_root / RUNS_DIRNAME / "projections" / run_id
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "record_type": RECORD_TYPE_PROJECTION,
@@ -759,6 +882,7 @@ def projection_command(
         "run_id": run_id,
         "origin": result.origin,
         "recommended_model": recommended,
+        "recommendation_source": source,
         "config_fingerprint": config.fingerprint(),
         "config": config.model_dump(mode="json"),
         "data": data.provenance,

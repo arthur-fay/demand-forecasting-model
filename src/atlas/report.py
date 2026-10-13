@@ -92,22 +92,23 @@ def _selection(payload: Mapping[str, Any]) -> list[str]:
             "",
             f"Best regression `{selection['best_regression']}` vs best baseline "
             f"`{selection['best_baseline']}`: MAE difference {_fmt(test.get('mae_difference'))} "
-            f"(95 % HAC CI {_fmt(test.get('mae_difference_ci_low'))} to "
+            f"(95 % HAC CI, conservative, {_fmt(test.get('mae_difference_ci_low'))} to "
             f"{_fmt(test.get('mae_difference_ci_high'))}), improvement "
             f"{_fmt(test.get('mae_improvement_pct'))} %, DM p (conservative) "
             f"{_p(test.get('dm_p_value_conservative'))}; margin met: "
             f"{_fmt(selection['margin_met'])}; significant: {_fmt(selection['significant'])}.",
         ]
     lines += ["", f"**Selected: `{selection['selected_model']}`.** {selection['reason']}"]
-    recomputed = payload.get("selection_recomputed")
-    if recomputed is not None:
-        same = recomputed.get("selected_model") == selection.get("selected_model") and (
-            recomputed.get("best_baseline") == selection.get("best_baseline")
-        )
+    check = payload.get("selection_seal_check")
+    if check is not None:
+        differences = check["differences"]
         lines += [
             "",
             "The selection was sealed before this run; recomputing it from this run's "
-            f"development records gives the same choice: {_fmt(same)}.",
+            "development records reproduces it in every decision field: "
+            + (
+                "yes." if not differences else "**no** (differs in " + ", ".join(differences) + ")."
+            ),
         ]
     return lines
 
@@ -126,7 +127,16 @@ def _recommendation(payload: Mapping[str, Any]) -> list[str]:
         "",
     ]
     lines += _table(
-        ["hypothesis", "model", "vs", "MAE diff", "95 % CI", "improvement %", "DM p", "Holm p"],
+        [
+            "hypothesis",
+            "model",
+            "vs",
+            "MAE diff",
+            "95 % CI (conservative)",
+            "improvement %",
+            "DM p (conservative)",
+            "Holm p",
+        ],
         [
             [
                 t["hypothesis"],
@@ -157,7 +167,8 @@ def _period_tables(payload: Mapping[str, Any], period: str) -> list[str]:
         f"## {period}: accuracy by horizon bucket",
         "",
         "MAE, RMSE and bias in requests per day (bias = mean of prediction minus actual, "
-        "with a 95 % HAC interval); WAPE and MAPE in %. `vs SN` is the MAE improvement over "
+        "with a 95 % HAC interval from the larger of the HLN and Bartlett-2h standard "
+        "errors); WAPE and MAPE in %. `vs SN` is the MAE improvement over "
         "seasonal naive on common forecasts"
         + (f", `vs B*` over the best development baseline (`{best}`)" if best else "")
         + "; positive = better. `p` = DM p-value (conservative; n/a when too few origins).",
@@ -427,9 +438,15 @@ def _fits(payload: Mapping[str, Any]) -> list[str]:
     )
     reliability = payload["regression_reliability"]
     if reliability:
+        comparator = next((r.get("comparator") for r in reliability if r.get("comparator")), None)
         lines += [
             "",
-            "Regression MAE with and without non-estimable or high-leverage forecasts:",
+            "Regression MAE with and without non-estimable or high-leverage forecasts"
+            + (
+                f"; `B*` (`{comparator}`) on exactly the same kept and removed forecasts:"
+                if comparator
+                else ":"
+            ),
             "",
         ]
         lines += _table(
@@ -442,6 +459,10 @@ def _fits(payload: Mapping[str, Any]) -> list[str]:
                 "high leverage",
                 "kept",
                 "MAE kept",
+                "B* kept",
+                "removed",
+                "MAE removed",
+                "B* removed",
             ],
             [
                 [
@@ -453,10 +474,61 @@ def _fits(payload: Mapping[str, Any]) -> list[str]:
                     _fmt(r["n_high_leverage"]),
                     _fmt(r["n_reliable"]),
                     _fmt(r["mae_reliable_only"]),
+                    _fmt(r.get("comparator_mae_reliable_pairs")),
+                    _fmt(r.get("n_removed_pairs")),
+                    _fmt(r.get("mae_removed_pairs")),
+                    _fmt(r.get("comparator_mae_removed_pairs")),
                 ]
                 for r in reliability
             ],
         )
+    return lines
+
+
+def _bandwidth(payload: Mapping[str, Any]) -> list[str]:
+    rows = payload.get("bandwidth_sensitivity") or []
+    if not rows:
+        return []
+    lines = [
+        "",
+        "## Bandwidth sensitivity of the selection and primary tests (post hoc)",
+        "",
+        "Added after the independent review; descriptive only (the selection and the "
+        "recommendation use the pre-registered test). The primary HAC variance truncates "
+        "at lag h - 1; wider bandwidths allow for dependence beyond shared target days. "
+        "HLN factor and t(T - 1) throughout; eff. n = T * gamma_0 / long-run variance.",
+        "",
+    ]
+    lines += _table(
+        [
+            "test",
+            "period",
+            "model",
+            "vs",
+            "mean diff",
+            "kernel",
+            "bandwidth",
+            "p",
+            "CI ±",
+            "eff. n",
+        ],
+        [
+            [
+                r["test"],
+                r["period"],
+                r["model_id"],
+                r["reference"],
+                _fmt(r["mean_difference"]),
+                v["kernel"],
+                str(v["bandwidth"]),
+                _p(v["p_value"]),
+                _fmt(v["ci_half_width"]),
+                _fmt(v["effective_sample_size"]),
+            ]
+            for r in rows
+            for v in r["variants"]
+        ],
+    )
     return lines
 
 
@@ -516,6 +588,7 @@ def render_report(payload: Mapping[str, Any]) -> str:
     lines += _windows(payload)
     lines += _decomposition(payload)
     lines += _sensitivity(payload)
+    lines += _bandwidth(payload)
     lines += _fits(payload)
     lines += ["", "## Caveats", "", *(f"- {c}" for c in CAVEATS)]
     return "\n".join(lines) + "\n"

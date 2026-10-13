@@ -37,7 +37,7 @@ immutable and every fit returns a new object, so no state passes between origins
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from enum import StrEnum
@@ -53,6 +53,7 @@ from atlas.models import (
     Failure,
     FailureStage,
     FitDiagnostics,
+    FittedExponentialSmoothing,
     FittedForecaster,
     FittedRecursiveLinear,
     Forecaster,
@@ -545,9 +546,15 @@ class BacktestResult:
         """Exactly one record per scheduled (period, model, origin, horizon)."""
         expected = self.plan.scheduled_records(len(self.models))
         keys = self.records[["period", "model_id", "origin", "horizon"]]
-        if len(self.records) != expected or keys.duplicated().any():
+        if len(self.records) != expected:
             raise AssertionError(
                 f"backtest produced {len(self.records)} records for {expected} scheduled"
+            )
+        duplicated = keys[keys.duplicated()]
+        if len(duplicated):
+            raise AssertionError(
+                f"backtest produced {len(duplicated)} duplicate record key(s), e.g. "
+                f"{duplicated.iloc[0].to_dict()}"
             )
 
     def status_counts(self) -> dict[str, dict[str, dict[str, int]]]:
@@ -641,10 +648,19 @@ def run_backtest(
 
 
 def _coefficient_rows(origin: date, outcome: OriginForecast) -> list[dict[str, Any]]:
-    """Fitted coefficients of identifiable regressions (none for the legacy design)."""
-    if not isinstance(outcome.fitted, FittedRecursiveLinear):
+    """Fitted parameters: coefficients of identifiable regressions (none for the legacy
+    design) and the exponential-smoothing parameters and final state."""
+    fitted = outcome.fitted
+    table: Mapping[str, float] | None
+    if isinstance(fitted, FittedExponentialSmoothing):
+        table = fitted.parameters()
+    elif isinstance(fitted, FittedRecursiveLinear):
+        coefficients = fitted.coefficients()
+        table = (
+            None if coefficients is None else {str(k): float(v) for k, v in coefficients.items()}
+        )
+    else:
         return []
-    table = outcome.fitted.coefficients()
     if table is None:
         return []
     return [

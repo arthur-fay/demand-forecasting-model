@@ -216,7 +216,8 @@ def summarize(
 
     ``n_predictions`` counts forecasts with an observed actual (``status == ok``);
     failed forecasts and forecasts without an actual are counted separately. For
-    buckets, ``bias_ci_*`` is a 95 % HAC interval for the mean error.
+    buckets, ``bias_ci_*`` is a 95 % HAC interval for the mean error (overlap = the
+    bucket's last horizon; the larger of the two DM standard errors).
     """
     strides = dict(stride_days or {})
     rows: list[dict[str, Any]] = []
@@ -284,8 +285,10 @@ def compare(
 
     ``mae_improvement_pct`` is ``100 * (1 - MAE_model / MAE_reference)``: positive means
     the model's absolute errors are smaller on the same forecasts. ``mae_difference`` is
-    ``MAE_model - MAE_reference`` with a 95 % HAC interval; the DM test uses absolute-error
-    loss. The interval for the improvement treats the reference MAE as fixed.
+    ``MAE_model - MAE_reference`` with a 95 % HAC interval built from the larger of the
+    two DM standard errors (``dm_ci_basis``), so it agrees with
+    ``dm_p_value_conservative``; the DM test uses absolute-error loss. The interval for
+    the improvement treats the reference MAE as fixed.
     """
     strides = dict(stride_days or {})
     joined = paired(records, model_id, reference)
@@ -343,6 +346,7 @@ def compare(
                     "dm_p_value": test.p_value,
                     "dm_bartlett_p_value": test.bartlett_p_value,
                     "dm_p_value_conservative": test.p_value_conservative,
+                    "dm_ci_basis": test.ci_basis,
                     "effective_sample_size": effective,
                 }
             )

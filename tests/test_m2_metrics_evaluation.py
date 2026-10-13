@@ -8,9 +8,12 @@ Where the expected values come from:
 
 * metric arithmetic: small hand examples worked out in the comments, plus a plain-Python
   reference (``_ref_metrics``) used by a property test;
-* DM statistics and effective sample sizes: plain-Python re-implementations of the
-  documented estimators (``_ref_dm_statistic``, ``_ref_effective_sample_size``) and the
-  tabulated Student-t quantile ``t(0.975, 59) = 2.000995``;
+* DM statistics, intervals and effective sample sizes: plain-Python re-implementations of
+  the documented estimators (``_ref_dm_statistic``, ``_ref_dm``,
+  ``_ref_effective_sample_size``), Student-t p-values from Abramowitz & Stegun 26.7.3/4
+  (``_ref_t_two_sided_p``) and the tabulated quantile ``t(0.975, 59) = 2.000995``;
+* regression reliability, fit summary and influence diagnostics: hand-planted record and
+  fit frames whose expected aggregates are worked out in the comments;
 * selection, recommendation, underperformance and sensitivity views: backtests of
   *scripted* models whose prediction is ``actual + e(origin, horizon)`` with integer
   ``e`` chosen by the test. The scripted models know the outcomes only to make their
@@ -22,6 +25,8 @@ Where the expected values come from:
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import json
 import math
 import random
@@ -37,9 +42,21 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from atlas.backtest import RECORD_COLUMNS, BacktestResult, run_backtest
+from atlas.backtest import FIT_COLUMNS, RECORD_COLUMNS, BacktestResult, run_backtest
 from atlas.errors import ConfigError, ForecastError, ModelFitError
-from atlas.evaluation import evaluate, recommend, select_model, underperformance
+from atlas.evaluation import (
+    SELECTION_EXACT_FIELDS,
+    SELECTION_TEST_CLOSE,
+    SELECTION_TEST_EXACT,
+    _fit_summary,
+    _influence,
+    _regression_reliability,
+    evaluate,
+    recommend,
+    select_model,
+    selection_differences,
+    underperformance,
+)
 from atlas.experiment import ExperimentConfig, json_bytes, parse_config
 from atlas.features import FeatureSet, Lag
 from atlas.metrics import (
@@ -152,6 +169,93 @@ def _ref_effective_sample_size(values: Sequence[float], overlap: int) -> float:
     gamma0 = _autocovariance(values, 0)
     variance = _ref_lrv(values, min(2 * overlap, size - 1), "bartlett")
     return min(float(size), size * gamma0 / variance)
+
+
+def _ref_t_two_sided_p(statistic: float, df: int) -> float:
+    """``P(|T| >= |t|)`` for integer ``df`` (Abramowitz & Stegun 26.7.3 / 26.7.4)."""
+    theta = math.atan(abs(statistic) / math.sqrt(df))
+    sine, cos2 = math.sin(theta), math.cos(theta) ** 2
+    if df % 2 == 1:
+        term = total = math.cos(theta)
+        for k in range(1, (df - 3) // 2 + 1):
+            term *= 2 * k / (2 * k + 1) * cos2
+            total += term
+        central = 2.0 / math.pi * (theta + (sine * total if df > 1 else 0.0))
+    else:
+        term = total = 1.0
+        for k in range(1, (df - 2) // 2 + 1):
+            term *= (2 * k - 1) / (2 * k) * cos2
+            total += term
+        central = sine * total
+    return 1.0 - central
+
+
+def _ref_t_quantile(probability: float, df: int) -> float:
+    """Upper Student-t quantile (``probability > 0.5``) by bisection on ``_ref_t_two_sided_p``."""
+    tail = 2.0 * (1.0 - probability)
+    low, high = 0.0, 1.0
+    while _ref_t_two_sided_p(high, df) > tail:
+        high *= 2.0
+    for _ in range(200):
+        middle = (low + high) / 2.0
+        if _ref_t_two_sided_p(middle, df) > tail:
+            low = middle
+        else:
+            high = middle
+    return (low + high) / 2.0
+
+
+def _ref_hln(size: int, horizon: int) -> float:
+    """Harvey-Leybourne-Newbold small-sample factor."""
+    return (size + 1 - 2 * horizon + horizon * (horizon - 1) / size) / size
+
+
+@dataclass(frozen=True)
+class _RefDM:
+    """The DM test of the ``atlas.stats`` docstring, rebuilt in plain Python."""
+
+    size: int
+    mean: float
+    estimator: str
+    error: float  # HLN standard error: rectangular kernel at h - 1 (Bartlett fallback)
+    bartlett_error: float  # Bartlett kernel at 2h, same HLN factor
+
+    @property
+    def p_value(self) -> float:
+        return _ref_t_two_sided_p(self.mean / self.error, self.size - 1)
+
+    @property
+    def bartlett_p_value(self) -> float:
+        return _ref_t_two_sided_p(self.mean / self.bartlett_error, self.size - 1)
+
+    @property
+    def conservative_p_value(self) -> float:
+        return max(self.p_value, self.bartlett_p_value)
+
+    @property
+    def basis(self) -> str:
+        return "bartlett_2h" if self.bartlett_error > self.error else self.estimator
+
+    def half_width(self, quantile: float) -> float:
+        """Half-width of the reported interval: the larger of the two standard errors."""
+        return quantile * max(self.error, self.bartlett_error)
+
+
+def _ref_dm(differences: Sequence[float], horizon: int) -> _RefDM:
+    size = len(differences)
+    bandwidth = min(horizon - 1, size - 1)
+    variance, estimator = _ref_lrv(differences, bandwidth, "rectangular"), "rectangular"
+    if variance <= 0:
+        variance, estimator = _ref_lrv(differences, bandwidth, "bartlett"), "bartlett_fallback"
+    bartlett = _ref_lrv(differences, min(2 * horizon, size - 1), "bartlett")
+    correction = _ref_hln(size, horizon)
+    return _RefDM(
+        size=size,
+        mean=math.fsum(differences) / size,
+        estimator=estimator,
+        error=math.sqrt(variance / size / correction),
+        bartlett_error=math.sqrt(bartlett / size / correction),
+    )
 
 
 def _holm_two(p1: float, p2: float) -> tuple[float, float]:
@@ -400,6 +504,32 @@ def constant(value: int) -> Callable[[date, int], int]:
 DEV_60 = PeriodSpec("dev", "selection", date(2024, 3, 1), date(2024, 4, 29))  # 60 origins
 DEV_20 = PeriodSpec("dev", "selection", date(2024, 3, 1), date(2024, 3, 20))
 DEV_10 = PeriodSpec("dev", "selection", date(2024, 3, 1), date(2024, 3, 10))
+
+
+def _block_differentials(seed: int) -> list[int]:
+    """60 per-origin loss differentials: drift -6, a +-25 level held for 6 origins, noise.
+
+    The 6-origin blocks keep the differential autocorrelated beyond lag ``h - 1``, so the
+    Bartlett-2h standard error can be the larger one (the review's mutant #12 series).
+    """
+    rng = random.Random(seed)
+    blocks = [rng.choice([-1, 1]) for _ in range(12)]
+    return [-6 + 25 * blocks[i // 6] + rng.randint(-10, 10) for i in range(60)]
+
+
+def _differential_scripts(differentials: Sequence[int]) -> list[Script]:
+    """On DEV_60, ``base_b`` has ``|e| = 100`` and ``reg_r`` ``|e| = 100 + d(origin)``.
+
+    Every horizon of an origin has the same differential, so the per-origin loss
+    differential of any scope is ``d(origin)``.
+    """
+    assert min(differentials) > -100  # reg_r's error stays positive
+    by_origin = dict(zip(DEV_60.origins(), differentials, strict=True))
+    return [
+        Script(REF, BASELINE, constant(400)),
+        Script("base_b", BASELINE, constant(100)),
+        Script("reg_r", REGRESSION, lambda o, _h: 100 + by_origin[o]),
+    ]
 
 
 # ===========================================================================================
@@ -809,6 +939,41 @@ def test_summarize_bias_interval_is_the_t_interval_for_one_step_errors() -> None
     assert row["bias_ci_high"] == pytest.approx(mean + half, rel=1e-6)
 
 
+def test_summarize_bias_interval_of_a_multi_horizon_bucket_uses_its_last_horizon() -> None:
+    """Review mutant F8/F21: a bucket's bias interval allows for overlap = its LAST horizon.
+
+    Errors depend on the target day, so neighbouring origins share errors and the overlap
+    matters. Reference: per-origin mean error over the bucket (complete origins), HLN DM
+    with the rectangular kernel at ``last - 1``, HLN factor with ``h = last``, ``t(59)``,
+    and the larger of that standard error and the Bartlett-``2 * last`` one.
+    """
+
+    def error(origin: date, horizon: int) -> int:
+        target = origin + timedelta(days=horizon)
+        return random.Random(target.toordinal()).randint(0, 60) - 30
+
+    scripts = [Script(REF, BASELINE, constant(400)), Script("m", BASELINE, error)]
+    config, result = run_scripts(scripts, [DEV_60])
+    rows = {
+        r["label"]: r
+        for r in summarize(result.records, config.buckets(), 3, {"dev": 1})
+        if r["model_id"] == "m"
+    }
+    for label, first, last in (("days_2_3", 2, 3), ("days_1_3", 1, 3)):
+        per_origin = [
+            statistics.fmean(error(o, h) for h in range(first, last + 1)) for o in DEV_60.origins()
+        ]
+        reference = _ref_dm(per_origin, last)
+        half = reference.half_width(T_975_DF59)
+        row = rows[label]
+        assert row["bias"] == pytest.approx(reference.mean, rel=1e-12, abs=1e-12), label
+        assert row["bias_ci_low"] == pytest.approx(reference.mean - half, rel=1e-6), label
+        assert row["bias_ci_high"] == pytest.approx(reference.mean + half, rel=1e-6), label
+        # The overlap matters here: the bucket's first horizon would give another width.
+        wrong = _ref_dm(per_origin, first).half_width(T_975_DF59)
+        assert abs(wrong - half) > 0.01 * half, label
+
+
 # ===========================================================================================
 # metrics.paired / compare / window_summary
 # ===========================================================================================
@@ -970,6 +1135,64 @@ def test_compare_dm_uses_per_origin_means_over_the_scope() -> None:
     assert h1["effective_sample_size"] == pytest.approx(
         _ref_effective_sample_size(h1_diffs, 1), rel=1e-9
     )
+
+
+def _square_wave_differentials(seed: int) -> list[int]:
+    """Drift -8, +-30 alternating every 3 origins, noise.
+
+    The negative autocovariances at lags 3 to 6 shrink the Bartlett-2h estimate, so the
+    rectangular (``h - 1``) standard error is the larger one for the 3-horizon scopes.
+    """
+    rng = random.Random(seed)
+    return [-8 + (30 if (i // 3) % 2 else -30) + rng.randint(-10, 10) for i in range(60)]
+
+
+def _iid_differentials(seed: int, drift: int) -> list[int]:
+    rng = random.Random(seed)
+    return [drift + rng.randint(-40, 40) for _ in range(60)]
+
+
+def test_compare_interval_excludes_zero_exactly_when_the_conservative_p_is_below_5pct() -> None:
+    """Review CI consistency: the MAE-difference interval uses the larger DM standard error.
+
+    For every compare() row, ``[ci_low, ci_high]`` excludes 0 exactly when
+    ``dm_p_value_conservative < 0.05``, and ``dm_ci_basis`` names the wider standard error.
+    The cases cover both bases and the critical one where only the rectangular test
+    rejects (an interval from the rectangular standard error alone would exclude 0).
+    """
+    cases = {
+        "blocks": _block_differentials(737),
+        "square_wave": _square_wave_differentials(5),
+        "null": _iid_differentials(1, 0),
+        "strong": _iid_differentials(2, -25),
+    }
+    bases: set[str] = set()
+    critical_rows = 0
+    for name, differentials in cases.items():
+        config, result = run_scripts(_differential_scripts(differentials), [DEV_60])
+        rows = compare(result.records, "reg_r", "base_b", config.buckets(), 3, {"dev": 1})
+        assert len(rows) == 6, name
+        for row in rows:
+            where = (name, row["label"])
+            # The per-origin differential is d(origin) in every scope; overlap = last horizon.
+            reference = _ref_dm(differentials, row["last_horizon"])
+            assert row["dm_computed"] is True, where
+            assert row["dm_ci_basis"] == reference.basis, where
+            assert row["dm_p_value"] == pytest.approx(reference.p_value, rel=1e-6, abs=1e-12)
+            assert row["dm_p_value_conservative"] == pytest.approx(
+                reference.conservative_p_value, rel=1e-6, abs=1e-12
+            ), where
+            half = reference.half_width(T_975_DF59)
+            assert row["mae_difference"] == pytest.approx(reference.mean, rel=1e-12, abs=1e-9)
+            assert row["mae_difference_ci_low"] == pytest.approx(reference.mean - half, rel=1e-6)
+            assert row["mae_difference_ci_high"] == pytest.approx(reference.mean + half, rel=1e-6)
+            excludes_zero = row["mae_difference_ci_low"] > 0 or row["mae_difference_ci_high"] < 0
+            assert excludes_zero is (row["dm_p_value_conservative"] < 0.05), where
+            bases.add(row["dm_ci_basis"])
+            if reference.p_value < 0.05 <= reference.conservative_p_value:
+                critical_rows += 1
+    assert bases == {"rectangular", "bartlett_2h"}
+    assert critical_rows > 0
 
 
 def test_window_summary_unrounded_metrics_clip_and_count_targets() -> None:
@@ -1222,6 +1445,98 @@ def test_noisy_advantage_within_the_margin_is_not_significant() -> None:
     assert selection["selected_model"] == "base_b"
 
 
+def test_selection_significance_uses_the_conservative_p_value() -> None:
+    """Review mutant #12: the selection test is significant only on the conservative p.
+
+    The block-correlated differential (seed 737) has a rectangular/HLN p below 0.05 but a
+    Bartlett-2h (conservative) p above it: the margin is met, yet the baseline is selected.
+    """
+    differentials = _block_differentials(737)
+    reference = _ref_dm(differentials, 3)  # one differential per origin, overlap 3
+    assert reference.p_value < 0.05 <= reference.bartlett_p_value  # the planted situation
+    assert reference.mean <= -3.0  # MAE(R) = 100 + mean(d) <= 0.97 * MAE(B*) = 97
+    config, result = run_scripts(
+        _differential_scripts(differentials),
+        [DEV_60],
+        selection=selection_rule([REF, "base_b", "reg_r"]),
+    )
+    selection = select_model(result, config)
+    assert selection is not None
+    test = selection["regression_vs_best_baseline"]
+    assert (test["model_id"], test["reference"]) == ("reg_r", "base_b")
+    assert test["mae_difference"] == pytest.approx(reference.mean, rel=1e-12)
+    assert test["dm_p_value"] == pytest.approx(reference.p_value, rel=1e-6)
+    assert test["dm_p_value_conservative"] == pytest.approx(
+        reference.conservative_p_value, rel=1e-6
+    )
+    assert selection["margin_met"] is True
+    assert selection["significant"] is False
+    assert selection["significant"] is (
+        test["dm_p_value_conservative"] < 0.05 and test["mae_difference"] < 0
+    )
+    assert selection["best_regression"] == "reg_r"
+    assert selection["selected_model"] == "base_b"
+    assert selection["selected_family"] == "baseline"
+
+
+@dataclass(frozen=True)
+class StridedPeriodSpec(PeriodSpec):
+    """A period whose origins are ``stride`` days apart."""
+
+    stride: int = 1
+
+    def origins(self) -> list[date]:
+        span = (self.last - self.first).days
+        return [self.first + timedelta(days=k) for k in range(0, span + 1, self.stride)]
+
+    def as_config(self) -> dict[str, Any]:
+        return super().as_config() | {"origin_stride_days": self.stride}
+
+
+# 50 origins two days apart (2024-03-01 .. 2024-06-07): just enough for a DM test.
+DEV_STRIDE_2 = StridedPeriodSpec("dev", "selection", date(2024, 3, 1), date(2024, 6, 7), 2)
+
+
+def test_selection_dm_test_uses_the_selection_period_origin_stride() -> None:
+    """Review mutant F15: select_model passes the selection period's origin stride to DM.
+
+    With origins two days apart the grid is contiguous at stride 2 and horizons 1..3
+    overlap ``ceil(3 / 2) = 2`` origin steps; treated as daily, the grid would look gappy
+    and the test would not be computed (so the better regression could never be selected).
+    """
+    scripts = [
+        Script(REF, BASELINE, constant(400)),
+        Script("base_b", BASELINE, _even_baseline_error),
+        Script("reg_r", REGRESSION, lambda o, h: -_even_baseline_error(o, h) // 2),
+    ]
+    config, result = run_scripts(
+        scripts, [DEV_STRIDE_2], selection=selection_rule([REF, "base_b", "reg_r"])
+    )
+    origins = DEV_STRIDE_2.origins()
+    assert len(origins) == 50
+    by_id = {s.model_id: s for s in scripts}
+    # |e_R| = |e_B| / 2 at every pair, and |e_B| varies with the origin: variance > 0.
+    differentials = [
+        statistics.fmean(
+            by_id["reg_r"].abs_error(o, h) - by_id["base_b"].abs_error(o, h) for h in (1, 2, 3)
+        )
+        for o in origins
+    ]
+    assert len(set(differentials)) > 1
+    selection = select_model(result, config)
+    assert selection is not None
+    test = selection["regression_vs_best_baseline"]
+    assert test["n_common"] == 150
+    assert test["n_origins"] == 50
+    assert test["dm_n_origins"] == 50
+    assert test["dm_computed"] is True
+    assert test["dm_reason"] is None
+    assert test["dm_statistic"] == pytest.approx(_ref_dm_statistic(differentials, 2), rel=1e-9)
+    assert selection["margin_met"] is True
+    assert selection["significant"] is True
+    assert selection["selected_model"] == "reg_r"
+
+
 def test_select_model_is_none_without_a_rule_or_without_the_selection_period() -> None:
     scripts = [Script(REF, BASELINE, constant(1)), Script("base_b", BASELINE, constant(2))]
     config, result = run_scripts(scripts, [DEV_10])
@@ -1235,6 +1550,195 @@ def test_select_model_is_none_without_a_rule_or_without_the_selection_period() -
     )
     result = run_backtest(SERIES, config.plan(["conf"]), [ScriptedForecaster(s) for s in scripts])
     assert select_model(result, config) is None
+
+
+# ===========================================================================================
+# evaluation.selection_differences (sealed vs recomputed selection)
+# ===========================================================================================
+
+# The decision fields a re-run must reproduce, as documented for the sealed selection.
+DECISION_FIELDS = (
+    "rule",
+    "period",
+    "first_horizon",
+    "last_horizon",
+    "eligibility",
+    "n_common_pairs",
+    "n_common_origins",
+    "best_baseline",
+    "best_regression",
+    "margin_met",
+    "significant",
+    "selected_model",
+    "selected_family",
+    "reason",
+)
+TEST_IDENTITY_FIELDS = ("model_id", "reference", "n_common", "n_origins", "dm_computed")
+TEST_NUMBER_FIELDS = (
+    "mae",
+    "mae_reference",
+    "mae_difference",
+    "dm_p_value",
+    "dm_p_value_conservative",
+)
+
+
+def _sealed_selection() -> dict[str, Any]:
+    """A hand-written selection with moderate numbers (a fresh copy on every call)."""
+    return copy.deepcopy(
+        {
+            "rule": "Pre-registered: synthetic rule.",
+            "period": "dev",
+            "first_horizon": 1,
+            "last_horizon": 3,
+            "eligibility": [
+                {"model_id": REF, "scheduled": 180, "failed": 0, "eligible": True},
+                {"model_id": "base_b", "scheduled": 180, "failed": 0, "eligible": True},
+                {"model_id": "reg_r", "scheduled": 180, "failed": 0, "eligible": True},
+            ],
+            "n_common_pairs": 180,
+            "n_common_origins": 60,
+            "ranking": [
+                {"model_id": "reg_r", "family": "regression", "mae": 85.25},
+                {"model_id": "base_b", "family": "baseline", "mae": 100.5},
+                {"model_id": REF, "family": "baseline", "mae": 400.0},
+            ],
+            "best_baseline": "base_b",
+            "best_regression": "reg_r",
+            "regression_vs_best_baseline": {
+                "model_id": "reg_r",
+                "reference": "base_b",
+                "period": "dev",
+                "n_common": 180,
+                "n_origins": 60,
+                "dm_computed": True,
+                "mae": 85.25,
+                "mae_reference": 100.5,
+                "mae_difference": -15.25,
+                "dm_p_value": 0.0123,
+                "dm_p_value_conservative": 0.0234,
+            },
+            "margin_met": True,
+            "significant": True,
+            "selected_model": "reg_r",
+            "selected_family": "regression",
+            "reason": "reg_r beats the best baseline.",
+        }
+    )
+
+
+def test_selection_difference_fields_are_the_decision_fields() -> None:
+    """Review finding: a sealed selection is checked on every decision field."""
+    assert SELECTION_EXACT_FIELDS == DECISION_FIELDS
+    assert SELECTION_TEST_EXACT == TEST_IDENTITY_FIELDS
+    assert SELECTION_TEST_CLOSE == TEST_NUMBER_FIELDS
+
+
+def test_selection_differences_none_for_identical_selections_and_missing_recomputation() -> None:
+    """Review finding: identical selections differ in nothing; no recomputation is reported."""
+    sealed = _sealed_selection()
+    assert selection_differences(sealed, sealed) == []
+    assert selection_differences(sealed, _sealed_selection()) == []
+    # As read back from the sealed JSON file (lists for tuples, same floats).
+    assert selection_differences(json.loads(json_bytes(sealed)), sealed) == []
+    assert selection_differences(sealed, None) == ["the selection period was not recomputed"]
+
+
+@pytest.mark.parametrize("name", DECISION_FIELDS)
+def test_selection_differences_names_each_changed_decision_field(name: str) -> None:
+    """Review finding: each decision field that changes is reported by name."""
+    recomputed = _sealed_selection()
+    recomputed[name] = "<changed>"
+    assert selection_differences(_sealed_selection(), recomputed) == [name]
+
+
+def test_selection_differences_reports_fields_in_a_fixed_order() -> None:
+    """Review finding: decision fields first, then the ranking, then the selection test."""
+    recomputed = _sealed_selection()
+    recomputed["selected_model"] = "base_b"
+    recomputed["best_baseline"] = REF
+    recomputed["ranking"].reverse()
+    recomputed["regression_vs_best_baseline"]["mae"] = 90.0
+    assert selection_differences(_sealed_selection(), recomputed) == [
+        "best_baseline",
+        "selected_model",
+        "ranking",
+        "regression_vs_best_baseline.mae",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("row", "key", "value", "different"),
+    [
+        (0, "model_id", "base_b", True),
+        (1, "family", "regression", True),
+        (0, "mae", 85.25 * (1 + 1e-6), True),
+        (2, "mae", 400.0 * (1 + 1e-12), False),
+        (0, "mae", None, True),
+    ],
+    ids=["other_model", "family", "mae_relative_1e-6", "mae_relative_1e-12", "mae_missing"],
+)
+def test_selection_differences_ranking_rows(
+    row: int, key: str, value: Any, different: bool
+) -> None:
+    """Review finding: ranking rows must match in model, family and MAE (relative 1e-9)."""
+    recomputed = _sealed_selection()
+    recomputed["ranking"][row][key] = value
+    expected = ["ranking"] if different else []
+    assert selection_differences(_sealed_selection(), recomputed) == expected
+
+
+def test_selection_differences_ranking_order_and_length() -> None:
+    """Review finding: a swapped ranking order or a missing row is a difference."""
+    swapped = _sealed_selection()
+    swapped["ranking"][1], swapped["ranking"][2] = swapped["ranking"][2], swapped["ranking"][1]
+    assert selection_differences(_sealed_selection(), swapped) == ["ranking"]
+    # Only the order of the two baselines differs; the MAEs by position are unchanged.
+    reordered = _sealed_selection()
+    first, second = reordered["ranking"][1], reordered["ranking"][2]
+    first["model_id"], second["model_id"] = second["model_id"], first["model_id"]
+    assert selection_differences(_sealed_selection(), reordered) == ["ranking"]
+    shorter = _sealed_selection()
+    shorter["ranking"].pop()
+    assert selection_differences(_sealed_selection(), shorter) == ["ranking"]
+    assert selection_differences(shorter, _sealed_selection()) == ["ranking"]
+
+
+def test_selection_differences_regression_test_present_on_one_side_only() -> None:
+    """Review finding: a selection test on one side only is a difference."""
+    without = _sealed_selection() | {"regression_vs_best_baseline": None}
+    assert selection_differences(_sealed_selection(), without) == ["regression_vs_best_baseline"]
+    assert selection_differences(without, _sealed_selection()) == ["regression_vs_best_baseline"]
+    assert selection_differences(without, copy.deepcopy(without)) == []
+
+
+@pytest.mark.parametrize("name", TEST_IDENTITY_FIELDS)
+def test_selection_differences_regression_test_identity_fields(name: str) -> None:
+    """Review finding: the selection test's identities and counts must match exactly."""
+    recomputed = _sealed_selection()
+    test = recomputed["regression_vs_best_baseline"]
+    test[name] = False if name == "dm_computed" else "<changed>"
+    assert selection_differences(_sealed_selection(), recomputed) == [
+        f"regression_vs_best_baseline.{name}"
+    ]
+
+
+@pytest.mark.parametrize("name", TEST_NUMBER_FIELDS)
+def test_selection_differences_regression_test_numbers_to_a_relative_1e9(name: str) -> None:
+    """Review finding: the selection test's numbers match to a relative 1e-9 (BLAS noise)."""
+    sealed = _sealed_selection()
+    value = sealed["regression_vs_best_baseline"][name]
+    for factor, expected in (
+        (1 + 1e-6, [f"regression_vs_best_baseline.{name}"]),
+        (1 + 1e-12, []),
+        (1 - 1e-12, []),
+    ):
+        recomputed = _sealed_selection()
+        recomputed["regression_vs_best_baseline"][name] = value * factor
+        assert selection_differences(sealed, recomputed) == expected, factor
+    recomputed = _sealed_selection()
+    recomputed["regression_vs_best_baseline"][name] = None
+    assert selection_differences(sealed, recomputed) == [f"regression_vs_best_baseline.{name}"]
 
 
 # ===========================================================================================
@@ -1844,6 +2348,256 @@ def test_sealed_selection_drives_comparisons_and_is_checked(main_case: MainCase)
     assert payload["selection_recomputed"] == main_case.payload["selection"]
     assert {r["reference"] for r in payload["comparison_to_best_baseline"]} == {REF}
     assert payload["recommendation"]["recommended_model"] == REF
+    # Review finding: the seal check names exactly the decision fields that differ.
+    assert main_case.payload["selection_seal_check"] is None
+    assert payload["selection_seal_check"] == {
+        "fields": [*DECISION_FIELDS, "ranking", "regression_vs_best_baseline"],
+        "differences": ["best_baseline", "selected_model"],
+    }
+
+
+# ===========================================================================================
+# evaluation.evaluate: seal check, bandwidth sensitivity, influence (two decision periods)
+# ===========================================================================================
+
+# Noisy scripts with moderate DM p-values: reg_r beats base_b in both periods.
+TWO_SCRIPTS = (
+    Script(REF, BASELINE, lambda o, h: 120 + _jitter(3)(o, h)),
+    Script("base_b", BASELINE, _base_noise),
+    Script("reg_r", REGRESSION, lambda o, h: 90 + _jitter(2)(o, h)),
+)
+TWO_BY_ID = {s.model_id: s for s in TWO_SCRIPTS}
+SELECTION_TEST_NAME = "selection: best regression vs best baseline"
+# (kernel, bandwidth) at overlap h: rectangular h-1 and 2h-1, Bartlett 2h, 3h and 4h.
+BANDWIDTHS_H3 = [
+    ("rectangular", 2),
+    ("rectangular", 5),
+    ("bartlett", 6),
+    ("bartlett", 9),
+    ("bartlett", 12),
+]
+
+
+@dataclass(frozen=True)
+class TwoPeriodCase:
+    config: ExperimentConfig
+    result: BacktestResult
+    payload: dict[str, Any]
+
+
+def _two_period_case(dev: PeriodSpec) -> TwoPeriodCase:
+    config, result = run_scripts(
+        TWO_SCRIPTS, [dev, E_CONF], selection=selection_rule([REF, "base_b", "reg_r"])
+    )
+    return TwoPeriodCase(config, result, evaluate(result, config, data_fingerprint="x"))
+
+
+@pytest.fixture(scope="module")
+def two_period_case() -> TwoPeriodCase:
+    return _two_period_case(E_DEV)
+
+
+def _differentials(
+    model_id: str, reference: str, origins: Sequence[date], scripts: Mapping[str, Script]
+) -> list[float]:
+    """Per-origin mean of ``|e_model| - |e_reference|`` over horizons 1..3 (all ok)."""
+    return [
+        statistics.fmean(
+            scripts[model_id].abs_error(o, h) - scripts[reference].abs_error(o, h)
+            for h in (1, 2, 3)
+        )
+        for o in origins
+    ]
+
+
+def _assert_variants_match_reference(
+    variants: Sequence[Mapping[str, Any]], differentials: Sequence[float], overlap: int
+) -> None:
+    """Each variant: HLN factor at ``overlap``, ``t(T - 1)``, its own HAC variance."""
+    size = len(differentials)
+    mean = math.fsum(differentials) / size
+    gamma0 = _autocovariance(differentials, 0)
+    quantile = _ref_t_quantile(0.975, size - 1)
+    for variant in variants:
+        variance = _ref_lrv(differentials, variant["bandwidth"], variant["kernel"])
+        if variance <= 0:
+            assert variant["p_value"] is None, variant
+            assert variant["ci_half_width"] is None, variant
+            assert variant["effective_sample_size"] is None, variant
+            continue
+        error = math.sqrt(variance / size / _ref_hln(size, overlap))
+        assert variant["p_value"] == pytest.approx(
+            _ref_t_two_sided_p(mean / error, size - 1), rel=1e-6, abs=1e-12
+        ), variant
+        assert variant["ci_half_width"] == pytest.approx(quantile * error, rel=1e-9), variant
+        assert variant["effective_sample_size"] == pytest.approx(size * gamma0 / variance, rel=1e-9)
+
+
+def test_selection_seal_check_is_empty_when_the_sealed_selection_is_reproduced(
+    two_period_case: TwoPeriodCase,
+) -> None:
+    """Review finding: payload['selection_seal_check'] is None without a sealed selection
+    and lists no difference when the sealed selection (read back from JSON) is reproduced.
+    """
+    case = two_period_case
+    assert case.payload["selection_seal_check"] is None
+    sealed = json.loads(json_bytes(case.payload["selection"]))
+    payload = evaluate(case.result, case.config, data_fingerprint="x", sealed_selection=sealed)
+    assert payload["selection_recomputed"] == case.payload["selection"]
+    assert payload["selection_seal_check"] == {
+        "fields": [*DECISION_FIELDS, "ranking", "regression_vs_best_baseline"],
+        "differences": [],
+    }
+
+
+def test_bandwidth_sensitivity_of_the_selection_and_primary_tests(
+    two_period_case: TwoPeriodCase,
+) -> None:
+    """Review finding: payload['bandwidth_sensitivity'] re-runs the selection test and H1/H2
+    under wider HAC bandwidths; the first variant is the primary rectangular test and the
+    Bartlett-2h variant is the reported Bartlett check.
+    """
+    payload = two_period_case.payload
+    entries = payload["bandwidth_sensitivity"]
+    selection = payload["selection"]
+    primary = payload["recommendation"]["primary_tests"]
+    assert [e["test"] for e in entries] == [
+        SELECTION_TEST_NAME,
+        primary[0]["hypothesis"],
+        primary[1]["hypothesis"],
+    ]
+    assert [e["test"][:3] for e in entries[1:]] == ["H1:", "H2:"]
+    assert [(e["period"], e["model_id"], e["reference"]) for e in entries] == [
+        ("dev", "reg_r", "base_b"),
+        ("conf", "reg_r", "base_b"),
+        ("conf", "reg_r", REF),
+    ]
+    tests = [selection["regression_vs_best_baseline"], *primary]
+    for entry, test, period in zip(entries, tests, (E_DEV, E_CONF, E_CONF), strict=True):
+        assert set(entry) == {
+            "test",
+            "period",
+            "model_id",
+            "reference",
+            "n_origins",
+            "overlap",
+            "mean_difference",
+            "variants",
+        }
+        differentials = _differentials(
+            entry["model_id"], entry["reference"], period.origins(), TWO_BY_ID
+        )
+        assert entry["n_origins"] == 60
+        assert entry["overlap"] == 3
+        assert entry["mean_difference"] == pytest.approx(statistics.fmean(differentials), rel=1e-12)
+        variants = entry["variants"]
+        assert [(v["kernel"], v["bandwidth"]) for v in variants] == BANDWIDTHS_H3
+        assert test["dm_estimator"] == "rectangular"
+        assert variants[0]["p_value"] == pytest.approx(test["dm_p_value"], rel=1e-12)
+        assert variants[2]["p_value"] == pytest.approx(test["dm_bartlett_p_value"], rel=1e-12)
+        _assert_variants_match_reference(variants, differentials, 3)
+    # Moderate p-values somewhere, so the comparisons above are not all against zero.
+    assert 0.01 < primary[0]["dm_p_value"] < 0.5
+    assert _ref_t_quantile(0.975, 59) == pytest.approx(T_975_DF59, rel=1e-8)  # vs the tables
+
+
+def test_bandwidth_sensitivity_without_enough_origins_or_without_a_rule() -> None:
+    """Review finding: no variants when the DM test is not computed; nothing without a rule."""
+    case = _two_period_case(PeriodSpec("dev", "selection", date(2024, 5, 1), date(2024, 5, 20)))
+    entries = case.payload["bandwidth_sensitivity"]
+    assert [(e["test"][:3], e["period"], e["n_origins"]) for e in entries] == [
+        (SELECTION_TEST_NAME[:3], "dev", 20),
+        ("H1:", "conf", 60),
+        ("H2:", "conf", 60),
+    ]
+    assert case.payload["selection"]["regression_vs_best_baseline"]["dm_computed"] is False
+    assert entries[0]["variants"] == []
+    assert entries[0]["mean_difference"] == pytest.approx(
+        statistics.fmean(
+            _differentials(
+                "reg_r",
+                "base_b",
+                _daterange(date(2024, 5, 1), date(2024, 5, 20)),
+                TWO_BY_ID,
+            )
+        ),
+        rel=1e-12,
+    )
+    assert [len(e["variants"]) for e in entries[1:]] == [5, 5]
+    config, result = run_scripts(TWO_SCRIPTS, [DEV_10])
+    assert evaluate(result, config, data_fingerprint="x")["bandwidth_sensitivity"] == []
+
+
+def test_bandwidth_sensitivity_overlap_counts_origin_steps_with_a_stride() -> None:
+    """Review finding: with origins two days apart, horizons 1..3 overlap 2 origin steps."""
+    scripts = [
+        Script(REF, BASELINE, constant(400)),
+        Script("base_b", BASELINE, _even_baseline_error),
+        Script("reg_r", REGRESSION, lambda o, h: -_even_baseline_error(o, h) // 2),
+    ]
+    config, result = run_scripts(
+        scripts, [DEV_STRIDE_2], selection=selection_rule([REF, "base_b", "reg_r"])
+    )
+    payload = evaluate(result, config, data_fingerprint="x")
+    assert payload["recommendation"] is None  # no confirmation period: no primary tests
+    (entry,) = payload["bandwidth_sensitivity"]
+    assert (entry["test"], entry["n_origins"], entry["overlap"]) == (SELECTION_TEST_NAME, 50, 2)
+    variants = entry["variants"]
+    # overlap 2: rectangular 1 and 3, Bartlett 4, 6 and 8.
+    assert [(v["kernel"], v["bandwidth"]) for v in variants] == [
+        ("rectangular", 1),
+        ("rectangular", 3),
+        ("bartlett", 4),
+        ("bartlett", 6),
+        ("bartlett", 8),
+    ]
+    test = payload["selection"]["regression_vs_best_baseline"]
+    assert variants[0]["p_value"] == pytest.approx(test["dm_p_value"], rel=1e-12)
+    differentials = _differentials(
+        "reg_r", "base_b", DEV_STRIDE_2.origins(), {s.model_id: s for s in scripts}
+    )
+    _assert_variants_match_reference(variants, differentials, 2)
+
+
+def test_payload_influence_matches_plain_python(two_period_case: TwoPeriodCase) -> None:
+    """Review mutant F3/F20 (payload level): signed per-target contributions to
+    ``MAE(model) - MAE(B*)`` on common forecasts, largest in size first, top 10.
+    """
+    entries = two_period_case.payload["influence"]
+    assert [(e["model_id"], e["reference"], e["period"]) for e in entries] == [
+        ("reg_r", "base_b", "dev"),
+        ("reg_r", "base_b", "conf"),
+        (REF, "base_b", "dev"),
+        (REF, "base_b", "conf"),
+    ]
+    periods = {"dev": E_DEV, "conf": E_CONF}
+    for entry in entries:
+        sums: dict[date, int] = {}
+        counts: dict[date, int] = {}
+        pairs = [(o, h) for o in periods[entry["period"]].origins() for h in (1, 2, 3)]
+        for origin, horizon in pairs:
+            target = origin + timedelta(days=horizon)
+            loss = TWO_BY_ID[entry["model_id"]].abs_error(origin, horizon)
+            loss -= TWO_BY_ID[entry["reference"]].abs_error(origin, horizon)
+            sums[target] = sums.get(target, 0) + loss
+            counts[target] = counts.get(target, 0) + 1
+        total = sum(sums.values())
+        assert total != 0
+        top = entry["top_target_dates"]
+        assert len(top) == 10
+        listed = [date.fromisoformat(r["target_date"]) for r in top]
+        for row, target in zip(top, listed, strict=True):
+            assert row["forecasts"] == counts[target]
+            assert row["contribution_to_mae_difference"] == pytest.approx(
+                sums[target] / len(pairs), rel=1e-9, abs=1e-12
+            )
+            assert row["share_of_difference"] == pytest.approx(
+                sums[target] / total, rel=1e-9, abs=1e-12
+            )
+        sizes = [abs(r["contribution_to_mae_difference"]) for r in top]
+        assert sizes == sorted(sizes, reverse=True)
+        smallest = min(abs(sums[t]) for t in listed)
+        assert all(abs(v) <= smallest for t, v in sums.items() if t not in listed)
 
 
 def _small_window_case(
@@ -1938,3 +2692,340 @@ def test_observed_input_decomposition_aggregates_both_procedures() -> None:
     assert any(r["mae_observed_inputs"] != pytest.approx(r["mae_recursive"]) for r in rows[1:])
     report = render_report(payload)
     assert "## What recursion costs (observed-input diagnostic)" in report
+
+
+# ===========================================================================================
+# evaluation diagnostics: regression reliability, fit summary, influence
+# ===========================================================================================
+
+D1, D2, D3, D4, D5 = (date(2024, 1, d) for d in range(10, 15))
+
+
+def _scored(
+    model_id: str,
+    period: str,
+    origin: date,
+    horizon: int,
+    abs_error: int,
+    *,
+    estimable: bool | None = None,
+    leverage: float = math.nan,
+    status: str = "ok",
+) -> dict[str, Any]:
+    """A record with ``|e| = abs_error`` (actual 1000) and the regression reliability flags."""
+    row = _record(
+        model_id,
+        period,
+        origin,
+        horizon,
+        status=status,
+        prediction=1000.0 + abs_error,
+        actual=1000.0,
+        scale=1.0,
+    )
+    row["estimable"] = estimable
+    row["leverage"] = leverage
+    return row
+
+
+def _reliability_records() -> pd.DataFrame:
+    rows = [
+        # (origin, h): |e_reg|, estimable, leverage            |e_base|
+        _scored("reg", "dev", D1, 1, 10, estimable=True, leverage=0.1),  # reliable       6
+        _scored("reg", "dev", D1, 2, 20, estimable=True, leverage=0.5),  # reliable (=)   30
+        _scored("reg", "dev", D2, 1, 30, estimable=False, leverage=0.2),  # non-estimable 12
+        _scored("reg", "dev", D2, 2, 40, estimable=True, leverage=0.8),  # high leverage  36
+        _scored("reg", "dev", D3, 1, 50, estimable=False, leverage=0.9),  # both          48
+        _scored("reg", "dev", D3, 2, 60, estimable=True, leverage=0.3),  # reliable, base failed
+        _scored("reg", "dev", D4, 1, 70, estimable=False, leverage=0.9, status="failed"),
+        _scored("base", "dev", D1, 1, 6),
+        _scored("base", "dev", D1, 2, 30),
+        _scored("base", "dev", D2, 1, 12),
+        _scored("base", "dev", D2, 2, 36),
+        _scored("base", "dev", D3, 1, 48),
+        _scored("base", "dev", D3, 2, 999, status="failed"),
+        _scored("base", "dev", D4, 1, 7),  # the regression failed here: no pair
+        # Another period: compared on its own (the dev comparator must not pair with it).
+        _scored("reg", "conf", D1, 1, 100, estimable=True, leverage=0.9),
+        _scored("base", "conf", D1, 1, 1),
+    ]
+    return _frame(rows)
+
+
+RELIABILITY_ALL_ONLY = {
+    "conf": {
+        "period": "conf",
+        "model_id": "reg",
+        "n_all": 1,
+        "mae_all": 100.0,
+        "n_nonestimable": 0,
+        "n_high_leverage": 1,
+        "n_reliable": 0,
+        "mae_reliable_only": None,
+    },
+    "dev": {
+        "period": "dev",
+        "model_id": "reg",
+        "n_all": 6,
+        "mae_all": 35.0,  # (10 + 20 + 30 + 40 + 50 + 60) / 6
+        "n_nonestimable": 2,  # 30, 50
+        "n_high_leverage": 2,  # 40, 50 (leverage 0.5 is not above the limit)
+        "n_reliable": 3,  # 10, 20, 60
+        "mae_reliable_only": 30.0,  # 90 / 3
+    },
+}
+RELIABILITY_PAIRS = {
+    "conf": {
+        "n_all_pairs": 1,
+        "mae_all_pairs": 100.0,
+        "comparator_mae_all_pairs": 1.0,
+        "n_reliable_pairs": 0,
+        "mae_reliable_pairs": None,
+        "comparator_mae_reliable_pairs": None,
+        "n_removed_pairs": 1,
+        "mae_removed_pairs": 100.0,
+        "comparator_mae_removed_pairs": 1.0,
+    },
+    "dev": {
+        # The pair at (D3, 2) is gone: the comparator failed there.
+        "n_all_pairs": 5,
+        "mae_all_pairs": 30.0,  # (10 + 20 + 30 + 40 + 50) / 5
+        "comparator_mae_all_pairs": 26.4,  # (6 + 30 + 12 + 36 + 48) / 5
+        "n_reliable_pairs": 2,
+        "mae_reliable_pairs": 15.0,  # (10 + 20) / 2
+        "comparator_mae_reliable_pairs": 18.0,  # (6 + 30) / 2
+        "n_removed_pairs": 3,
+        "mae_removed_pairs": 40.0,  # (30 + 40 + 50) / 3
+        "comparator_mae_removed_pairs": 32.0,  # (12 + 36 + 48) / 3
+    },
+}
+
+
+def test_regression_reliability_by_hand() -> None:
+    """Review mutants F1/F18: reliable = estimable and leverage <= HIGH_LEVERAGE (0.5).
+
+    Hand-planted forecasts: reliable, at the leverage limit, non-estimable, high
+    leverage, both, a failed one, and one whose comparator failed (not a pair). With a
+    comparator the regression and B* are compared on identical kept and removed pairs.
+    """
+    rows = _regression_reliability(_reliability_records(), "base")
+    assert [(r["period"], r["model_id"]) for r in rows] == [("conf", "reg"), ("dev", "reg")]
+    for row in rows:
+        period = row["period"]
+        expected = RELIABILITY_ALL_ONLY[period] | {"comparator": "base"}
+        expected |= RELIABILITY_PAIRS[period]
+        assert row == pytest.approx(expected, rel=1e-12), period
+    rows = _regression_reliability(_reliability_records())
+    for row in rows:
+        expected = RELIABILITY_ALL_ONLY[row["period"]] | {"comparator": None}
+        assert row == pytest.approx(expected, rel=1e-12), row["period"]
+
+
+def _fit(model_id: str, day: int, **values: Any) -> dict[str, Any]:
+    row: dict[str, Any] = dict.fromkeys(FIT_COLUMNS)
+    row |= {
+        "period": "dev",
+        "model_id": model_id,
+        "origin": pd.Timestamp(date(2024, 3, day)),
+        "data_cutoff": pd.Timestamp(date(2024, 3, day)),
+        "status": "ok",
+    }
+    return row | values
+
+
+FIT_KEYS = (
+    "rank",
+    "solver_rank",
+    "identifiable",
+    "n_dropped_rows",
+    "restricted_condition_number",
+    "max_training_leverage",
+    "in_sample_mae",
+    "n_clipped",
+    "n_nonestimable",
+    "n_high_leverage",
+)
+# Successful regression fits (5 features, 99 + day training rows), one per day:
+# day, rank, solver rank, identifiable, dropped rows, restricted condition number,
+# max training leverage, in-sample MAE, clipped, non-estimable, high-leverage predictions.
+REGRESSION_FITS = (
+    (1, 5.0, 5.0, True, 2, 10.0, 0.3, 4.0, 0, 0.0, 1.0),
+    (2, 4.0, 5.0, False, 1, 30.0, 0.6, 6.0, 1, 2.0, 0.0),
+    (3, 3.0, 3.0, False, 0, math.inf, 0.4, 5.0, 3, 1.0, 2.0),
+    (4, 5.0, math.nan, True, 0, 20.0, 0.2, 7.0, 0, 0.0, 4.0),
+    (5, 5.0, 5.0, True, 0, math.nan, 0.1, 3.0, 0, 0.0, 0.0),
+)
+
+
+def _fits_frame() -> pd.DataFrame:
+    rows = [
+        _fit("reg", day, n_features=5, n_train_rows=99 + day, **dict(zip(FIT_KEYS, v, strict=True)))
+        for day, *v in REGRESSION_FITS
+    ]
+    rows += [
+        _fit("reg", day, status="failed", failure_stage="fit", failure_code=code)
+        for day, code in ((6, "rank_deficient"), (7, "singular_design"), (8, "rank_deficient"))
+    ]
+    # A baseline: no regression diagnostics at all.
+    rows += [
+        _fit("base", day, n_features=1, n_train_rows=0, n_dropped_rows=0, n_clipped=0)
+        for day in (1, 2, 3)
+    ]
+    return pd.DataFrame.from_records(rows, columns=list(FIT_COLUMNS))
+
+
+FIT_SUMMARY = [
+    {
+        "model_id": "base",
+        "period": "dev",
+        "n_origins": 3,
+        "n_failed": 0,
+        "failure_codes": {},
+        "n_features": 1,
+        "n_train_rows_min": 0,
+        "n_train_rows_max": 0,
+        "n_dropped_rows_total": 0,
+        "rank_min": None,
+        "rank_max": None,
+        "n_rank_deficient_fits": 0,
+        "solver_rank_disagreements": 0,
+        "restricted_condition_median": None,
+        "restricted_condition_max": None,
+        "max_training_leverage_max": None,
+        "n_nonestimable_predictions": None,
+        "n_high_leverage_predictions": None,
+        "n_clipped_predictions": 0,
+        "in_sample_mae_median": None,
+    },
+    {
+        "model_id": "reg",
+        "period": "dev",
+        "n_origins": 8,
+        "n_failed": 3,
+        "failure_codes": {"rank_deficient": 2, "singular_design": 1},
+        "n_features": 5,
+        "n_train_rows_min": 100,
+        "n_train_rows_max": 104,
+        "n_dropped_rows_total": 3,  # 2 + 1, failed fits excluded
+        "rank_min": 3,
+        "rank_max": 5,
+        "n_rank_deficient_fits": 2,  # days 2 and 3 (3 fits are identifiable)
+        "solver_rank_disagreements": 1,  # day 2; day 4 has no solver rank
+        "restricted_condition_median": 20.0,  # median(10, 30, 20); inf and NaN dropped
+        "restricted_condition_max": 30.0,
+        "max_training_leverage_max": 0.6,
+        "n_nonestimable_predictions": 3,  # 0 + 2 + 1 + 0 + 0
+        "n_high_leverage_predictions": 7,  # 1 + 0 + 2 + 4 + 0
+        "n_clipped_predictions": 4,  # 0 + 1 + 3 + 0 + 0
+        "in_sample_mae_median": 5.0,  # median(4, 6, 5, 7, 3)
+    },
+]
+
+
+def test_fit_summary_by_hand() -> None:
+    """Review mutants F2/F19: fit diagnostics aggregated per model and period by hand."""
+    assert _fit_summary(_fits_frame()) == FIT_SUMMARY
+
+
+def test_payload_reliability_uses_the_best_baseline_and_reports_the_fit_summary() -> None:
+    """Review mutants F1/F18 and F2/F19 (payload level): B* is the reliability comparator."""
+    scripts = [
+        Script(REF, BASELINE, constant(400)),
+        Script("base_b", BASELINE, lambda _o, h: -(5 + h)),
+        Script("reg_r", REGRESSION, lambda _o, h: 10 * h),
+    ]
+    config, result = run_scripts(
+        scripts, [DEV_10], selection=selection_rule([REF, "base_b", "reg_r"])
+    )
+    records = result.records.copy()
+    regression = records["model_id"] == "reg_r"
+    records.loc[regression, "estimable"] = True
+    records.loc[regression, "leverage"] = 0.5
+    records.loc[regression & (records["origin"] == pd.Timestamp(2024, 3, 2)), "estimable"] = False
+    high = regression & (records["origin"] == pd.Timestamp(2024, 3, 3)) & (records["horizon"] == 1)
+    records.loc[high, "leverage"] = 0.9
+    planted = dataclasses.replace(result, records=records, fits=_fits_frame())
+    payload = evaluate(planted, config, data_fingerprint="x")
+    assert payload["selection"]["best_baseline"] == "base_b"
+    # reg_r: |e| = 10 h on 10 origins; base_b: |e| = 5 + h. Removed: (03-02, h = 1..3)
+    # non-estimable and (03-03, h = 1) high leverage.
+    assert payload["regression_reliability"] == [
+        pytest.approx(
+            {
+                "period": "dev",
+                "model_id": "reg_r",
+                "n_all": 30,
+                "mae_all": 20.0,
+                "n_nonestimable": 3,
+                "n_high_leverage": 1,
+                "n_reliable": 26,
+                "mae_reliable_only": 530 / 26,  # 600 - (10 + 20 + 30) - 10
+                "comparator": "base_b",
+                "n_all_pairs": 30,
+                "mae_all_pairs": 20.0,
+                "comparator_mae_all_pairs": 7.0,
+                "n_reliable_pairs": 26,
+                "mae_reliable_pairs": 530 / 26,
+                "comparator_mae_reliable_pairs": 183 / 26,  # 210 - (6 + 7 + 8) - 6
+                "n_removed_pairs": 4,
+                "mae_removed_pairs": 17.5,  # (10 + 20 + 30 + 10) / 4
+                "comparator_mae_removed_pairs": 6.75,  # (6 + 7 + 8 + 6) / 4
+            },
+            rel=1e-12,
+        )
+    ]
+    assert payload["fit_summary"] == FIT_SUMMARY
+
+
+def _influence_records() -> pd.DataFrame:
+    rows = [
+        # (origin, h) -> target: |e_reg| - |e_base|
+        _scored("reg", "dev", D1, 1, 30),  # D2: +20
+        _scored("base", "dev", D1, 1, 10),
+        _scored("reg", "dev", D1, 2, 5),  # D3: -20
+        _scored("base", "dev", D1, 2, 25),
+        _scored("reg", "dev", D2, 1, 10),  # D3: -40
+        _scored("base", "dev", D2, 1, 50),
+        _scored("reg", "dev", D2, 2, 70),  # D4: +60
+        _scored("base", "dev", D2, 2, 10),
+        _scored("reg", "dev", D3, 1, 10),  # D4: -20
+        _scored("base", "dev", D3, 1, 30),
+        _scored("reg", "dev", D3, 2, 0),  # D5: -20
+        _scored("base", "dev", D3, 2, 20),
+        # Not common forecasts: ignored.
+        _scored("reg", "dev", D4, 1, 500),
+        _scored("base", "dev", D4, 1, 0, status="failed"),
+        _scored("base", "dev", D4, 2, 900),
+        _scored("reg", "conf", D1, 1, 800),
+        _scored("base", "conf", D1, 1, 0),
+    ]
+    return _frame(rows)
+
+
+def test_influence_by_hand() -> None:
+    """Review mutants F3/F20: per-target contributions ``(|e_model| - |e_ref|) / N``.
+
+    Six common forecasts (N = 6). By target: D2 +20, D3 -20 - 40 = -60, D4 +60 - 20 = +40,
+    D5 -20; total -20 (the MAE difference times N). Ordered by size; the tie between
+    D2 (+20) and D5 (-20) keeps date order.
+    """
+    rows = _influence(_influence_records(), "reg", "base", "dev")
+    expected = [
+        (D3, 2, -60, 3.0),
+        (D4, 2, 40, -2.0),
+        (D2, 1, 20, -1.0),
+        (D5, 1, -20, 1.0),
+    ]
+    assert [r["target_date"] for r in rows] == [t.isoformat() for t, _, _, _ in expected]
+    for row, (target, forecasts, total, share) in zip(rows, expected, strict=True):
+        assert row["forecasts"] == forecasts, target
+        assert row["contribution_to_mae_difference"] == pytest.approx(total / 6, rel=1e-12)
+        assert row["share_of_difference"] == pytest.approx(share, rel=1e-12)
+    # The contributions add up to MAE(reg) - MAE(base) on the common forecasts.
+    mae_difference = (30 + 5 + 10 + 70 + 10 + 0) / 6 - (10 + 25 + 50 + 10 + 30 + 20) / 6
+    assert math.fsum(r["contribution_to_mae_difference"] for r in rows) == pytest.approx(
+        mae_difference, rel=1e-12
+    )
+    top_two = _influence(_influence_records(), "reg", "base", "dev", top=2)
+    assert [r["target_date"] for r in top_two] == [D3.isoformat(), D4.isoformat()]
+    assert _influence(_influence_records(), "reg", "base", "bridge") == []

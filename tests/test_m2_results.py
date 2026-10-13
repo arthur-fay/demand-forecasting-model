@@ -30,7 +30,17 @@ RESULTS = REPO_ROOT / "docs" / "results"
 V1 = RESULTS / "atlas-m2-rolling-origin-v1"
 CONFIG = REPO_ROOT / "configs" / "backtest" / "atlas-m2-rolling-origin-v1.json"
 V1_FINGERPRINT = "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753"
+DELAY1 = RESULTS / "atlas-m2-rolling-origin-v1-delay1" / "development"
 DOC = REPO_ROOT / "docs" / "BACKTESTING.md"
+LIMITATIONS = REPO_ROOT / "docs" / "LEGACY_LIMITATIONS.md"
+# SHA-256 of the files of the first reference run (commit 10343e2, before the independent
+# review). The review amended reporting and enforcement only, so these must not change.
+PRE_REVIEW_OUTPUTS = {
+    "forecasts.csv": "0e512044257fb716152618c64c88a10450f4d49dbe6fd59ed61b6538f71eeaba",
+    "fits.csv": "5443998e2182deb9782bdadc0cbeb48c5e5923ac99d5ad3af95b0c3237099717",
+    "observed_inputs.csv": "d20ee7bafc66e37a303a2d5c7f9f6c1cd28186304856571001dddb579634e151",
+}
+SEALED_COMMIT = "a16672f3454a36e474ae1fe3290f0646b79ff599"
 MODELS = (
     "naive",
     "seasonal_naive",
@@ -50,10 +60,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-@pytest.mark.parametrize(
-    "directory",
-    [V1 / "development", V1 / "full", RESULTS / "atlas-m2-rolling-origin-v1-delay1/development"],
-)
+@pytest.mark.parametrize("directory", [V1 / "development", V1 / "full", DELAY1])
 def test_committed_files_match_their_manifest(directory: Path) -> None:
     manifest = read_json(directory / "manifest.json")
     assert manifest["record_type"] == "historical_backtest"
@@ -84,12 +91,43 @@ def test_the_sealed_selection_chain() -> None:
     recomputed = metrics["selection_recomputed"]
     assert recomputed["selected_model"] == sealed["selection"]["selected_model"]
     assert recomputed["ranking"] == sealed["selection"]["ranking"]
+    assert metrics["selection_seal_check"]["differences"] == []
     assert recommendation["recommendation"] == metrics["recommendation"]
     assert recommendation["result_fingerprint"] == full["result_fingerprint"]
+    assert recommendation["recommendation"]["recommended_model"] == "atlas_linear_regression"
 
 
-@pytest.mark.parametrize("directory", [V1 / "development", V1 / "full"])
+def test_the_sealed_development_run_is_the_pre_registration_record() -> None:
+    """The sealed run was produced at the freeze commit, on a clean tree, and the reference
+    run (later code) reproduces every development-period metric it reported."""
+    development = read_json(V1 / "development" / "manifest.json")
+    assert development["git"]["commit"] == SEALED_COMMIT
+    assert development["git"]["dirty"] is False
+    sealed = read_json(V1 / "development" / "metrics.json")
+    full = read_json(V1 / "full" / "metrics.json")
+    keys = ("n_predictions", "n_failed", "mae", "rmse", "bias", "wape_pct", "mase", "mape_pct")
+
+    def rows(metrics: dict[str, Any]) -> dict[tuple[str, str], tuple[Any, ...]]:
+        return {
+            (r["model_id"], r["label"]): tuple(r[k] for k in keys)
+            for r in metrics["summary"]
+            if r["period"] == "development"
+        }
+
+    assert rows(sealed) == rows(full)
+    assert sealed["selection"] == full["selection"]
+
+
+def test_the_review_amendments_changed_no_forecast() -> None:
+    full = read_json(V1 / "full" / "manifest.json")
+    for name, digest in PRE_REVIEW_OUTPUTS.items():
+        assert full["outputs"][name] == digest, name
+
+
+@pytest.mark.parametrize("directory", [V1 / "full", DELAY1])
 def test_report_is_rendered_from_the_committed_metrics(directory: Path) -> None:
+    """Runs produced by the current reporting code. (The sealed development run was
+    rendered by the code of its own commit; see the test above.)"""
     metrics = read_json(directory / "metrics.json")
     assert render_report(metrics) == (directory / "report.md").read_text(encoding="utf-8")
 
@@ -201,3 +239,119 @@ def test_documented_headline_numbers_match_the_metrics() -> None:
                 1107.24,
                 8.23,
             )
+
+
+# --- Quoted numbers in the prose (review finding: hand-written claims had drifted) ------
+
+
+def _summary(metrics: dict[str, Any], model: str, period: str, label: str) -> dict[str, Any]:
+    return next(
+        r
+        for r in metrics["summary"]
+        if r["model_id"] == model and r["period"] == period and r["label"] == label
+    )
+
+
+def _range(values: list[float], digits: int = 1) -> str:
+    return f"{min(values):.{digits}f}-{max(values):.{digits}f}"
+
+
+def test_documented_legacy_mape_ranges_cover_every_horizon() -> None:
+    metrics = read_json(V1 / "full" / "metrics.json")
+    window = [
+        r["mape_pct"]
+        for r in metrics["comparison_windows"][0]["rows"]
+        if r["model_id"] == "legacy_linear_regression" and 2 <= r["horizon"] <= 30
+    ]
+    year = [
+        _summary(metrics, "legacy_linear_regression", "confirmation", f"h{h:02d}")["mape_pct"]
+        for h in range(7, 31)
+    ]
+    assert len(window) == 29
+    for path in (DOC, LIMITATIONS):
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        assert f"{_range(window)} % at horizons 2-30" in text, path
+        assert f"{_range(year)} % from horizon 7 on" in text, path
+
+
+def test_documented_reliability_comparison_is_paired() -> None:
+    metrics = read_json(V1 / "full" / "metrics.json")
+    row = next(
+        r
+        for r in metrics["regression_reliability"]
+        if r["model_id"] == "legacy_linear_regression" and r["period"] == "development"
+    )
+    assert row["comparator"] == "same_weekday_median_5w"
+    assert row["n_reliable_pairs"] + row["n_removed_pairs"] == row["n_all_pairs"] == row["n_all"]
+    text = " ".join(DOC.read_text(encoding="utf-8").split())
+    assert (
+        f"B\\* on exactly the same {row['n_reliable_pairs']:,} forecasts scores "
+        f"{row['comparator_mae_reliable_pairs']:,.1f}"
+    ) in text
+    deficit = 100 * (row["mae_reliable_pairs"] / row["comparator_mae_reliable_pairs"] - 1)
+    assert deficit > 0  # the flagged forecasts do not explain the deficit
+    assert f"still {deficit:.1f} % worse" in text
+
+
+def test_documented_recursion_shares() -> None:
+    metrics = read_json(V1 / "full" / "metrics.json")
+    rows = metrics["observed_input_decomposition"]
+    text = " ".join(DOC.read_text(encoding="utf-8").split())
+    for model, period in (
+        ("legacy_linear_regression", "development"),
+        ("atlas_linear_regression", "development"),
+        ("legacy_linear_regression", "confirmation"),
+        ("atlas_linear_regression", "confirmation"),
+    ):
+        cell = {r["horizon"]: r for r in rows if r["model_id"] == model and r["period"] == period}
+        recursive = cell[30]["mae_recursive"] - cell[1]["mae_recursive"]
+        observed = cell[30]["mae_observed_inputs"] - cell[1]["mae_observed_inputs"]
+        share = 100 * (recursive - observed) / recursive
+        quoted = (
+            f"{share:.0f} % (observed-input MAE {cell[1]['mae_observed_inputs']:,.1f} → "
+            f"{cell[30]['mae_observed_inputs']:,.1f})"
+            if period == "development" and model == "legacy_linear_regression"
+            else f"{share:.0f} %"
+        )
+        assert quoted in text, (model, period)
+    # For the legacy model in development, the observed-input error grows by more than
+    # half as much as the recursive error: recursion is not the whole story there.
+    dev = {
+        r["horizon"]: r
+        for r in rows
+        if r["model_id"] == "legacy_linear_regression" and r["period"] == "development"
+    }
+    growth = dev[30]["mae_recursive"] - dev[1]["mae_recursive"]
+    assert dev[30]["mae_observed_inputs"] - dev[1]["mae_observed_inputs"] > growth / 2
+
+
+def test_documented_delay_ranking_statement() -> None:
+    plain = [
+        r["model_id"]
+        for r in read_json(V1 / "development" / "selection.json")["selection"]["ranking"]
+    ]
+    delayed = [r["model_id"] for r in read_json(DELAY1 / "selection.json")["selection"]["ranking"]]
+    assert plain[:2] == delayed[:2]  # best regression and B* unchanged
+    moved = [m for i, m in enumerate(plain) if delayed.index(m) != i]
+    text = " ".join(DOC.read_text(encoding="utf-8").split())
+    assert "the ranking does not change" not in text
+    for model in moved:
+        swap = f"{SHORT[model]} {plain.index(model) + 1} → {delayed.index(model) + 1}"
+        assert swap in text, swap
+
+
+def test_documented_origin_month_losses() -> None:
+    metrics = read_json(V1 / "full" / "metrics.json")
+    months = metrics["by_origin_month"]
+    cells = {(r["period"], r["model_id"], r["origin_month"]): r for r in months}
+    keys = sorted({(r["period"], r["origin_month"]) for r in months})
+    losing = [
+        k
+        for k in keys
+        if cells[(k[0], "atlas_linear_regression", k[1])]["mae"]
+        > cells[(k[0], "same_weekday_median_5w", k[1])]["mae"]
+    ]
+    text = " ".join(DOC.read_text(encoding="utf-8").split())
+    assert f"loses to the same-weekday median in {len(losing)} of {len(keys)} origin months" in text
+    assert ("development", "2024-12") in losing
+    assert "the hard months (holidays, year-end, winter surges)" not in text

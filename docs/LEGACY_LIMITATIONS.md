@@ -40,11 +40,15 @@ before refitting".
 - **[measured, M2]** M2 re-implements the legacy model exactly: all 90 holdout predictions
   and all 30 published forecasts are reproduced.
 - **[measured, M2]** Run recursively, as the published forecast was, on the same 90 days:
-  MAPE 5.5-5.8 % at horizons 2-30. Over the whole confirmation year (2025-07..2026-06):
-  9.0-9.6 % from horizon 7 on.
+  MAPE 5.5-5.9 % at horizons 2-30. Over the whole confirmation year (2025-07..2026-06):
+  9.0-9.8 % from horizon 7 on.
 - **[measured, M2]** In the development period it is worse than three simple baselines
   beyond day 1, for example the median of the last five same weekdays (MAE 1,041.9 against
-  953.0 over horizons 1-30).
+  953.0 over horizons 1-30), although none of these deficits is statistically significant
+  (conservative DM p 0.064-0.601). In the confirmation period it is better than every
+  baseline, by 5.8 % against that median (p = 0.26) and by 23.6 % against seasonal naive
+  (p = 0.002). Neither period shows that it beats simple baselines reliably; see
+  [Backtesting](BACKTESTING.md), finding 2.
 
 ## 2. "Planning capacity 11,609 per day" is not operational capacity
 

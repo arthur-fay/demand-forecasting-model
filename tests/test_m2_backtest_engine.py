@@ -29,7 +29,7 @@ import math
 import statistics
 from collections import Counter
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -824,6 +824,46 @@ def test_every_scheduled_record_exists_and_statuses_partition_them() -> None:
     ]
 
 
+def _small_complete_result() -> BacktestResult:
+    """3 origins x 2 models x 3 horizons = 18 scheduled records (closed form)."""
+    series = series_from(START, linear_values(60))
+    plan = single_period_plan(day(30), day(32), max_horizon=3, min_history_days=30)
+    result = run_backtest(series, plan, [NaiveForecaster(), SeasonalNaiveForecaster()])
+    assert len(result.records) == 3 * 2 * 3
+    return result
+
+
+def test_check_complete_refuses_a_duplicated_key_that_hides_a_missing_one() -> None:
+    """Review mutant F23/#22: with the record count right, one key duplicated and another
+    missing must still be refused (the duplicate check is not implied by the count)."""
+    result = _small_complete_result()
+    result.check_complete()  # the genuine result passes
+    records = result.records.copy()
+    keys = ["period", "model_id", "origin", "horizon"]
+    first = tuple(records.loc[0, keys])
+    lost = tuple(records.loc[1, keys])
+    assert first != lost
+    records.loc[1] = records.loc[0]  # same count; key `lost` gone, key `first` twice
+    assert len(records) == 18
+    assert Counter(map(tuple, records[keys].to_numpy().tolist()))[first] == 2
+    forged = replace(result, records=records)
+    with pytest.raises(AssertionError, match="1 duplicate record key"):
+        forged.check_complete()
+
+
+@pytest.mark.parametrize("change", ["drop", "append"])
+def test_check_complete_refuses_a_wrong_record_count(change: str) -> None:
+    """Review mutant F23/#22: a missing or an extra record is refused with the counts."""
+    result = _small_complete_result()
+    records = result.records
+    if change == "drop":
+        records, count = records.iloc[1:].reset_index(drop=True), 17
+    else:
+        records, count = pd.concat([records, records.iloc[[5]]], ignore_index=True), 19
+    with pytest.raises(AssertionError, match=f"produced {count} records for 18 scheduled"):
+        replace(result, records=records).check_complete()
+
+
 # --- 6. Failure policy ------------------------------------------------------------------
 
 FAIL_SERIES_DAYS = 120
@@ -1323,16 +1363,30 @@ def test_backtests_are_deterministic_and_independent_of_period_and_model_order()
     again = run_backtest(series, _det_plan(DET_SELECTION, DET_BRIDGE), models)  # same objects
     fresh = run_backtest(series, _det_plan(DET_SELECTION, DET_BRIDGE), all_models())
     assert len(first.observed_inputs) > 0
-    # Coefficients: once per (model, origin), only for the identifiable regression (the
-    # legacy design is rank-deficient), the intercept then the 18 features.
+    # Fitted parameters once per (model, origin): for the identifiable regression the
+    # intercept then the 18 features (none for the rank-deficient legacy design); for
+    # exponential smoothing alpha, gamma, the level and the 7 seasonal terms.
     coefficients = first.coefficients
-    assert set(coefficients["model_id"]) == {"atlas_linear_regression"}
+    assert set(coefficients["model_id"]) == {
+        "atlas_linear_regression",
+        "seasonal_exponential_smoothing",
+    }
     assert not coefficients.duplicated(["model_id", "origin", "term"]).any()
     assert Counter(coefficients["origin"]) == {
-        pd.Timestamp(date(2023, 5, 1) + timedelta(days=k)): 19 for k in range(5)
+        pd.Timestamp(date(2023, 5, 1) + timedelta(days=k)): 19 + 10 for k in range(5)
     }
-    terms = list(coefficients.loc[coefficients["origin"] == pd.Timestamp(2023, 5, 1), "term"])
-    assert terms == ["intercept", *atlas_regression_feature_set().names]
+    first_origin = coefficients[coefficients["origin"] == pd.Timestamp(2023, 5, 1)]
+    by_model = first_origin.groupby("model_id", sort=False)["term"].apply(list).to_dict()
+    assert by_model["atlas_linear_regression"] == [
+        "intercept",
+        *atlas_regression_feature_set().names,
+    ]
+    assert by_model["seasonal_exponential_smoothing"] == [
+        "alpha",
+        "gamma",
+        "level",
+        *(f"season_step_{k}" for k in range(1, 8)),
+    ]
     for other in (again, fresh):
         for name, frame in _frames(first).items():
             pd.testing.assert_frame_equal(frame, _frames(other)[name])
@@ -1568,6 +1622,87 @@ def test_projection_refuses_duplicate_model_ids() -> None:
     series = series_from(START, linear_values(60))
     with pytest.raises(ConfigError, match="unique"):
         project(series, [NaiveForecaster(), NaiveForecaster()], max_horizon=3)
+
+
+# --- 12. Persisted exponential-smoothing parameters --------------------------------------
+
+ETS_TERMS = ["alpha", "gamma", "level", *(f"season_step_{k}" for k in range(1, 8))]
+ETS_DROP = 120  # from day 120 (2023-05-01) demand falls to 1/20: forecasts go negative
+ETS_ORIGINS = [day(118 + k) for k in range(8)]  # 2023-04-29 .. 2023-05-06
+
+
+def _ets_reference_terms(
+    values: Sequence[float], season: int = 7, burn_in: int = 28
+) -> list[float]:
+    """ETS(A,N,A) from the model docstring, one grid point and one day at a time: the chosen
+    ``alpha`` and ``gamma``, the final level and the seasonal term for steps ``1 .. season``
+    (``s`` at calendar position ``(n - 1 + k) mod season`` for a history of ``n`` days)."""
+    best: tuple[float, float, float, float, list[float]] | None = None
+    for alpha in atlas.models.ETS_ALPHAS:
+        for gamma in atlas.models.ETS_GAMMAS:
+            if gamma > 1 - alpha:
+                continue
+            level = sum(values[:season]) / season
+            seasonal = [v - level for v in values[:season]]
+            sse = 0.0
+            for t in range(season, len(values)):
+                error = values[t] - (level + seasonal[t % season])
+                if t >= season + burn_in:
+                    sse += error * error
+                level += alpha * error
+                seasonal[t % season] += gamma * error
+            if best is None or sse < best[0]:  # first minimum wins ties
+                best = (sse, alpha, gamma, level, seasonal)
+    assert best is not None
+    _, alpha, gamma, level, seasonal = best
+    n = len(values)
+    return [alpha, gamma, level, *(seasonal[(n - 1 + k) % season] for k in range(1, season + 1))]
+
+
+def test_exponential_smoothing_parameters_are_persisted_and_reproduce_every_forecast() -> None:
+    """Review finding (ETS parameters not persisted): per origin the coefficients table holds
+    alpha, gamma, the final level and the 7 seasonal terms, in that order; they are the
+    fitted values (plain-Python reference), lie on the configured grid, and give every raw
+    forecast as ``level + season_step_((h - 1) mod 7 + 1)``, clipped at zero."""
+    values = noisy_weekly_values(140, 0)
+    values[ETS_DROP:] = [v // 20 for v in values[ETS_DROP:]]
+    series = series_from(START, values)
+    plan = single_period_plan(ETS_ORIGINS[0], ETS_ORIGINS[-1], max_horizon=10, min_history_days=60)
+    result = run_backtest(series, plan, [SeasonalExponentialSmoothing()])
+    records = result.records
+    coefficients = result.coefficients
+    assert list(coefficients.columns) == ["model_id", "origin", "term", "coefficient"]
+    assert set(coefficients["model_id"]) == {"seasonal_exponential_smoothing"}
+    assert len(coefficients) == len(ETS_ORIGINS) * len(ETS_TERMS)
+    chosen: set[tuple[float, float]] = set()
+    for origin in ETS_ORIGINS:
+        terms = at_origin(coefficients, origin)
+        assert terms["term"].tolist() == ETS_TERMS
+        persisted = dict(zip(terms["term"], terms["coefficient"], strict=True))
+        alpha, gamma = persisted["alpha"], persisted["gamma"]
+        assert alpha in atlas.models.ETS_ALPHAS
+        assert gamma in atlas.models.ETS_GAMMAS
+        assert gamma <= 1 - alpha
+        chosen.add((alpha, gamma))
+        history = [float(v) for v in values[: (origin - START).days + 1]]
+        reference = _ets_reference_terms(history)
+        assert [alpha, gamma] == reference[:2]
+        np.testing.assert_allclose(terms["coefficient"][2:], reference[2:], rtol=1e-12, atol=1e-9)
+        rows = at_origin(records, origin)
+        assert rows["horizon"].tolist() == list(range(1, 11))
+        for row in rows.itertuples(index=False):
+            season = persisted[f"season_step_{(int(row.horizon) - 1) % 7 + 1}"]
+            assert row.prediction_raw == pytest.approx(persisted["level"] + season, rel=1e-12)
+            assert row.prediction == max(row.prediction_raw, 0.0)
+        # The projection from the same information set writes the same rows.
+        projection = project(
+            series.through(origin), [SeasonalExponentialSmoothing()], max_horizon=10
+        )
+        pd.testing.assert_frame_equal(projection.coefficients, terms)
+    # Guards: the grid choice varies across origins and the clipping is exercised.
+    assert len(chosen) > 1
+    assert bool((records["prediction_raw"] < 0).any())
+    assert bool((records["prediction_raw"] > 0).any())
 
 
 # --- Integration: the committed legacy-v0 snapshot -----------------------------------------

@@ -299,6 +299,12 @@ class ExperimentConfig(_Config):
         for exclusion in self.sensitivity.origin_exclusions:
             if exclusion.last_origin < exclusion.first_origin:
                 raise ValueError(f"origin exclusion {exclusion.label} ends before it starts")
+        # The plan of *all* periods carries the period rules (at most one selection and one
+        # confirmation period, disjoint targets), so a run of any subset inherits them.
+        try:
+            self.plan()
+        except ConfigError as exc:
+            raise ValueError(str(exc)) from exc
         return self
 
     def canonical_json(self) -> str:

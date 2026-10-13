@@ -13,13 +13,16 @@ to ``metrics.json``. It contains, per period:
   period can only confirm or overturn in favour of ``B*`` (it never picks a new model);
 * the primary confirmatory tests (Holm-adjusted) and pre-registered sensitivity analyses;
 * comparison windows (the legacy holdout days at every horizon), the observed-input
-  decomposition (what feeding predictions back costs) and fit diagnostics.
+  decomposition (what feeding predictions back costs) and fit diagnostics;
+* a bandwidth sensitivity of the selection and primary tests (added after the
+  independent review; descriptive, it decides nothing).
 
 Every table states its period; descriptive periods never enter selection or tests.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -34,14 +37,17 @@ from atlas.experiment import RECORD_TYPE_LABELS, ExperimentConfig
 from atlas.metrics import (
     HorizonBucket,
     compare,
+    contiguous,
     error_metrics,
     ok_records,
+    paired,
+    per_origin_mean,
     summarize,
     window_summary,
 )
 from atlas.models import ModelFamily
 from atlas.regression import HIGH_LEVERAGE
-from atlas.stats import holm
+from atlas.stats import bandwidth_sensitivity, holm
 
 LEGACY_HEADLINE: Final = (
     "The legacy 4.93 % MAPE is a one-step-ahead (h = 1) score with observed lags on one "
@@ -234,6 +240,75 @@ def select_model(result: BacktestResult, config: ExperimentConfig) -> dict[str, 
         "selected_family": families.get(selected) if selected else None,
         "reason": reason,
     }
+
+
+#: Decision fields of a selection that a re-run must reproduce exactly.
+SELECTION_EXACT_FIELDS: Final = (
+    "rule",
+    "period",
+    "first_horizon",
+    "last_horizon",
+    "eligibility",
+    "n_common_pairs",
+    "n_common_origins",
+    "best_baseline",
+    "best_regression",
+    "margin_met",
+    "significant",
+    "selected_model",
+    "selected_family",
+    "reason",
+)
+#: Fields of the selection test: identities exactly, numbers to a relative 1e-9 (BLAS).
+SELECTION_TEST_EXACT: Final = ("model_id", "reference", "n_common", "n_origins", "dm_computed")
+SELECTION_TEST_CLOSE: Final = (
+    "mae",
+    "mae_reference",
+    "mae_difference",
+    "dm_p_value",
+    "dm_p_value_conservative",
+)
+
+
+def _close(a: Any, b: Any) -> bool:
+    if a is None or b is None or isinstance(a, bool) or isinstance(b, bool):
+        return a is b or a == b
+    try:
+        return math.isclose(float(a), float(b), rel_tol=1e-9, abs_tol=1e-12)
+    except (TypeError, ValueError):
+        return False
+
+
+def selection_differences(
+    sealed: Mapping[str, Any], recomputed: Mapping[str, Any] | None
+) -> list[str]:
+    """Decision fields in which a recomputed selection differs from the sealed one."""
+    if recomputed is None:
+        return ["the selection period was not recomputed"]
+    differences = [k for k in SELECTION_EXACT_FIELDS if sealed.get(k) != recomputed.get(k)]
+    old, new = sealed.get("ranking") or [], recomputed.get("ranking") or []
+    if [(r.get("model_id"), r.get("family")) for r in old] != [
+        (r.get("model_id"), r.get("family")) for r in new
+    ] or not all(_close(a.get("mae"), b.get("mae")) for a, b in zip(old, new, strict=False)):
+        differences.append("ranking")
+    old_test, new_test = (
+        sealed.get("regression_vs_best_baseline"),
+        recomputed.get("regression_vs_best_baseline"),
+    )
+    if (old_test is None) != (new_test is None):
+        differences.append("regression_vs_best_baseline")
+    elif old_test is not None and new_test is not None:
+        differences += [
+            f"regression_vs_best_baseline.{k}"
+            for k in SELECTION_TEST_EXACT
+            if old_test.get(k) != new_test.get(k)
+        ]
+        differences += [
+            f"regression_vs_best_baseline.{k}"
+            for k in SELECTION_TEST_CLOSE
+            if not _close(old_test.get(k), new_test.get(k))
+        ]
+    return differences
 
 
 def recommend(
@@ -529,25 +604,108 @@ def _influence(
     ]
 
 
-def _regression_reliability(records: pd.DataFrame) -> list[dict[str, Any]]:
-    """Regression metrics with and without non-estimable or high-leverage forecasts."""
+def _regression_reliability(
+    records: pd.DataFrame, comparator: str | None = None
+) -> list[dict[str, Any]]:
+    """Regression metrics with and without non-estimable or high-leverage forecasts.
+
+    A forecast is *reliable* when it is estimable and its leverage is at most
+    ``HIGH_LEVERAGE``. With a ``comparator`` (``B*``) the same split is also made on the
+    forecasts both models produced, so the regression and the comparator are compared on
+    identical kept and removed forecasts (``*_pairs`` fields).
+    """
     ok = ok_records(records)
-    ok = ok[ok["estimable"].notna()]
+    regressions = ok[ok["estimable"].notna()]
+    keys = ["period", "origin", "horizon"]
     rows = []
-    for _, cell in ok.groupby(["period", "model_id"], sort=True):
-        reliable = cell[(cell["estimable"].astype(bool)) & (cell["leverage"] <= HIGH_LEVERAGE)]
+    for _, cell in regressions.groupby(["period", "model_id"], sort=True):
+        period, model_id = str(cell["period"].iloc[0]), str(cell["model_id"].iloc[0])
+        is_reliable = cell["estimable"].astype(bool) & (cell["leverage"] <= HIGH_LEVERAGE)
+        reliable = cell[is_reliable]
         everything = error_metrics(cell["prediction"], cell["actual"])
         kept = error_metrics(reliable["prediction"], reliable["actual"])
+        row: dict[str, Any] = {
+            "period": period,
+            "model_id": model_id,
+            "n_all": everything.n,
+            "mae_all": everything.mae,
+            "n_nonestimable": int((~cell["estimable"].astype(bool)).sum()),
+            "n_high_leverage": int((cell["leverage"] > HIGH_LEVERAGE).sum()),
+            "n_reliable": kept.n,
+            "mae_reliable_only": kept.mae,
+            "comparator": comparator,
+        }
+        if comparator is not None:
+            other = ok.loc[
+                (ok["model_id"] == comparator) & (ok["period"] == period), [*keys, "prediction"]
+            ]
+            joined = cell.assign(reliable=is_reliable)[
+                [*keys, "prediction", "actual", "reliable"]
+            ].merge(other, on=keys, suffixes=("", "_comparator"), validate="one_to_one")
+            for name, part in (
+                ("all", joined),
+                ("reliable", joined[joined["reliable"]]),
+                ("removed", joined[~joined["reliable"]]),
+            ):
+                model = error_metrics(part["prediction"], part["actual"])
+                base = error_metrics(part["prediction_comparator"], part["actual"])
+                row[f"n_{name}_pairs"] = model.n
+                row[f"mae_{name}_pairs"] = model.mae
+                row[f"comparator_mae_{name}_pairs"] = base.mae
+        rows.append(row)
+    return rows
+
+
+def _loss_differential(
+    records: pd.DataFrame, model_id: str, reference: str, period: str, first: int, last: int
+) -> pd.Series:
+    """Per-origin mean of ``|e_model| - |e_reference|`` over horizons ``first..last``."""
+    cell = paired(_scope_records(records, period, first, last), model_id, reference)
+    loss = (cell["prediction"] - cell["actual"]).abs() - (
+        cell["prediction_ref"] - cell["actual"]
+    ).abs()
+    return per_origin_mean(cell, loss, last - first + 1)
+
+
+def _bandwidth_sensitivity(
+    result: BacktestResult,
+    config: ExperimentConfig,
+    selection: Mapping[str, Any] | None,
+    recommendation: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """The selection test and the primary tests under wider HAC bandwidths (post hoc)."""
+    rule = config.selection
+    if rule is None or not selection:
+        return []
+    first, last = rule.first_horizon, rule.last_horizon
+    strides = result.plan.stride_by_period()
+    tests: list[tuple[str, str, str, str]] = []
+    regression, baseline = selection.get("best_regression"), selection.get("best_baseline")
+    if regression and baseline and rule.period in strides:
+        tests.append(
+            ("selection: best regression vs best baseline", rule.period, regression, baseline)
+        )
+    for test in (recommendation or {}).get("primary_tests", []):
+        tests.append((test["hypothesis"], test["period"], test["model_id"], test["reference"]))
+    rows = []
+    for name, period, model_id, reference in tests:
+        stride = strides.get(period, 1)
+        per_origin = _loss_differential(result.records, model_id, reference, period, first, last)
+        overlap = max(1, -(-last // stride))
         rows.append(
             {
-                "period": str(cell["period"].iloc[0]),
-                "model_id": str(cell["model_id"].iloc[0]),
-                "n_all": everything.n,
-                "mae_all": everything.mae,
-                "n_nonestimable": int((~cell["estimable"].astype(bool)).sum()),
-                "n_high_leverage": int((cell["leverage"] > HIGH_LEVERAGE).sum()),
-                "n_reliable": kept.n,
-                "mae_reliable_only": kept.mae,
+                "test": name,
+                "period": period,
+                "model_id": model_id,
+                "reference": reference,
+                "n_origins": len(per_origin),
+                "overlap": overlap,
+                "mean_difference": float(per_origin.mean()) if len(per_origin) else None,
+                "variants": bandwidth_sensitivity(
+                    per_origin.to_numpy(dtype="float64"),
+                    horizon=overlap,
+                    contiguous=contiguous(pd.DatetimeIndex(per_origin.index), stride),
+                ),
             }
         )
     return rows
@@ -694,6 +852,14 @@ def evaluate(
         ),
         "selection": selection,
         "selection_recomputed": computed if sealed_selection is not None else None,
+        "selection_seal_check": (
+            {
+                "fields": [*SELECTION_EXACT_FIELDS, "ranking", "regression_vs_best_baseline"],
+                "differences": selection_differences(sealed_selection, computed),
+            }
+            if sealed_selection is not None
+            else None
+        ),
     }
     payload["comparison_to_best_baseline"] = (
         _comparisons(records, best_baseline, model_ids, buckets, horizon, strides)
@@ -776,7 +942,10 @@ def evaluate(
                     }
                 )
     payload["influence"] = influence
-    payload["regression_reliability"] = _regression_reliability(records)
+    payload["regression_reliability"] = _regression_reliability(records, best_baseline)
+    payload["bandwidth_sensitivity"] = _bandwidth_sensitivity(
+        result, config, selection, payload["recommendation"]
+    )
     windows = []
     for window in config.comparison_windows:
         if window.period not in {p.name for p in result.plan.periods}:

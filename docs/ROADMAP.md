@@ -56,6 +56,9 @@ See [BACKTESTING.md](BACKTESTING.md).
   primary tests.
 - Run records with configuration, data, code and spec fingerprints, git commit, package and
   BLAS versions; `atlas backtest verify` requires byte-identical results.
+- An independent adversarial review (leakage, recursion and legacy fidelity, statistics and
+  claims, mutation testing, requirements). Its confirmed findings were fixed; the amendments
+  are listed in [BACKTESTING.md](BACKTESTING.md), section 9.
 
 Deliberately not done in M2:
 

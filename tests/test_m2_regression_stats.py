@@ -40,6 +40,8 @@ from atlas.regression import (
 )
 from atlas.stats import (
     MIN_ORIGINS_FLOOR,
+    SENSITIVITY_BANDWIDTHS,
+    bandwidth_sensitivity,
     diebold_mariano,
     holm,
     long_run_variance,
@@ -245,16 +247,22 @@ def dm_reference(values: list[float], horizon: int, level: float = 0.95) -> dict
     p_value = t_two_sided_reference(statistic, size - 1)
     quantile = t_quantile_reference(0.5 + level / 2.0, size - 1)
     bartlett = lrv_reference(values, min(2 * horizon, size - 1), "bartlett")
-    bartlett_statistic = mean / math.sqrt(bartlett / size / correction)
+    bartlett_error = math.sqrt(bartlett / size / correction)
+    bartlett_statistic = mean / bartlett_error
     bartlett_p = t_two_sided_reference(bartlett_statistic, size - 1)
+    # The reported interval uses the larger standard error, like the conservative p-value.
+    wider = max(error, bartlett_error)
     return {
         "computed": True,
         "mean": mean,
         "estimator": estimator,
         "statistic": statistic,
         "p_value": p_value,
-        "ci_low": mean - quantile * error,
-        "ci_high": mean + quantile * error,
+        "ci_low": mean - quantile * wider,
+        "ci_high": mean + quantile * wider,
+        "ci_basis": "bartlett_2h" if bartlett_error > error else estimator,
+        "ci_low_hln": mean - quantile * error,
+        "ci_high_hln": mean + quantile * error,
         "bartlett_statistic": bartlett_statistic,
         "bartlett_p_value": bartlett_p,
         "p_value_conservative": max(p_value, bartlett_p),
@@ -1085,7 +1093,15 @@ def assert_matches_reference(values: list[float], horizon: int, level: float = 0
         assert result.p_value is None
         return
     assert result.estimator == expected["estimator"]
-    for name in ("statistic", "bartlett_statistic", "ci_low", "ci_high"):
+    assert result.ci_basis == expected["ci_basis"]
+    for name in (
+        "statistic",
+        "bartlett_statistic",
+        "ci_low",
+        "ci_high",
+        "ci_low_hln",
+        "ci_high_hln",
+    ):
         assert getattr(result, name) == pytest.approx(expected[name], rel=1e-9, abs=1e-12)
     smallest = min(abs(float(expected[n])) for n in ("statistic", "bartlett_statistic"))  # type: ignore[arg-type]
     tolerance = 1e-10 + p_tolerance(smallest, len(values) - 1)
@@ -1292,7 +1308,162 @@ def test_diebold_mariano_to_dict_lists_every_field() -> None:
         "bartlett_statistic",
         "bartlett_p_value",
         "p_value_conservative",
+        "ci_basis",
+        "ci_low_hln",
+        "ci_high_hln",
     }
+
+
+# --- conservative interval and bandwidth sensitivity (review findings) --------------------
+
+
+def ar1_values(seed: int, size: int, persistence: float, shift: float) -> list[float]:
+    rng = np.random.default_rng(seed)
+    values: list[float] = []
+    previous = 0.0
+    for shock in rng.normal(size=size):
+        previous = persistence * previous + float(shock)
+        values.append(previous + shift)
+    return values
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    seed=st.integers(0, 10_000),
+    size=st.integers(50, 160),
+    horizon=st.integers(1, 12),
+    persistence=st.sampled_from([-0.5, 0.0, 0.4, 0.8]),
+    shift=st.sampled_from([0.0, 0.15, 0.3, 0.6]),
+)
+def test_the_interval_excludes_zero_exactly_when_the_conservative_p_is_below_alpha(
+    seed: int, size: int, horizon: int, persistence: float, shift: float
+) -> None:
+    """Review finding: the interval used the HLN error only, so it could exclude zero
+    while the printed (conservative) p-value was above 0.05. Both now use the larger
+    of the two standard errors."""
+    values = ar1_values(seed, size, persistence, shift)
+    result = diebold_mariano(values, horizon=horizon)
+    if not result.computed:
+        return
+    assert result.ci_low is not None
+    assert result.ci_high is not None
+    assert result.p_value_conservative is not None
+    # Within 1e-9 of the boundary floating point decides; such draws are skipped.
+    if abs(result.p_value_conservative - 0.05) > 1e-9:
+        excludes_zero = result.ci_low > 0 or result.ci_high < 0
+        assert excludes_zero is (result.p_value_conservative < 0.05)
+    # The conservative interval contains the HLN one.
+    assert result.ci_low_hln is not None
+    assert result.ci_high_hln is not None
+    assert result.ci_low <= result.ci_low_hln + 1e-12
+    assert result.ci_high >= result.ci_high_hln - 1e-12
+
+
+def test_ci_basis_names_the_larger_standard_error() -> None:
+    """Square wave: the HLN error is the larger one; a persistent AR(1) at h = 1: Bartlett."""
+    wave = diebold_mariano(square_wave(), horizon=3)
+    assert wave.p_value is not None
+    assert wave.bartlett_p_value is not None
+    assert wave.p_value > wave.bartlett_p_value
+    assert wave.ci_basis == "rectangular"
+    assert (wave.ci_low, wave.ci_high) == (wave.ci_low_hln, wave.ci_high_hln)
+    persistent = diebold_mariano(ar1_values(3, 120, 0.8, 0.4), horizon=1)
+    assert persistent.bartlett_p_value is not None
+    assert persistent.p_value is not None
+    assert persistent.bartlett_p_value > persistent.p_value
+    assert persistent.ci_basis == "bartlett_2h"
+    assert persistent.ci_low is not None
+    assert persistent.ci_low_hln is not None
+    assert persistent.ci_low < persistent.ci_low_hln
+
+
+def sensitivity_reference(values: list[float], horizon: int) -> list[dict[str, float | int]]:
+    """Each variant from the definitions: HLN factor, t(T - 1), eff. n = T gamma_0 / LRV."""
+    size = len(values)
+    mean = math.fsum(values) / size
+    gamma0 = math.fsum((v - mean) ** 2 for v in values) / size
+    correction = hln_correction(size, horizon)
+    quantile = t_quantile_reference(0.975, size - 1)
+    rows: list[dict[str, float | int]] = []
+    for kernel, bandwidth in (
+        ("rectangular", horizon - 1),
+        ("rectangular", 2 * horizon - 1),
+        ("bartlett", 2 * horizon),
+        ("bartlett", 3 * horizon),
+        ("bartlett", 4 * horizon),
+    ):
+        bandwidth = min(bandwidth, size - 1)
+        variance = lrv_reference(values, bandwidth, kernel)
+        error = math.sqrt(variance / size / correction)
+        rows.append(
+            {
+                "bandwidth": bandwidth,
+                "p_value": t_two_sided_reference(mean / error, size - 1),
+                "ci_half_width": quantile * error,
+                "effective_sample_size": size * gamma0 / variance,
+            }
+        )
+    return rows
+
+
+@pytest.mark.parametrize(
+    ("seed", "size", "horizon", "persistence"),
+    [(1, 90, 30, 0.95), (2, 120, 7, 0.6), (3, 60, 1, 0.2), (4, 336, 30, 0.97)],
+)
+def test_bandwidth_sensitivity_matches_the_plain_reference(
+    seed: int, size: int, horizon: int, persistence: float
+) -> None:
+    values = ar1_values(seed, size, persistence, 0.3)
+    rows = bandwidth_sensitivity(values, horizon=horizon)
+    expected = sensitivity_reference(values, horizon)
+    assert [r["kernel"] for r in rows] == [k for k, _, _ in SENSITIVITY_BANDWIDTHS]
+    assert len(rows) == len(expected) == 5
+    for row, reference in zip(rows, expected, strict=True):
+        assert row["bandwidth"] == reference["bandwidth"]
+        if row["p_value"] is None:  # a rectangular estimate can be negative
+            assert row["kernel"] == "rectangular"
+            assert lrv_reference(values, row["bandwidth"], "rectangular") <= 0
+            continue
+        assert row["p_value"] == pytest.approx(reference["p_value"], abs=1e-10)
+        for key in ("ci_half_width", "effective_sample_size"):
+            assert row[key] == pytest.approx(reference[key], rel=1e-9)
+
+
+def test_the_first_sensitivity_variant_is_the_primary_test() -> None:
+    values = ar1_values(5, 200, 0.7, 0.25)
+    primary = diebold_mariano(values, horizon=10)
+    rows = bandwidth_sensitivity(values, horizon=10)
+    assert primary.estimator == "rectangular"
+    assert rows[0]["kernel"] == "rectangular"
+    assert rows[0]["bandwidth"] == 9
+    assert rows[0]["p_value"] == primary.p_value
+    assert primary.ci_high_hln is not None
+    assert primary.mean_difference is not None
+    assert rows[0]["ci_half_width"] == pytest.approx(primary.ci_high_hln - primary.mean_difference)
+    assert rows[2]["kernel"] == "bartlett"
+    assert rows[2]["bandwidth"] == 20
+    assert rows[2]["p_value"] == primary.bartlett_p_value
+
+
+def test_bandwidths_are_capped_at_t_minus_one() -> None:
+    values = ar1_values(6, 90, 0.5, 0.2)
+    rows = bandwidth_sensitivity(values, horizon=30)
+    assert [r["bandwidth"] for r in rows] == [29, 59, 60, 89, 89]
+
+
+@pytest.mark.parametrize(
+    ("values", "contiguous"),
+    [
+        pytest.param([0.1 * (t % 7) for t in range(49)], True, id="too_few_origins"),
+        pytest.param([0.5] * 80, True, id="constant"),
+        pytest.param([0.1 * (t % 7) for t in range(80)], False, id="gaps"),
+        pytest.param([float("nan")] + [0.1] * 79, True, id="non_finite"),
+    ],
+)
+def test_bandwidth_sensitivity_is_empty_when_the_test_is_not_computed(
+    values: list[float], contiguous: bool
+) -> None:
+    assert bandwidth_sensitivity(values, horizon=1, contiguous=contiguous) == []
 
 
 # --- holm --------------------------------------------------------------------------------

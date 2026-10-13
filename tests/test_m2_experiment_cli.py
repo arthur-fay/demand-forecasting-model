@@ -73,6 +73,7 @@ from atlas.experiment import (
     series_fingerprint,
     write_run,
 )
+from atlas.issues import Issue, Severity
 from atlas.legacy_refit import legacy_refit_check
 from atlas.loader import LoadedTable
 from atlas.models import ModelFamily, SeasonalNaiveForecaster, legacy_linear_regression
@@ -543,13 +544,43 @@ def test_load_config_reports_unreadable_files(tmp_path: Path) -> None:
     ],
 )
 def test_plan_level_rejections(change: Mutation, match: str) -> None:
-    """Invalid schedules are refused when the plan is built (before any computation)."""
+    """Invalid schedules are refused when the configuration is parsed, before any run of
+    any subset of its periods can start."""
     payload = v1_payload()
     payload["selection"] = None  # the selection rule is not what is tested here
     change(payload)
-    config = parse_config(payload)
     with pytest.raises(ConfigError, match=match):
-        config.plan()
+        parse_config(payload)
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        pytest.param(
+            lambda p: p["periods"][1].update(first_origin="2025-06-10", last_origin="2025-07-10"),
+            "overlap",
+            id="overlapping_confirmation",
+        ),
+        pytest.param(
+            lambda p: p["periods"][1].update(role="selection"),
+            "at most one selection",
+            id="relabelled_confirmation",
+        ),
+        pytest.param(
+            lambda p: p["periods"].append(dict(p["periods"][1], name="confirmation_b")),
+            "at most one confirmation",
+            id="second_confirmation",
+        ),
+    ],
+)
+def test_period_rules_hold_for_the_whole_configuration(change: Mutation, match: str) -> None:
+    """Review finding: the rules used to be checked only for the periods of one run, so a
+    development-only run and a confirmation-only run of an overlapping (or relabelled)
+    protocol each passed. They are now part of the configuration itself."""
+    payload = v1_payload()
+    change(payload)
+    with pytest.raises(ConfigError, match=match):
+        parse_config(payload)
 
 
 def test_v1_development_and_confirmation_targets_are_disjoint_by_construction() -> None:
@@ -559,7 +590,9 @@ def test_v1_development_and_confirmation_targets_are_disjoint_by_construction() 
     payload["selection"] = None
     payload["periods"][0]["last_origin"] = "2025-06-01"  # targets through 2025-07-01
     with pytest.raises(ConfigError, match="overlap"):
-        parse_config(payload).plan()
+        parse_config(payload)
+    payload["periods"][0]["last_origin"] = "2025-05-31"  # targets through 2025-06-30
+    assert parse_config(payload).plan().origins()
 
 
 # --- 3. Deterministic serialisation -------------------------------------------------------------
@@ -933,15 +966,38 @@ def test_series_fingerprint_changes_with_any_single_value(
 # --- 6. Sealed selections (no data needed) -------------------------------------------------------
 
 
+SEALED_V1 = REPO_ROOT / "docs" / "results" / "atlas-m2-rolling-origin-v1" / "development"
+
+
+def _valid_selection() -> dict[str, Any]:
+    """The selection object of the committed v1 seal (a structurally valid selection)."""
+    record = json.loads((SEALED_V1 / "selection.json").read_text(encoding="utf-8"))
+    selection: dict[str, Any] = record["selection"]
+    return selection
+
+
 def _seal(config: ExperimentConfig, data: str, /, **changes: Any) -> dict[str, Any]:
     record = {
         "record_type": "sealed_selection",
         "config_fingerprint": config.fingerprint(),
         "data_fingerprint": data,
-        "selection": {"selected_model": "seasonal_naive", "ranking": []},
+        "selection": _valid_selection(),
     }
     record.update(changes)
     return record
+
+
+def _edited_selection(**changes: Any) -> dict[str, Any]:
+    selection = _valid_selection()
+    for key, value in changes.items():
+        if value is _DROP:
+            del selection[key]
+        else:
+            selection[key] = value
+    return selection
+
+
+_DROP = object()
 
 
 @pytest.mark.parametrize(
@@ -952,18 +1008,56 @@ def _seal(config: ExperimentConfig, data: str, /, **changes: Any) -> dict[str, A
         pytest.param({"data_fingerprint": "1" * 64}, "different data", id="data"),
         pytest.param({"selection": None}, "no selection", id="missing"),
         pytest.param({"selection": {"selected_model": ""}}, "no selection", id="empty"),
+        pytest.param({"selection": _edited_selection(rule=_DROP)}, "rule is missing", id="no_rule"),
+        pytest.param(
+            {"selection": _edited_selection(selected_model="not_a_model")},
+            "selected_model is not in the ranking",
+            id="unranked_choice",
+        ),
+        pytest.param(
+            {"selection": _edited_selection(best_regression="not_a_model")},
+            "best_regression is not in the ranking",
+            id="unranked_regression",
+        ),
+        pytest.param(
+            {"selection": _edited_selection(period="confirmation")},
+            "not the selection period",
+            id="wrong_period",
+        ),
+        pytest.param(
+            {"selection": _edited_selection(last_horizon=7)},
+            "horizons differ",
+            id="wrong_horizons",
+        ),
+        pytest.param(
+            {"selection": _edited_selection(ranking=[])}, "ranking is empty", id="empty_ranking"
+        ),
+        pytest.param(
+            {"selection": _edited_selection(ranking=[{"model_id": "naive"}])},
+            "needs a model_id and an mae",
+            id="ranking_without_mae",
+        ),
+        pytest.param(
+            {"selection": _edited_selection(significant="yes")},
+            "significant is missing or not a bool",
+            id="non_boolean_flag",
+        ),
+        pytest.param(
+            {"selection": _edited_selection(regression_vs_best_baseline=[1])},
+            "regression_vs_best_baseline is not an object",
+            id="bad_test_record",
+        ),
     ],
 )
 def test_load_sealed_selection_refuses_foreign_records(
     tmp_path: Path, changes: dict[str, Any], match: str
 ) -> None:
+    """Foreign or malformed seals are refused before any computation (review finding: a
+    seal without ``rule`` used to crash the report after the whole backtest)."""
     config = load_config(V1)
     path = tmp_path / "selection.json"
     path.write_text(json.dumps(_seal(config, "f" * 64)), encoding="utf-8")
-    assert runner.load_sealed_selection(path, config, "f" * 64)["selection"] == {
-        "selected_model": "seasonal_naive",
-        "ranking": [],
-    }
+    assert runner.load_sealed_selection(path, config, "f" * 64)["selection"] == _valid_selection()
     path.write_text(json.dumps(_seal(config, "f" * 64, **changes)), encoding="utf-8")
     with pytest.raises(ConfigError, match=match):
         runner.load_sealed_selection(path, config, "f" * 64)
@@ -1067,6 +1161,113 @@ def test_m2_commands_are_skipped_when_snapshot_integrity_fails(
     assert "[FAIL] integrity" in text
     assert f"[SKIP] {stage}: snapshot integrity check failed" in text
     assert not output.exists()
+
+
+def _tree(directory: Path) -> dict[str, bytes]:
+    return {
+        p.relative_to(directory).as_posix(): p.read_bytes()
+        for p in sorted(directory.rglob("*"))
+        if p.is_file()
+    }
+
+
+def _must_not_run(*args: Any, **kwargs: Any) -> Any:
+    raise AssertionError("must not compute")
+
+
+@pytest.mark.parametrize(
+    ("command", "computation"),
+    [
+        pytest.param(["backtest", "run"], "run_backtest", id="backtest_run"),
+        pytest.param(["forecast"], "project", id="forecast"),
+        pytest.param(["backtest", "legacy"], "legacy_refit_check", id="backtest_legacy"),
+    ],
+)
+def test_an_existing_output_directory_is_refused_before_anything_is_computed(
+    command: list[str],
+    computation: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review finding #31: an existing ``--output-dir`` was refused only when the results
+    were written, after the whole computation. It is now refused first, before the data
+    are even read, and the directory is left as it was."""
+    output = tmp_path / "existing"
+    output.mkdir()
+    (output / "earlier.txt").write_text("results of an earlier run\n", encoding="utf-8")
+    before = _tree(output)
+    for name in ("load_series", computation):
+        monkeypatch.setattr(runner, name, _must_not_run)
+    config = write_config(tmp_path / "mini.json", mini_protocol())
+    extra = [] if command == ["backtest", "legacy"] else ["--config", str(config)]
+    code, text = run_cli(*command, *extra, "--output-dir", str(output))
+    assert code == EXIT_USAGE, text
+    assert f"output directory {output} already exists" in capsys.readouterr().err
+    assert _tree(output) == before
+
+
+@pytest.mark.integration
+def test_an_existing_default_run_directory_is_refused_before_the_backtest(
+    repo_copy: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review finding #31, default directory (``runs/<run id>`` under ``--repo-root``): the
+    run id needs the data fingerprint, so the data are read, but a second run of the same
+    configuration is refused before any model is fitted and leaves the first run intact."""
+    config = write_config(tmp_path / "mini.json", mini_protocol())
+    code, text = run_cli("backtest", "run", "--config", str(config), repo_root=repo_copy)
+    assert code == EXIT_OK, text
+    (run_dir,) = (repo_copy / "runs").iterdir()
+    assert run_dir.name.startswith("atlas-m2-mini-protocol-test-")
+    assert run_dir.name.endswith("-development")
+    before = _tree(run_dir)
+    assert "selection.json" in before
+    monkeypatch.setattr(runner, "run_backtest", _must_not_run)
+    code, text = run_cli("backtest", "run", "--config", str(config), repo_root=repo_copy)
+    assert code == EXIT_USAGE, text
+    assert f"output directory {run_dir} already exists" in capsys.readouterr().err
+    assert _tree(run_dir) == before
+    assert [p.name for p in (repo_copy / "runs").iterdir()] == [run_dir.name]
+
+
+def test_an_existing_default_projection_directory_is_refused_before_projecting(
+    repo_copy: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review follow-up: ``atlas forecast`` without ``--output-dir`` used to compute the
+    projection before ``write_run`` refused the existing ``runs/projections/<run id>``."""
+    code, text = run_cli("forecast", "--config", str(SMOKE), repo_root=repo_copy)
+    assert code == EXIT_OK, text
+    (run_dir,) = (repo_copy / "runs" / "projections").iterdir()
+    before = _tree(run_dir)
+    monkeypatch.setattr(runner, "project", _must_not_run)
+    code, text = run_cli("forecast", "--config", str(SMOKE), repo_root=repo_copy)
+    assert code == EXIT_USAGE, text
+    assert f"output directory {run_dir} already exists" in capsys.readouterr().err
+    assert _tree(run_dir) == before
+
+
+def test_a_subset_run_of_an_overlapping_protocol_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review finding (period rules per run): a development-only run of a protocol whose
+    confirmation targets overlap the development targets used to pass and write a seal.
+    The rules now belong to the configuration, so any subset run is refused up front."""
+    parse_config(mini_protocol())  # the base protocol is valid
+    payload = mini_protocol()
+    # Development targets 2024-02-02 .. 2024-02-10; confirmation targets from 2024-02-06.
+    payload["periods"][1].update(first_origin="2024-02-05", last_origin="2024-02-06")
+    config = write_config(tmp_path / "overlap.json", payload)
+    output = tmp_path / "run"
+    for extra in (["--period", "development"], []):
+        code, text = run_cli(*backtest_args(config, output, *extra))
+        assert code == EXIT_USAGE, text
+        assert "periods development and confirmation overlap" in capsys.readouterr().err
+        assert not output.exists()
 
 
 # --- 8. Smoke backtest end to end (committed snapshot) --------------------------------------------
@@ -1226,12 +1427,31 @@ def test_smoke_fits_coefficients_and_observed_inputs(smoke_runs: tuple[CliRun, C
         assert row.n_train_rows == (date.fromisoformat(row.origin) - first).days + 1
     coefficients = read_records(run.directory / "coefficients.csv")
     assert "legacy_linear_regression" not in set(coefficients["model_id"])  # not identifiable
-    assert set(coefficients["model_id"]) == {"atlas_linear_regression"}
+    assert set(coefficients["model_id"]) == {
+        "atlas_linear_regression",
+        "seasonal_exponential_smoothing",
+    }
     atlas_fits = fits[fits["model_id"] == "atlas_linear_regression"]
+    atlas_terms = coefficients[coefficients["model_id"] == "atlas_linear_regression"]
     for row in atlas_fits.itertuples(index=False):
-        terms = coefficients.loc[coefficients["origin"] == row.origin, "term"].tolist()
+        terms = atlas_terms.loc[atlas_terms["origin"] == row.origin, "term"].tolist()
         assert terms[0] == "intercept"
         assert len(terms) == int(row.n_features) + 1
+    # Exponential smoothing: the persisted parameters reproduce every forecast (review
+    # finding: they were not written at all).
+    forecasts = read_records(run.directory / "forecasts.csv")
+    ets = coefficients[coefficients["model_id"] == "seasonal_exponential_smoothing"]
+    ets_forecasts = forecasts[forecasts["model_id"] == "seasonal_exponential_smoothing"]
+    assert ets["origin"].nunique() == 6
+    for origin, terms in ets.groupby("origin"):
+        values = dict(zip(terms["term"], terms["coefficient"], strict=True))
+        assert list(values)[:3] == ["alpha", "gamma", "level"]
+        assert 0 < values["alpha"] < 1
+        assert 0 < values["gamma"] < 1
+        for row in ets_forecasts[ets_forecasts["origin"] == origin].itertuples(index=False):
+            season = values[f"season_step_{(int(row.horizon) - 1) % 7 + 1}"]
+            assert float(row.prediction_raw) == pytest.approx(values["level"] + season, rel=1e-12)
+            assert float(row.prediction) == max(float(row.prediction_raw), 0.0)
     # observed-input diagnostic: separate table, regressions only, h = 1 equals the forecast
     observed = read_records(run.directory / "observed_inputs.csv")
     assert set(observed["record_type"]) == {"diagnostic_observed_inputs"}
@@ -1413,6 +1633,114 @@ def test_verify_refuses_inconsistent_or_foreign_manifests(
     assert code == EXIT_USAGE
 
 
+# Warning-level M1 flags documented in docs/DATA_QUALITY.md: the HPD intake interruption of
+# 2024-04-11 .. 14 and its catch-up surge on 2024-04-15.
+HPD_FLAGGED = [f"2024-04-{d}" for d in range(11, 16)]
+REGENERATED_FILES = sorted(BACKTEST_FILES - {"manifest.json"})
+
+
+def flagged_protocol() -> dict[str, Any]:
+    """The mini protocol (no selection rule) with development targets 2024-04-09 .. 17,
+    which cover the HPD flags, and the flagged-target sensitivity switched on."""
+    payload = mini_protocol(with_selection=False)
+    payload["experiment_id"] = "atlas-m2-flagged-targets-test"
+    payload["periods"][0].update(first_origin="2024-04-08", last_origin="2024-04-10")
+    payload["periods"][1].update(first_origin="2024-04-20", last_origin="2024-04-21")
+    payload["sensitivity"] = {"exclude_flagged_targets": True}
+    return payload
+
+
+@pytest.fixture(scope="module")
+def flagged_run(tmp_path_factory: pytest.TempPathFactory) -> CliRun:
+    base = tmp_path_factory.mktemp("flagged")
+    config = write_config(base / "flagged.json", flagged_protocol())
+    directory = base / "run"
+    code, text = run_cli(*backtest_args(config, directory))
+    return CliRun(code, text, directory)
+
+
+def _verify_report(run_dir: Path) -> tuple[int, dict[str, Any]]:
+    code, text = run_cli("--format", "json", "backtest", "verify", str(run_dir))
+    report: dict[str, Any] = json.loads(text)["reports"][-1]
+    assert report["name"] == "verification"
+    return code, report
+
+
+def _codes(report: dict[str, Any]) -> list[tuple[str, str]]:
+    return sorted((issue["code"], issue["subject"]) for issue in report["issues"])
+
+
+@pytest.mark.integration
+def test_verify_compares_every_regenerated_file(flagged_run: CliRun) -> None:
+    """Review finding #26: verify compared only the five result files. Every regenerated
+    file, report.md and config.json included, is now compared."""
+    assert flagged_run.code == EXIT_OK, flagged_run.text
+    manifest = read_json(flagged_run.directory / "manifest.json")
+    # Development targets: origins 2024-04-08 .. 10 plus h = 1 .. 7.
+    targets = [date(2024, 4, 8) + timedelta(days=o + h) for o in range(3) for h in range(1, 8)]
+    assert set(HPD_FLAGGED) <= {d.isoformat() for d in targets}
+    assert set(HPD_FLAGGED) <= set(manifest["flagged_target_dates"])
+    code, report = _verify_report(flagged_run.directory)
+    assert code == EXIT_OK, report
+    assert report["issues"] == []
+    assert report["facts"]["files"] == dict.fromkeys(REGENERATED_FILES, "identical")
+
+
+@pytest.mark.integration
+def test_verify_fails_when_the_recorded_flagged_dates_were_edited(
+    flagged_run: CliRun, tmp_path: Path
+) -> None:
+    """Review finding #26: the flagged target dates were taken from the manifest. They are
+    recomputed from the snapshot, so a recorded list that differs is an error even though
+    every regenerated file (made with the recomputed flags) is identical."""
+    copy = _tampered_copy(flagged_run, tmp_path)
+    manifest = read_json(copy / "manifest.json")
+    recorded = manifest["flagged_target_dates"]
+    recorded.remove("2024-04-13")
+    (copy / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    code, report = _verify_report(copy)
+    assert code == EXIT_FAILED
+    assert _codes(report) == [("flagged_dates_differ", "flagged_target_dates")]
+    message = report["issues"][0]["message"]
+    assert f"flags {len(recorded) + 1} target date(s); the run recorded {len(recorded)}" in message
+    assert report["facts"]["files"] == dict.fromkeys(REGENERATED_FILES, "identical")
+
+
+@pytest.mark.integration
+def test_verify_recomputes_the_flagged_dates_with_the_current_code(
+    flagged_run: CliRun, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review finding #26: if the code no longer flags the dates the run excluded, verify
+    must notice (both the flag list and the sensitivity in metrics.json differ)."""
+    recorded = read_json(flagged_run.directory / "manifest.json")["flagged_target_dates"]
+    monkeypatch.setattr(runner, "warning_flag_dates", lambda flags: [])
+    code, report = _verify_report(flagged_run.directory)
+    assert code == EXIT_FAILED
+    assert ("flagged_dates_differ", "flagged_target_dates") in _codes(report)
+    message = next(i["message"] for i in report["issues"] if i["code"] == "flagged_dates_differ")
+    assert f"flags 0 target date(s); the run recorded {len(recorded)}" in message
+    files = report["facts"]["files"]
+    assert files["metrics.json"] == "different"
+    unaffected = ["forecasts.csv", "fits.csv", "coefficients.csv", "observed_inputs.csv"]
+    assert [files[name] for name in [*unaffected, "config.json"]] == ["identical"] * 5
+
+
+@pytest.mark.integration
+def test_verify_fails_when_the_regenerated_report_differs(
+    flagged_run: CliRun, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review finding #26: a change that alters only report.md (the result files and the
+    result fingerprint unchanged) must fail verification."""
+    render = runner.render_report
+    monkeypatch.setattr(runner, "render_report", lambda payload: render(payload) + "edited\n")
+    code, report = _verify_report(flagged_run.directory)
+    assert code == EXIT_FAILED
+    assert _codes(report) == [("output_differs", "report.md")]
+    expected = dict.fromkeys(REGENERATED_FILES, "identical") | {"report.md": "different"}
+    assert report["facts"]["files"] == expected
+    assert report["facts"]["result_fingerprint"] == report["facts"]["recorded_result_fingerprint"]
+
+
 @pytest.mark.integration
 def test_require_clean_runs_on_a_clean_tree_and_records_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1447,6 +1775,8 @@ def short_runs(tmp_path_factory: pytest.TempPathFactory) -> ShortRuns:
         *backtest_args(
             config,
             confirmation,
+            "--period",
+            "development",
             "--period",
             "confirmation",
             "--sealed-selection",
@@ -1550,13 +1880,16 @@ def test_confirmation_with_the_sealed_selection_writes_a_recommendation(
     assert set(_children(run.directory)) == BACKTEST_FILES | {"recommendation.json"}
     sealed = read_json(short_runs.development.directory / "selection.json")
     manifest = read_json(run.directory / "manifest.json")
-    assert manifest["periods_run"] == ["confirmation"]
+    assert manifest["periods_run"] == ["development", "confirmation"]
     assert manifest["sealed_selection"] == sealed
+    assert manifest["complete"] is True
     forecasts = read_records(run.directory / "forecasts.csv")
-    assert set(forecasts["period"]) == {"confirmation"}
-    assert sorted(set(forecasts["origin"])) == [f"2025-07-0{k}" for k in range(1, 6)]
+    assert set(forecasts["period"]) == {"development", "confirmation"}
+    confirmation = forecasts[forecasts["period"] == "confirmation"]
+    assert sorted(set(confirmation["origin"])) == [f"2025-07-0{k}" for k in range(1, 6)]
     metrics = read_json(run.directory / "metrics.json")
-    assert metrics["selection"] == sealed["selection"]  # used unchanged
+    assert metrics["selection"] == sealed["selection"]  # used unchanged ...
+    assert metrics["selection_seal_check"]["differences"] == []  # ... and reproduced
     recommendation = read_json(run.directory / "recommendation.json")
     assert recommendation["record_type"] == "recommendation"
     assert recommendation["config_fingerprint"] == sealed["config_fingerprint"]
@@ -1596,10 +1929,32 @@ def test_a_tampered_sealed_selection_is_refused(
     path = tmp_path / "selection.json"
     path.write_text(json.dumps(seal), encoding="utf-8")
     output = tmp_path / "run"
-    args = ["--period", "confirmation", "--sealed-selection", str(path)]
+    args = ["--period", "development", "--period", "confirmation", "--sealed-selection", str(path)]
     code, _ = run_cli(*backtest_args(short_runs.config, output, *args))
     assert code == EXIT_USAGE
     assert message in capsys.readouterr().err
+    assert not output.exists()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "periods", [["confirmation"], ["legacy_window"], ["confirmation", "legacy_window"]]
+)
+def test_other_periods_must_be_run_with_the_selection_period(
+    periods: list[str],
+    short_runs: ShortRuns,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review finding: a confirmation-only run trusted the seal file's contents, so an
+    edited seal produced a 'complete' recommendation. Every run with a sealed selection
+    now recomputes the selection period and must reproduce the seal."""
+    output = tmp_path / "run"
+    args = [arg for name in periods for arg in ("--period", name)]
+    seal = str(short_runs.development.directory / "selection.json")
+    code, _ = run_cli(*backtest_args(short_runs.config, output, *args, "--sealed-selection", seal))
+    assert code == EXIT_USAGE
+    assert "must be run together with 'development'" in capsys.readouterr().err
     assert not output.exists()
 
 
@@ -1669,6 +2024,61 @@ def test_forecast_refuses_a_foreign_recommendation(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    [
+        pytest.param("outside", "cannot read manifest of the recommending run", id="outside_run"),
+        pytest.param("edited", "not the one the run recorded", id="edited_file"),
+        pytest.param("incomplete", "not complete", id="incomplete_run"),
+        pytest.param("fingerprint", "result fingerprint differs", id="other_run"),
+        pytest.param("not_backtest", "no historical backtest manifest", id="wrong_manifest"),
+    ],
+)
+def test_forecast_needs_the_recommendation_of_a_complete_run(
+    tamper: str,
+    message: str,
+    short_runs: ShortRuns,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review finding: a failed run still wrote recommendation.json and ``atlas forecast``
+    accepted it. The recommendation must now sit, unchanged, in its complete run."""
+    source = short_runs.confirmation.directory
+    run_dir = tmp_path / "copy"
+    shutil.copytree(source, run_dir)
+    path = run_dir / "recommendation.json"
+    manifest = read_json(run_dir / "manifest.json")
+    if tamper == "outside":
+        path = tmp_path / "recommendation.json"
+        shutil.copy(source / "recommendation.json", path)
+    elif tamper == "edited":
+        record = read_json(path)
+        record["recommendation"]["reason"] = "edited"
+        path.write_text(json.dumps(record), encoding="utf-8")
+    else:
+        if tamper == "incomplete":
+            manifest["complete"] = False
+        elif tamper == "fingerprint":
+            manifest["result_fingerprint"] = "0" * 64
+        else:
+            manifest["record_type"] = "future_projection"
+        (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    output = tmp_path / "projection"
+    code, _ = run_cli(
+        "forecast",
+        "--config",
+        str(short_runs.config),
+        "--recommendation",
+        str(path),
+        "--output-dir",
+        str(output),
+    )
+    assert code == EXIT_USAGE
+    assert message in capsys.readouterr().err
+    assert not output.exists()
+
+
+@pytest.mark.integration
 def test_a_combined_run_must_reproduce_the_sealed_selection(tmp_path: Path) -> None:
     config = write_config(tmp_path / "mini.json", mini_protocol())
     development = tmp_path / "development"
@@ -1699,6 +2109,81 @@ def test_a_combined_run_must_reproduce_the_sealed_selection(tmp_path: Path) -> N
     metrics = read_json(tampered / "metrics.json")
     assert metrics["selection"]["selected_model"] == other  # the seal is used unchanged ...
     assert metrics["selection_recomputed"]["selected_model"] == selected  # ... and contradicted
+    assert "selected_model" in metrics["selection_seal_check"]["differences"]
+    # An incomplete run writes no decision file, so nothing downstream can use it.
+    assert "recommendation.json" not in _children(tampered)
+    assert "decision_files_withheld" in text
+
+    # Same choice, but the ranking order edited: still caught (review mutant F30).
+    seal = read_json(development / "selection.json")
+    ranking = seal["selection"]["ranking"]
+    assert len(ranking) == 3
+    ranking[1], ranking[2] = ranking[2], ranking[1]
+    reordered = tmp_path / "reordered.json"
+    reordered.write_text(json.dumps(seal), encoding="utf-8")
+    code, text = run_cli(*backtest_args(config, tmp_path / "reordered", *both, str(reordered)))
+    assert code == EXIT_FAILED
+    assert read_json(tmp_path / "reordered" / "metrics.json")["selection_seal_check"][
+        "differences"
+    ] == ["ranking"]
+
+    # A changed number in the sealed ranking is caught too.
+    seal = read_json(development / "selection.json")
+    seal["selection"]["ranking"][0]["mae"] *= 1.001
+    nudged = tmp_path / "nudged.json"
+    nudged.write_text(json.dumps(seal), encoding="utf-8")
+    code, text = run_cli(*backtest_args(config, tmp_path / "nudged", *both, str(nudged)))
+    assert code == EXIT_FAILED
+    assert "selection_differs_from_seal" in text
+
+
+@pytest.mark.integration
+def test_an_incomplete_run_writes_no_selection_or_recommendation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review finding (decision files of failed runs): a run with any ERROR issue is
+    incomplete and must not write selection.json or recommendation.json, which later runs
+    and ``atlas forecast`` would otherwise trust; the report says what was withheld."""
+    config = write_config(tmp_path / "mini.json", mini_protocol())
+    development = tmp_path / "development"
+    code, text = run_cli(*backtest_args(config, development))
+    assert code == EXIT_OK, text
+    assert "selection.json" in _children(development)  # control: a complete run seals
+    seal = development / "selection.json"
+
+    backtest_issues = runner._backtest_issues
+
+    def with_an_error(result: Any, config: ExperimentConfig) -> list[Issue]:
+        injected = Issue("injected_error", Severity.ERROR, "test", "Injected by the test.")
+        return [*backtest_issues(result, config), injected]
+
+    monkeypatch.setattr(runner, "_backtest_issues", with_an_error)
+
+    failed = tmp_path / "failed_development"
+    code, text = run_cli(*backtest_args(config, failed))
+    assert code == EXIT_FAILED
+    assert "[injected_error]" in text
+    assert "[decision_files_withheld]" in text
+    assert "The run is incomplete, so selection.json was not written." in text
+    assert set(_children(failed)) == BACKTEST_FILES
+    manifest = read_json(failed / "manifest.json")
+    assert manifest["complete"] is False
+    assert set(manifest["outputs"]) == BACKTEST_FILES - {"manifest.json"}
+    # The choice is still computed and reported, only not sealed.
+    sealed = read_json(seal)["selection"]
+    assert read_json(failed / "metrics.json")["selection"] == sealed
+
+    combined = tmp_path / "failed_confirmation"
+    both = ["--period", "development", "--period", "confirmation"]
+    code, text = run_cli(*backtest_args(config, combined, *both, "--sealed-selection", str(seal)))
+    assert code == EXIT_FAILED
+    assert "selection_differs_from_seal" not in text  # the seal itself is reproduced
+    assert "The run is incomplete, so recommendation.json was not written." in text
+    assert set(_children(combined)) == BACKTEST_FILES
+    assert read_json(combined / "manifest.json")["complete"] is False
+    assert read_json(combined / "metrics.json")["recommendation"]["recommended_model"] in (
+        MINI_MODELS
+    )
 
 
 # --- 11. Future projection -----------------------------------------------------------------------

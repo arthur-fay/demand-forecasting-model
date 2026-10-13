@@ -10,7 +10,11 @@ would overstate certainty many times over. This module provides:
   Diebold-Mariano (1995) test: rectangular kernel truncated at ``h - 1`` (Bartlett
   fallback if that estimate is not positive), the HLN small-sample factor and a Student-t
   reference with ``T - 1`` degrees of freedom. A Bartlett estimate with bandwidth ``2h``
-  is reported as a sensitivity check, and ``p_value_conservative`` is the larger p-value;
+  is reported as a sensitivity check; ``p_value_conservative`` is the larger p-value and
+  the reported interval uses the larger of the two standard errors, so the interval
+  excludes zero exactly when the conservative p-value is below ``1 - level``;
+* :func:`bandwidth_sensitivity`: the same statistic under wider HAC bandwidths
+  (descriptive; never used for a decision);
 * :func:`holm` adjustment for a family of tests;
 * the Student-t distribution (regularised incomplete beta, no SciPy).
 
@@ -149,9 +153,11 @@ class DieboldMariano:
     """HLN-corrected Diebold-Mariano test of ``mean(differences) == 0``.
 
     ``mean_difference`` < 0 favours the model over its reference (losses are model minus
-    reference). ``ci_low``/``ci_high`` bound the mean difference (95 %, HAC standard
-    error with the HLN factor, Student-t quantile). ``computed`` is false, with a
-    ``reason``, when the sample cannot support the test.
+    reference). ``ci_low``/``ci_high`` bound the mean difference (95 %, Student-t
+    quantile) with the larger of the two HAC standard errors (``ci_basis`` names it), so
+    they agree with ``p_value_conservative``; ``ci_low_hln``/``ci_high_hln`` use the
+    primary HLN standard error alone. ``computed`` is false, with a ``reason``, when the
+    sample cannot support the test.
     """
 
     n: int
@@ -167,6 +173,9 @@ class DieboldMariano:
     bartlett_statistic: float | None = None
     bartlett_p_value: float | None = None
     p_value_conservative: float | None = None
+    ci_basis: str | None = None
+    ci_low_hln: float | None = None
+    ci_high_hln: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -228,9 +237,13 @@ def diebold_mariano(
     bartlett = long_run_variance(series, min(2 * horizon, size - 1), "bartlett")
     bartlett_statistic: float | None = None
     bartlett_p: float | None = None
+    wider_error, basis = standard_error, estimator
     if bartlett > 0:
-        bartlett_statistic = mean / (math.sqrt(bartlett / size) / math.sqrt(correction))
+        bartlett_error = math.sqrt(bartlett / size) / math.sqrt(correction)
+        bartlett_statistic = mean / bartlett_error
         bartlett_p = student_t_two_sided_p(bartlett_statistic, df)
+        if bartlett_error > standard_error:
+            wider_error, basis = bartlett_error, "bartlett_2h"
     conservative = max(p_value, bartlett_p) if bartlett_p is not None else p_value
     return DieboldMariano(
         n=size,
@@ -240,12 +253,73 @@ def diebold_mariano(
         estimator=estimator,
         statistic=statistic,
         p_value=p_value,
-        ci_low=mean - quantile * standard_error,
-        ci_high=mean + quantile * standard_error,
+        ci_low=mean - quantile * wider_error,
+        ci_high=mean + quantile * wider_error,
         bartlett_statistic=bartlett_statistic,
         bartlett_p_value=bartlett_p,
         p_value_conservative=conservative,
+        ci_basis=basis,
+        ci_low_hln=mean - quantile * standard_error,
+        ci_high_hln=mean + quantile * standard_error,
     )
+
+
+#: ``(kernel, bandwidth as a multiple of h, offset)``: bandwidth = multiple * h + offset.
+SENSITIVITY_BANDWIDTHS: Final[tuple[tuple[Kernel, int, int], ...]] = (
+    ("rectangular", 1, -1),
+    ("rectangular", 2, -1),
+    ("bartlett", 2, 0),
+    ("bartlett", 3, 0),
+    ("bartlett", 4, 0),
+)
+
+
+def bandwidth_sensitivity(
+    differences: Sequence[float] | np.ndarray,
+    *,
+    horizon: int,
+    contiguous: bool = True,
+    level: float = 0.95,
+) -> list[dict[str, Any]]:
+    """The DM statistic of :func:`diebold_mariano` under wider HAC bandwidths.
+
+    Truncating at ``h - 1`` assumes that losses on different target days are
+    uncorrelated; when the loss differential stays autocorrelated beyond that lag (for
+    example through regimes lasting months) the primary standard error is too small.
+    Each variant keeps the HLN factor and the ``t(T - 1)`` reference and reports its
+    p-value, the half-width of its interval and its effective sample size
+    ``T * gamma_0 / LRV``. A variant whose variance estimate is not positive is reported
+    with ``None`` values. Descriptive only: no decision uses these numbers. Returns an
+    empty list when :func:`diebold_mariano` would not compute the test.
+    """
+    primary = diebold_mariano(differences, horizon=horizon, contiguous=contiguous, level=level)
+    if not primary.computed or primary.mean_difference is None:
+        return []
+    series = np.asarray(differences, dtype="float64")
+    size = int(series.size)
+    mean = primary.mean_difference
+    centered = series - mean
+    gamma0 = float(centered @ centered) / size
+    correction = (size + 1 - 2 * horizon + horizon * (horizon - 1) / size) / size
+    quantile = student_t_quantile(0.5 + level / 2.0, size - 1)
+    rows: list[dict[str, Any]] = []
+    for kernel, multiple, offset in SENSITIVITY_BANDWIDTHS:
+        bandwidth = min(max(multiple * horizon + offset, 0), size - 1)
+        variance = long_run_variance(series, bandwidth, kernel)
+        row: dict[str, Any] = {
+            "kernel": kernel,
+            "bandwidth": bandwidth,
+            "p_value": None,
+            "ci_half_width": None,
+            "effective_sample_size": None,
+        }
+        if variance > 0:
+            error = math.sqrt(variance / size) / math.sqrt(correction)
+            row["p_value"] = student_t_two_sided_p(mean / error, size - 1)
+            row["ci_half_width"] = quantile * error
+            row["effective_sample_size"] = size * gamma0 / variance
+        rows.append(row)
+    return rows
 
 
 def holm(p_values: Sequence[float | None]) -> list[float | None]:

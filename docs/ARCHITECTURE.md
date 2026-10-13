@@ -150,7 +150,7 @@ records of type `future_projection`, which carry no actual values.
 | Only `ForecastError` becomes a recorded failure | `LeakageError` and other bugs stop the run instead of becoming "failed" rows |
 | Actuals attached after every forecast exists | Model code never sees a target value |
 | Faithful legacy model kept separate from the modernised regression | Reproduction (exact, 120 published values) and improvement are different claims |
-| Pre-registered selection, sealed before confirmation | The confirmation period cannot influence the choice |
+| Pre-registered selection, sealed before confirmation; every later run re-runs the development period and must reproduce the seal; period rules validated for the whole configuration | The confirmation period cannot influence the choice, and an edited seal or a partial run cannot bypass it |
 | HLN Diebold-Mariano with HAC variance; effective sample size reported | Forecast windows from neighbouring origins overlap |
 | Plain files per run (manifest, CSV, JSON, Markdown); no database | Lightweight, diffable, verifiable byte for byte |
 | No process pool | About six minutes serially; fewer moving parts, coverage of all code |

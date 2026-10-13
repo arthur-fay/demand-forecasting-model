@@ -79,9 +79,15 @@ uv run atlas backtest run --require-clean \
 ```
 
 - Without `--period`, only the selection period runs.
-- Any other period needs `--sealed-selection`, whose configuration and data fingerprints must
-  match. If the development period is run again, it must reproduce the sealed choice exactly
-  (otherwise the run fails).
+- Any other period needs `--sealed-selection` (same configuration and data fingerprints, a
+  structurally valid selection) and must be run together with the development period, whose
+  recomputed selection must equal the sealed one in every decision field; otherwise the run
+  fails, is marked incomplete and writes no `recommendation.json`.
+- The period rules (at most one selection and one confirmation period, disjoint target
+  windows) are checked when the configuration is loaded, whichever periods a run names.
+- An existing `--output-dir` is refused before anything is computed.
+- `atlas forecast --recommendation` accepts only the `recommendation.json` inside the complete
+  run directory that wrote it.
 - `--require-clean` refuses to run when code, configuration or tests have uncommitted
   changes, so the recorded git commit identifies the code that ran.
 
@@ -93,7 +99,8 @@ The full protocol takes about six minutes on one core. The run directory holds
 `runs/` is git-ignored. The reference results quoted in the documentation are a curated copy
 in `docs/results/` (manifests, metrics, reports and selection records, but not the large
 `forecasts.csv`, whose SHA-256 is in the manifest). `atlas backtest verify` regenerates a run
-and compares every result file byte for byte.
+with the current code (data-quality flags included) and compares every regenerated file byte
+for byte.
 
 Every command prints the report of each stage it ran, prerequisites included. Stages run in
 order, and a stage is **skipped** when an earlier one failed, so nothing is ever computed from

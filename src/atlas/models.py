@@ -531,14 +531,25 @@ class FittedExponentialSmoothing(FittedForecaster):
         self._last_index = last_index
         self._season = season_days
 
+    def seasonal_at_step(self, step: int) -> float:
+        """The seasonal term added to the level ``step`` days after the origin."""
+        return self.seasonal[(self._last_index + step) % self._season]
+
+    def parameters(self) -> dict[str, float]:
+        """Chosen ``alpha`` and ``gamma``, the final level and the seasonal terms.
+
+        ``season_step_k`` is the term for steps ``k, k + m, k + 2m, ...`` (``m`` the
+        season length), so the forecast ``h`` days ahead is ``level`` plus
+        ``season_step_k`` with ``k = (h - 1) mod m + 1``, clipped at zero.
+        """
+        terms = {"alpha": self.alpha, "gamma": self.gamma, "level": self.level}
+        for step in range(1, self._season + 1):
+            terms[f"season_step_{step}"] = self.seasonal_at_step(step)
+        return terms
+
     def forecast(self, steps: int) -> ForecastPath:
         targets = target_dates(self.origin, steps)
-        raw = np.array(
-            [
-                self.level + self.seasonal[(self._last_index + h) % self._season]
-                for h in range(1, steps + 1)
-            ]
-        )
+        raw = np.array([self.level + self.seasonal_at_step(h) for h in range(1, steps + 1)])
         predictions = pd.Series(np.maximum(raw, 0.0), index=targets, name="prediction")
         return ForecastPath(
             self.origin,
