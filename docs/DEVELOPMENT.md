@@ -8,8 +8,16 @@ Python application. Milestone **M0** is the engineering foundation:
 - recomputation of the legacy aggregate tables, KPIs and model metrics, plus cross-checks
   of the legacy output tables against the base data.
 
-M0 does **not** forecast, optimise, serve an API or fetch data from the network. See
-[ROADMAP.md](ROADMAP.md).
+Milestone **M1** adds the data-quality and feature foundation for forecasting:
+
+- ISO 8601 calendar conventions for all new data;
+- an explicit `UNASSIGNED` residual that reconciles city-wide and five-borough totals;
+- causal data-quality flags ([DATA_QUALITY.md](DATA_QUALITY.md));
+- one leakage-safe feature builder for training, direct and recursive forecasting
+  ([FEATURES.md](FEATURES.md)).
+
+ATLAS does **not** yet fit or evaluate forecasting models, optimise, serve an API or fetch
+data from the network. See [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
@@ -36,6 +44,8 @@ uv run atlas validate                 # integrity + data contracts + declared ex
 uv run atlas reproduce                # all three stages (same as check)
 uv run atlas --format json check      # machine-readable report
 uv run atlas snapshot manifest        # print the manifest computed from disk (never writes)
+uv run atlas quality                  # M1: integrity -> validation -> residual and quality flags
+uv run atlas features                 # M1: catalogue of the default forecast feature set
 uv run python -m atlas --version      # module entry point
 ```
 

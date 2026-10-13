@@ -24,6 +24,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from atlas.contracts import Column, Kind, TableContract
@@ -279,7 +280,7 @@ def _check_table_rules(frame: pd.DataFrame, contract: TableContract) -> list[Iss
     name = contract.name
     rows = len(frame)
 
-    if rows == 0:
+    if rows == 0 and contract.min_rows > 0:
         issues.append(_error("empty_table", name, "Table has no data rows."))
     elif rows < contract.min_rows:
         issues.append(
@@ -408,3 +409,43 @@ def load_table(path: Path, contract: TableContract) -> LoadedTable:
         return LoadedTable(name=contract.name, frame=empty, issues=tuple(read_issues))
     loaded = parse_table(raw, contract)
     return LoadedTable(name=loaded.name, frame=loaded.frame, issues=(*read_issues, *loaded.issues))
+
+
+def _render_field(value: object) -> str:
+    """Text form of one in-memory value, as ``pandas.DataFrame.to_csv`` would write it.
+
+    Nulls (``None``, ``NaN`` of any float type, ``pd.NA``, ``NaT``) become an empty field.
+    Floats keep their decimal point (``6.0``), so an INTEGER column rejects them; booleans
+    are written ``True``/``False`` and are therefore not numbers. A timestamp with a time
+    of day or a time zone keeps it, so a DATE column rejects it.
+    """
+    if value is None or value is pd.NA or value is pd.NaT:
+        return ""
+    if isinstance(value, bool | np.bool_):
+        return str(bool(value))
+    if isinstance(value, float | np.floating):
+        number = float(value)
+        return "" if math.isnan(number) else repr(number)
+    if isinstance(value, pd.Timestamp):
+        if value.tzinfo is None and value == value.normalize():
+            return value.strftime("%Y-%m-%d")
+        return value.isoformat()
+    if isinstance(value, np.integer):
+        return str(int(value))
+    return str(value)
+
+
+def validate_frame(frame: pd.DataFrame, contract: TableContract) -> LoadedTable:
+    """Check an in-memory table against ``contract`` with the same rules as a CSV file.
+
+    The frame is rendered to text exactly as a CSV export would be and then parsed by
+    :func:`parse_table`, so tables produced by ATLAS are held to the same contracts as
+    the files it reads, and can be exported without a second set of rules.
+    """
+    header = tuple(str(column) for column in frame.columns)
+    rows = tuple(
+        tuple(_render_field(value) for value in record)
+        for record in frame.astype(object).itertuples(index=False, name=None)
+    )
+    raw = RawTable(header=header, rows=rows, line_numbers=tuple(range(2, len(rows) + 2)))
+    return parse_table(raw, contract)

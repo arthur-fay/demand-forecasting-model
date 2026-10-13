@@ -15,9 +15,10 @@ An end-to-end analytics project that transforms historical operational request d
 > is the 75th percentile of recent incoming requests, not operational service capacity. See
 > [Known limitations of the legacy claims](docs/LEGACY_LIMITATIONS.md).
 >
-> Quick start: `uv sync --locked && uv run atlas check` ·
+> Quick start: `uv sync --locked && uv run atlas check && uv run atlas quality` ·
 > [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
-> [Data snapshot](docs/DATA_SNAPSHOT.md) · [Roadmap](docs/ROADMAP.md)
+> [Data snapshot](docs/DATA_SNAPSHOT.md) · [Data quality (M1)](docs/DATA_QUALITY.md) ·
+> [Forecast features (M1)](docs/FEATURES.md) · [Roadmap](docs/ROADMAP.md)
 
 ## Dashboard Preview
 
