@@ -1,0 +1,63 @@
+{
+ "code": {
+  "code_sha256": "ebb30a06743c942af08a5979efae0d25e20e2c1e395c30f9cb32944767ac712f",
+  "files": 33,
+  "uv_lock_sha256": "96fa3fd14990c5317a8e6b8e11b3dc606a00a94876f8d22cdf67ae90a896ea86"
+ },
+ "data": {
+  "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+  "first_date": "2023-01-01",
+  "last_date": "2026-06-30",
+  "manifest_sha256": "3a57e7627d5e4eb5ba73cf2127a936a3d58131a79d52d1c2b8a0a695ad75fc5f",
+  "n_days": 1277,
+  "n_missing_days": 0,
+  "series_fingerprint": "7bb663463ef85df960938a2f7cbf7b779fe3cd1102989f198eca39f556378146",
+  "snapshot_id": "legacy-v0",
+  "table": "daily_total",
+  "table_path": "01 Data/daily_total.csv",
+  "table_sha256": "16a338f4851f62380a706a611e54706f52a29f3ee9a5adcea4f276b9b904d65c"
+ },
+ "environment": {
+  "atlas": "0.2.0",
+  "machine": "x86_64",
+  "numpy_blas_lapack": {
+   "blas": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   },
+   "lapack": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   }
+  },
+  "packages": {
+   "numpy": "2.5.4",
+   "pandas": "3.0.6",
+   "pydantic": "2.14.1"
+  },
+  "platform": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+  "python": "3.12.3",
+  "python_implementation": "CPython",
+  "thread_settings": {
+   "MKL_NUM_THREADS": "1",
+   "OMP_NUM_THREADS": "1",
+   "OPENBLAS_NUM_THREADS": "1"
+  }
+ },
+ "git": {
+  "available": true,
+  "commit": "10343e254a94ccfa5c0c6e9a598bcbbc7de4488f",
+  "dirty": false,
+  "dirty_paths": 0
+ },
+ "informational_not_fingerprinted": {
+  "created_at_utc": "2026-10-13T16:54:49+00:00"
+ },
+ "label": "LEGACY ONE-STEP HOLDOUT: the original evaluation, re-computed. One fit through 2026-04-01, then each of the 90 following days predicted from its observed previous days (horizon 1, observed lags). Not a 30-day forecast.",
+ "outputs": {
+  "legacy_one_step_holdout.csv": "be217f0ab39bbd91969def8139b4860b2200a916c6a372e9bab8196d24841758",
+  "legacy_one_step_holdout.json": "80e82064d2e399184cd363e5fef4bd12fa21642694a6ca069b89e6341a291021"
+ },
+ "record_type": "legacy_one_step_holdout",
+ "schema_version": 1
+}

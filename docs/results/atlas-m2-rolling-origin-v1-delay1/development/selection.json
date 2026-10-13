@@ -1,0 +1,126 @@
+{
+ "config_fingerprint": "26ef670d6da2bff677235a45dbb6ab04a6a30169aa9a372bfa936a98be56ceb4",
+ "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+ "experiment_id": "atlas-m2-rolling-origin-v1-delay1",
+ "record_type": "sealed_selection",
+ "result_fingerprint": "87d65528865488a5e990f4e9e86d3a3a0ed39ba877909e5bddd156626d2ae8c6",
+ "run_id": "atlas-m2-rolling-origin-v1-delay1-26ef670d-5ab8b3a5-development",
+ "selection": {
+  "best_baseline": "same_weekday_median_5w",
+  "best_regression": "atlas_linear_regression",
+  "eligibility": [
+   {
+    "eligible": true,
+    "failed": 0,
+    "model_id": "naive",
+    "scheduled": 14580
+   },
+   {
+    "eligible": true,
+    "failed": 0,
+    "model_id": "seasonal_naive",
+    "scheduled": 14580
+   },
+   {
+    "eligible": true,
+    "failed": 0,
+    "model_id": "same_weekday_mean_4w",
+    "scheduled": 14580
+   },
+   {
+    "eligible": true,
+    "failed": 0,
+    "model_id": "same_weekday_median_5w",
+    "scheduled": 14580
+   },
+   {
+    "eligible": true,
+    "failed": 0,
+    "model_id": "seasonal_exponential_smoothing",
+    "scheduled": 14580
+   },
+   {
+    "eligible": true,
+    "failed": 0,
+    "model_id": "atlas_linear_regression",
+    "scheduled": 14580
+   }
+  ],
+  "first_horizon": 1,
+  "last_horizon": 30,
+  "margin_met": true,
+  "n_common_origins": 486,
+  "n_common_pairs": 14580,
+  "period": "development",
+  "ranking": [
+   {
+    "family": "regression",
+    "mae": 822.9606634786595,
+    "model_id": "atlas_linear_regression"
+   },
+   {
+    "family": "baseline",
+    "mae": 956.1460219478738,
+    "model_id": "same_weekday_median_5w"
+   },
+   {
+    "family": "baseline",
+    "mae": 996.0905521262002,
+    "model_id": "same_weekday_mean_4w"
+   },
+   {
+    "family": "baseline",
+    "mae": 1000.8529096149721,
+    "model_id": "seasonal_exponential_smoothing"
+   },
+   {
+    "family": "baseline",
+    "mae": 1134.9923868312758,
+    "model_id": "seasonal_naive"
+   },
+   {
+    "family": "baseline",
+    "mae": 1291.2521262002745,
+    "model_id": "naive"
+   }
+  ],
+  "reason": "atlas_linear_regression beats the best baseline same_weekday_median_5w by at least 3 % in MAE and the selection-period DM test is significant at 0.05.",
+  "regression_vs_best_baseline": {
+   "dm_bartlett_p_value": 0.019365950587073612,
+   "dm_computed": true,
+   "dm_estimator": "rectangular",
+   "dm_n_origins": 486,
+   "dm_p_value": 0.04815505383736839,
+   "dm_p_value_conservative": 0.04815505383736839,
+   "dm_reason": null,
+   "dm_statistic": -1.9810055532534045,
+   "effective_sample_size": 27.70636167973846,
+   "first_horizon": 1,
+   "label": "selection_scope",
+   "last_horizon": 30,
+   "mae": 822.9606634786595,
+   "mae_difference": -133.1853584692143,
+   "mae_difference_ci_high": -1.084994826026616,
+   "mae_difference_ci_low": -265.2857221124018,
+   "mae_improvement_ci_high_pct": 27.745314630076905,
+   "mae_improvement_ci_low_pct": 0.11347585003975122,
+   "mae_improvement_pct": 13.92939524005834,
+   "mae_reference": 956.1460219478738,
+   "mase": 0.9514191462794268,
+   "mase_reference": 1.101246537997296,
+   "model_id": "atlas_linear_regression",
+   "n_common": 14580,
+   "n_origins": 486,
+   "period": "development",
+   "reference": "same_weekday_median_5w",
+   "rmse": 1213.0555527161991,
+   "rmse_improvement_pct": 9.763828492329695,
+   "rmse_reference": 1344.3118568179573,
+   "scope": "bucket"
+  },
+  "rule": "Pre-registered: candidates ['naive', 'seasonal_naive', 'same_weekday_mean_4w', 'same_weekday_median_5w', 'seasonal_exponential_smoothing', 'atlas_linear_regression']; selection period development; MAE over horizons 1..30 on forecasts common to all eligible candidates; failure rate above 0 makes a candidate ineligible; the best regression is selected only if its MAE is at least 3 % below the best baseline's and the DM test (conservative p) is below 0.05; otherwise the best baseline.",
+  "selected_family": "regression",
+  "selected_model": "atlas_linear_regression",
+  "significant": true
+ }
+}

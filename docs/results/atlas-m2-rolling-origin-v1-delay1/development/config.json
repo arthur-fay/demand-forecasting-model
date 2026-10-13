@@ -1,0 +1,109 @@
+{
+ "comparison_windows": [],
+ "data_delay_days": 1,
+ "description": "Pre-registered sensitivity of atlas-m2-rolling-origin-v1 to data vintage: identical protocol, but every forecast issued at origin o sees data through o-1 only (a one-day reporting delay), while still targeting o+1..o+30. Run on the development period only; it never selects or recommends.",
+ "experiment_id": "atlas-m2-rolling-origin-v1-delay1",
+ "horizon_buckets": [
+  {
+   "first": 1,
+   "label": "day_1",
+   "last": 1
+  },
+  {
+   "first": 2,
+   "label": "days_2_7",
+   "last": 7
+  },
+  {
+   "first": 8,
+   "label": "days_8_14",
+   "last": 14
+  },
+  {
+   "first": 15,
+   "label": "days_15_30",
+   "last": 30
+  }
+ ],
+ "max_horizon": 30,
+ "min_history_days": 365,
+ "models": [
+  {
+   "model_id": "naive",
+   "type": "naive"
+  },
+  {
+   "model_id": "seasonal_naive",
+   "season_days": 7,
+   "type": "seasonal_naive"
+  },
+  {
+   "model_id": "same_weekday_mean_4w",
+   "type": "same_weekday_mean",
+   "weeks": 4
+  },
+  {
+   "model_id": "same_weekday_median_5w",
+   "type": "same_weekday_median",
+   "weeks": 5
+  },
+  {
+   "burn_in_days": 28,
+   "model_id": "seasonal_exponential_smoothing",
+   "season_days": 7,
+   "type": "seasonal_exponential_smoothing"
+  },
+  {
+   "min_training_rows": 365,
+   "model_id": "legacy_linear_regression",
+   "type": "legacy_linear_regression"
+  },
+  {
+   "feature_set": "atlas-m2-regression-v1",
+   "min_training_rows": 365,
+   "model_id": "atlas_linear_regression",
+   "type": "atlas_linear_regression"
+  }
+ ],
+ "observed_input_diagnostic": false,
+ "periods": [
+  {
+   "allow_incomplete_horizons": false,
+   "first_origin": "2024-02-01",
+   "last_origin": "2025-05-31",
+   "name": "development",
+   "origin_stride_days": 1,
+   "role": "selection"
+  }
+ ],
+ "reference_model": "seasonal_naive",
+ "schema_version": 1,
+ "selection": {
+  "alpha": 0.05,
+  "candidates": [
+   "naive",
+   "seasonal_naive",
+   "same_weekday_mean_4w",
+   "same_weekday_median_5w",
+   "seasonal_exponential_smoothing",
+   "atlas_linear_regression"
+  ],
+  "first_horizon": 1,
+  "last_horizon": 30,
+  "max_failure_rate": 0.0,
+  "metric": "mae",
+  "period": "development",
+  "regression_margin_pct": 3.0
+ },
+ "sensitivity": {
+  "exclude_flagged_targets": false,
+  "holiday_stratum": false,
+  "origin_exclusions": []
+ },
+ "snapshot_id": "legacy-v0",
+ "target_table": "daily_total",
+ "training_window": {
+  "days": null,
+  "kind": "expanding"
+ }
+}
