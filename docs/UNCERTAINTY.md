@@ -80,9 +80,11 @@ M3 handles this in three places:
   **100** distinct origins; otherwise from all residuals of its predeclared M2 horizon
   bucket (day 1, days 2-7, 8-14, 15-30), where the horizons of one path still count once;
   otherwise no interval is issued (`unavailable`). 100 origins put at least two residuals
-  beyond each end of a 95 % interval and exceed the split-conformal minimum of 39.
+  beyond each end of a 95 % interval and exceed the split-conformal minimum (19 for the
+  symmetric central 95 % interval).\*
 - **Calibration support.** Each set carries the HAC effective sample size of its residual
-  series (Bartlett, bandwidth `2h`; per-origin means for a pooled bucket). Below **20** the
+  series (Bartlett, bandwidth `2h`; for a pooled bucket, per-origin means and twice the
+  bucket's last horizon).\* Below **20** the
   interval is still issued but labelled `thin` (exploratory).
 - **Evaluation.** Coverage, score differences and Brier differences are tested with the M2
   machinery: one value per origin (the mean over the scope's horizons, complete origins
@@ -184,7 +186,7 @@ NYC agency.
 Reported per period, point model, method and scope (each horizon, each bucket, days 1-30):
 empirical coverage with its HAC interval and test against the nominal level, mean and
 median width (also relative to the prediction), interval (Winkler) score, pinball loss per
-quantile and on average, WIS, quantile calibration (share of outcomes below each quantile),
+quantile and on average, WIS, quantile calibration (share of outcomes at or below each quantile),
 sample counts (scheduled, issued, unavailable, thin, bucket-pooled, evaluated, origins,
 target days) and the effective sample size. Exceedance: Brier score, Brier skill against
 climatology on the same forecasts with a HAC test, mean probability against observed
@@ -202,12 +204,17 @@ method on the evaluation period):
 | enough evidence | the test is computed and the HAC effective sample size is at least 30 |
 
 Failing either of the first two is `failed_calibration`; passing both without enough
-evidence (or with forecasts that were not issued) is `insufficient_evidence`. Only when all
-hold is the status `decision_grade`. For each threshold, exceedance probabilities are
+evidence (or with forecasts that were not issued, or issued on `thin` calibration\*) is
+`insufficient_evidence`. Only when all hold is the status `decision_grade`. Tolerances are
+inclusive.\* A run that does not reproduce its seal gets no status at all.\* For each threshold, exceedance probabilities are
 `decision_grade` only if their Brier score beats climatology with conservative p < 0.05,
 the mean probability is within 0.05 of the observed frequency, and the effective sample size
-is at least 30. A status that is not decision-grade is disclosed and kept: no result is
+is at least 30 (forecasts without a predictive distribution also leave the evidence
+incomplete\*). A status that is not decision-grade is disclosed and kept: no result is
 adjusted after the fact to pass.
+
+\* Amended after the independent review (section 10): wording corrected to match the code,
+or a rule tightened that did not bind in the reference runs. No reference output changed.
 
 **Pre-registered sensitivity analyses** (descriptive): a data latency of 7 days; ordinary,
 holiday-related and flagged target days; wider HAC bandwidths for the headline coverage
@@ -481,6 +488,33 @@ What was known when this protocol was designed:
 | After seal | full run (selection re-run + evaluation), `verify`, projection at `ff44f54` | both |
 
 No configuration, method, threshold or criterion changed after the freeze.
+
+**Amendments after the independent review.** An adversarial review of the frozen code
+recomputed the time-safety invariants on all 288,000 interval rows, 400 intervals, 300
+probabilities and every headline number with its own code (largest difference 7e-12), and
+planted 39 bugs. Leakage mutants were all caught. Its confirmed findings were fixed:
+
+- `verify` now regenerates and compares `selection.json` and `calibration_status.json`;
+  before, a status file edited together with its manifest hash passed `verify`, and
+  `project` would have labelled a projection with it. `project` now also requires the
+  status to equal the run's `metrics.json`, and `inspect` reports an incomplete run as an
+  error.
+- Decision rules made explicit where the code was looser than intended: tolerances are
+  compared with a 1e-9 allowance, so a coverage exactly at the tolerance counts as inside
+  (binary rounding had made 75.0 % at the 80 % level count as outside); `thin` intervals
+  and forecasts without a predictive distribution now make the status at most
+  `insufficient_evidence`; a run that does not reproduce its seal writes no decision
+  status.
+- Tests were added for the surviving planted bugs: the coverage test's offset by the level,
+  the Gaussian baseline's horizon-1 calibration, the calibration effective-size bandwidth,
+  the complete-origins rule, the seal's eligibility field, the reference-Brier pairing, the
+  status boundaries, and the projection's checks of the status record.
+- Wording corrected: the split-conformal minimum (19, not 39), the pooled-bucket bandwidth,
+  "at or below" for quantile calibration, and exceedance criteria applying to every
+  threshold. Brier scores on the selection period are in-sample for the selected method.
+
+None of these changes alters a reference output: `atlas uncertainty verify` on the full
+reference run is byte-identical with the amended code, the decision files included.
 
 ## 11. Limitations
 

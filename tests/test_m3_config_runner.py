@@ -450,8 +450,11 @@ def test_edited_seal_marks_the_run_incomplete(runs: dict[str, Path]) -> None:
     )
     assert code == 1
     issues = {i["code"] for i in report_of(output, "uncertainty")["issues"]}
-    assert {"selection_differs_from_seal", "decision_files_withheld"} <= issues
+    assert "selection_differs_from_seal" in issues
     assert not (directory / "calibration_status.json").exists()
+    # No status is judged from a run that did not reproduce its seal.
+    metrics = json.loads((directory / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["decision_status"] is None
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["complete"] is False
     code, _ = run_cli("uncertainty", "project", "--status", str(runs["full"] / "manifest.json"))
@@ -499,5 +502,64 @@ def test_projection_uses_the_m2_point_forecasts_and_labels_the_status(
     status = json.loads(status_file.read_text(encoding="utf-8"))
     status["decision_status"]["interval_status"] = "decision_grade"
     status_file.write_text(json.dumps(status), encoding="utf-8")
+    code, _ = run_cli("uncertainty", "project", "--status", str(status_file))
+    assert code == 2
+
+
+def _rehash(directory: Path, name: str) -> None:
+    """Edit-and-re-hash: update manifest.json so that it records the edited file."""
+    import hashlib
+
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["outputs"][name] = hashlib.sha256((directory / name).read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+@pytest.mark.integration
+def test_forged_status_fails_verify_and_project(runs: dict[str, Path]) -> None:
+    forged = runs["base"] / "forged"
+    shutil.copytree(runs["full"], forged)
+    status_file = forged / "calibration_status.json"
+    status = json.loads(status_file.read_text(encoding="utf-8"))
+    status["decision_status"]["interval_status"] = "decision_grade"
+    status["decision_status"]["decision_grade"] = True
+    status_file.write_text(json.dumps(status), encoding="utf-8")
+    _rehash(forged, "calibration_status.json")
+    code, output = run_cli("uncertainty", "inspect", str(forged))
+    assert code == 0  # the manifest is not signed; inspect only checks hashes
+    code, output = run_cli("uncertainty", "verify", str(forged))
+    assert code == 1
+    facts = report_of(output, "uncertainty_verification")["facts"]
+    assert facts["files"]["calibration_status.json"] == "different"
+    code, _ = run_cli("uncertainty", "project", "--status", str(status_file))
+    assert code == 2
+
+
+@pytest.mark.integration
+def test_projection_refuses_a_status_from_an_incomplete_or_other_run(
+    runs: dict[str, Path],
+) -> None:
+    incomplete = runs["base"] / "incomplete-with-status"
+    shutil.copytree(runs["full"], incomplete)
+    manifest_path = incomplete / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["complete"] = False
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    code, output = run_cli(
+        "uncertainty", "project", "--status", str(incomplete / "calibration_status.json")
+    )
+    assert code == 2
+    code, output = run_cli("uncertainty", "inspect", str(incomplete))
+    assert code == 1
+    issues = {i["code"] for i in report_of(output, "uncertainty_inspection")["issues"]}
+    assert "run_incomplete" in issues
+    other = runs["base"] / "other-fingerprint"
+    shutil.copytree(runs["full"], other)
+    status_file = other / "calibration_status.json"
+    status = json.loads(status_file.read_text(encoding="utf-8"))
+    status["result_fingerprint"] = "0" * 64
+    status_file.write_text(json.dumps(status), encoding="utf-8")
+    _rehash(other, "calibration_status.json")
     code, _ = run_cli("uncertainty", "project", "--status", str(status_file))
     assert code == 2

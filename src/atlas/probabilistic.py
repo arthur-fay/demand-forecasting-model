@@ -48,7 +48,7 @@ from atlas.exceedance import (
     trailing_window,
 )
 from atlas.intervals import PredictiveDistribution, climatology, model_distribution
-from atlas.metrics import HorizonBucket, per_origin_mean, scopes
+from atlas.metrics import HorizonBucket, contiguous, per_origin_mean, scopes
 from atlas.scoring import (
     brier_score,
     coverage,
@@ -62,6 +62,7 @@ from atlas.scoring import (
 from atlas.series import DemandSeries
 from atlas.stats import bandwidth_sensitivity
 from atlas.uncertainty_config import (
+    LEVEL_TOLERANCE,
     ClimatologyConfig,
     GaussianOneStepConfig,
     HypotheticalThresholdConfig,
@@ -1133,6 +1134,9 @@ def interval_status(
             f"{overall['n_unavailable'] + overall['n_point_failed']} scheduled interval(s) "
             "were not issued"
         )
+    if overall.get("n_thin"):
+        insufficient = True
+        reasons.append(f"{overall['n_thin']} interval(s) rest on thin (exploratory) calibration")
     for level in config.levels:
         key = level_key(level)
         tolerance = config.tolerance_pct(level) / 100.0
@@ -1144,7 +1148,10 @@ def interval_status(
             str(r["label"])
             for r in [overall, *bucket_rows]
             if r is not None
-            and (r.get(f"coverage_{key}") is None or abs(r[f"coverage_{key}"] - level) > tolerance)
+            and (
+                r.get(f"coverage_{key}") is None
+                or abs(r[f"coverage_{key}"] - level) > tolerance + LEVEL_TOLERANCE
+            )
         ]
         p_value = overall.get(f"coverage_p_{key}")
         computed = bool(overall.get(f"coverage_test_computed_{key}"))
@@ -1199,7 +1206,13 @@ def exceedance_status(
     period: str,
     model_id: str,
     pair_id: str,
+    not_issued: int = 0,
 ) -> list[dict[str, Any]]:
+    """Apply the pre-registered exceedance criteria to every threshold.
+
+    ``not_issued`` counts scheduled forecasts of the pair without a predictive distribution;
+    any such forecast leaves the evidence incomplete (as for intervals).
+    """
     criteria = config.decision_criteria
     all_label = f"days_1_{config.max_horizon}"
     result: list[dict[str, Any]] = []
@@ -1223,6 +1236,9 @@ def exceedance_status(
             )
             continue
         failed = insufficient = False
+        if not_issued:
+            insufficient = True
+            reasons.append(f"{not_issued} scheduled forecast(s) had no predictive distribution")
         gap = row["calibration_gap"]
         if abs(gap) > criteria.exceedance_max_calibration_gap:
             failed = True
@@ -1322,12 +1338,22 @@ def decision_status(
             model_id=model_id,
             pair_id=selected_pair,
         )
+        overall = _row(
+            summary,
+            period=evaluation.name,
+            model_id=model_id,
+            pair_id=selected_pair,
+            label=f"days_1_{config.max_horizon}",
+        )
         exceed = exceedance_status(
             exceedance_rows,
             config,
             period=evaluation.name,
             model_id=model_id,
             pair_id=selected_pair,
+            not_issued=(
+                0 if overall is None else overall["n_unavailable"] + overall["n_point_failed"]
+            ),
         )
         by_model[model_id] = {"intervals": intervals, "exceedance": exceed}
     primary = by_model[config.primary_model]
@@ -1371,7 +1397,10 @@ def coverage_bandwidth_sensitivity(
     for level in config.levels:
         key = level_key(level)
         per_origin = per_origin_mean(cell, scored[f"covered_{key}"] - level, config.max_horizon)
-        for entry in bandwidth_sensitivity(per_origin.to_numpy(), horizon=config.max_horizon):
+        grid = contiguous(pd.DatetimeIndex(per_origin.index), 1)
+        for entry in bandwidth_sensitivity(
+            per_origin.to_numpy(), horizon=config.max_horizon, contiguous=grid
+        ):
             rows.append({"level": level, "period": period, "model_id": model_id, **entry})
     return rows
 
@@ -1514,6 +1543,7 @@ def run_probabilistic(
         decided = sealed_selection.get("selected_pair")
     elif selection is not None:
         decided = selection.get("selected_pair")
+    seal_broken = bool(seal_check and seal_check["differences"])
     baseline_ids = [p.pair_id for p in config.baselines]
     exceedance_ids = (
         [decided] if decided else [p.pair_id for p in config.candidates]
@@ -1577,7 +1607,10 @@ def run_probabilistic(
         ),
         "width_profile": width_profile(intervals, config, [*focus, *baseline_ids]),
         "decision_status": (
-            decision_status(summary, exceedance_rows, config, buckets, decided) if decided else None
+            # No status is judged from a run that did not reproduce its seal.
+            decision_status(summary, exceedance_rows, config, buckets, decided)
+            if decided and not seal_broken
+            else None
         ),
         "sensitivity": _sensitivity(
             records, series, config, buckets, data_delay_days, chosen, intervals, decided

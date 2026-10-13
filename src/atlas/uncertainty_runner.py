@@ -354,6 +354,79 @@ def _issues(outputs: M3Outputs, context: M3Context) -> list[Issue]:
     return issues
 
 
+def decision_files(
+    outputs: M3Outputs,
+    context: M3Context,
+    data: SnapshotData,
+    run_id: str,
+    periods: Sequence[str],
+    *,
+    sealed: Mapping[str, Any] | None,
+    issues: Sequence[Issue],
+) -> tuple[bool, dict[str, bytes], list[Issue]]:
+    """Whether the run is complete, its decision files, and an issue if any was withheld.
+
+    ``selection.json`` (a selection run without a seal) and ``calibration_status.json`` (a
+    run with a decision status) are deterministic functions of the outputs, so ``verify``
+    regenerates and compares them like every other file.
+    """
+    config, payload = context.config, outputs.payload
+    complete = not any(i.severity is Severity.ERROR for i in issues)
+    selection_period = config.selection.period if config.selection is not None else None
+    write_selection = (
+        selection_period in periods and sealed is None and bool(payload.get("selection"))
+    )
+    write_status = payload.get("decision_status") is not None
+    withheld = [
+        name
+        for name, wanted in (
+            ("selection.json", write_selection),
+            ("calibration_status.json", write_status),
+        )
+        if wanted and not complete
+    ]
+    notices = (
+        [
+            Issue(
+                "decision_files_withheld",
+                Severity.WARNING,
+                "selection",
+                "The run is incomplete, so " + " and ".join(withheld) + " was not written.",
+            )
+        ]
+        if withheld
+        else []
+    )
+    common = {
+        "experiment_id": config.experiment_id,
+        "config_fingerprint": config.fingerprint(),
+        "data_fingerprint": data.fingerprint,
+        "backtest_config_fingerprint": context.backtest.fingerprint(),
+        "result_fingerprint": outputs.result_fingerprint,
+        "run_id": run_id,
+    }
+    files: dict[str, bytes] = {}
+    if complete and write_selection:
+        files["selection.json"] = json_bytes(
+            {
+                "record_type": SEALED_INTERVAL_SELECTION_TYPE,
+                **common,
+                "selection": payload["selection"],
+            }
+        )
+    if complete and write_status:
+        files["calibration_status.json"] = json_bytes(
+            {
+                "record_type": CALIBRATION_STATUS_TYPE,
+                **common,
+                "decided_pair": payload["decided_pair"],
+                "decision_status": payload["decision_status"],
+                "recommendation": payload.get("recommendation"),
+            }
+        )
+    return complete, files, notices
+
+
 def _run_id(config: UncertaintyConfig, data: SnapshotData, periods: Sequence[str]) -> str:
     return f"{config.experiment_id}-{config.fingerprint()[:8]}-{data.fingerprint[:8]}-" + "-".join(
         periods
@@ -423,55 +496,11 @@ def run_uncertainty_command(
     runtime = time.perf_counter() - started
     payload = outputs.payload
     issues = _issues(outputs, context)
-    complete = not any(i.severity is Severity.ERROR for i in issues)
-    files = dict(outputs.files)
-    write_selection = (
-        selection_period in chosen and sealed is None and bool(payload.get("selection"))
+    complete, decisions, withheld = decision_files(
+        outputs, context, data, run_id, chosen, sealed=sealed, issues=issues
     )
-    write_status = payload.get("decision_status") is not None
-    withheld = [
-        name
-        for name, wanted in (
-            ("selection.json", write_selection),
-            ("calibration_status.json", write_status),
-        )
-        if wanted and not complete
-    ]
-    if withheld:
-        issues.append(
-            Issue(
-                "decision_files_withheld",
-                Severity.WARNING,
-                "selection",
-                "The run is incomplete, so " + " and ".join(withheld) + " was not written.",
-            )
-        )
-    common = {
-        "experiment_id": config.experiment_id,
-        "config_fingerprint": config.fingerprint(),
-        "data_fingerprint": data.fingerprint,
-        "backtest_config_fingerprint": context.backtest.fingerprint(),
-        "result_fingerprint": outputs.result_fingerprint,
-        "run_id": run_id,
-    }
-    if complete and write_selection:
-        files["selection.json"] = json_bytes(
-            {
-                "record_type": SEALED_INTERVAL_SELECTION_TYPE,
-                **common,
-                "selection": payload["selection"],
-            }
-        )
-    if complete and write_status:
-        files["calibration_status.json"] = json_bytes(
-            {
-                "record_type": CALIBRATION_STATUS_TYPE,
-                **common,
-                "decided_pair": payload["decided_pair"],
-                "decision_status": payload["decision_status"],
-                "recommendation": recommendation,
-            }
-        )
+    issues += withheld
+    files = {**outputs.files, **decisions}
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "record_type": RECORD_TYPE_PROBABILISTIC,
@@ -614,8 +643,31 @@ def verify_uncertainty_command(settings: Settings, run_dir: Path) -> list[CheckR
         recommendation=recommendation_provenance(settings, context, data),
     )
     recorded = manifest.get("outputs", {})
+    _, decisions, _ = decision_files(
+        outputs,
+        context,
+        data,
+        str(manifest.get("run_id")),
+        periods,
+        sealed=manifest.get("sealed_selection"),
+        issues=_issues(outputs, context),
+    )
+    regenerated = {
+        **outputs.outputs,
+        **{name: sha256_bytes(content) for name, content in decisions.items()},
+    }
+    for name in ("selection.json", "calibration_status.json"):
+        if name in recorded and name not in regenerated:
+            issues.append(
+                Issue(
+                    "decision_file_unexpected",
+                    Severity.ERROR,
+                    name,
+                    f"The run records {name}, but re-running it does not produce one.",
+                )
+            )
     files: dict[str, str] = {}
-    for name, digest in outputs.outputs.items():
+    for name, digest in regenerated.items():
         same = recorded.get(name) == digest
         files[name] = "identical" if same else "different"
         if not same:
@@ -691,6 +743,15 @@ def inspect_uncertainty_command(run_dir: Path) -> list[CheckReport]:
         Issue("file_altered", Severity.ERROR, name, f"{name} no longer matches manifest.json.")
         for name in altered
     ]
+    if manifest.get("complete") is not True:
+        issues.append(
+            Issue(
+                "run_incomplete",
+                Severity.ERROR,
+                "manifest.json",
+                "The run is marked incomplete: its results are not a valid protocol run.",
+            )
+        )
     if "metrics.json" in absent:
         issues.append(
             Issue("metrics_missing", Severity.ERROR, "metrics.json", "metrics.json is absent.")
@@ -731,6 +792,20 @@ def _status_source(path: Path, record: Mapping[str, Any]) -> dict[str, Any]:
         problems.append("the file is not the one the run recorded")
     if manifest.get("result_fingerprint") != record.get("result_fingerprint"):
         problems.append("its result fingerprint differs from the run's")
+    # The status must say what the run's metrics say; metrics.json is part of the result
+    # fingerprint, so an edited status file cannot be re-hashed into agreement.
+    metrics_path = path.parent / "metrics.json"
+    outputs = manifest.get("outputs", {})
+    if not metrics_path.is_file() or outputs.get("metrics.json") != sha256_file(metrics_path):
+        problems.append("the run's metrics.json is missing or altered")
+    elif result_fingerprint(outputs, RESULT_FILES) != manifest.get("result_fingerprint"):
+        problems.append("the run's result files do not give its result fingerprint")
+    else:
+        metrics = _read_json(metrics_path, "metrics of the M3 run")
+        if record.get("decision_status") != metrics.get("decision_status") or record.get(
+            "decided_pair"
+        ) != metrics.get("decided_pair"):
+            problems.append("its decision status differs from the run's metrics.json")
     if problems:
         raise ConfigError(f"{path} cannot be used: " + "; ".join(problems))
     return dict(manifest)

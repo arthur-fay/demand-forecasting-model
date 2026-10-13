@@ -22,7 +22,8 @@ independent. Two things follow:
 * sample sizes are counted in *distinct forecast origins* (paths). When horizon ``h`` has
   too few and its predeclared bucket is pooled, the horizons of one path still count once;
 * each set carries the HAC effective sample size of its residual series (Bartlett,
-  bandwidth ``2h``; per-origin means for a pooled bucket). Below the configured minimum an
+  bandwidth ``2h``; for a pooled bucket, per-origin means and twice the bucket's last
+  horizon). Below the configured minimum an
   interval is still issued but labelled ``thin`` (exploratory).
 """
 

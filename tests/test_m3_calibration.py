@@ -392,3 +392,21 @@ def test_property_set_equals_brute_force_filter(
         date.fromordinal(int(o)) < date.fromordinal(int(t))
         for o, t in zip(result.origins, result.targets, strict=True)
     )
+
+
+def test_effective_size_uses_the_horizon_as_overlap() -> None:
+    # Autocorrelated residuals: the effective size depends on the bandwidth 2h.
+    rng = np.random.default_rng(4)
+    noise = rng.normal(0, 1, 200)
+    walk = np.convolve(noise, np.ones(6) / 6, mode="same")
+    frame = grid_records("m", day(0), 200, 7, lambda i, h: float(walk[i]))
+    result = ResidualStore(frame, "m", 7).calibration_set(
+        horizon=5,
+        issue_origin=day(210),
+        calibration_origin=day(210),
+        window_days=None,
+        policy=CalibrationPolicy(0, 10, 0),
+        buckets=BUCKETS,
+    )
+    assert result.n_effective == effective_sample_size(result.residuals, 5)
+    assert result.n_effective != effective_sample_size(result.residuals, 1)

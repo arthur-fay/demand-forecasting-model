@@ -442,3 +442,12 @@ def test_origin_test_is_the_m2_dependence_test_of_per_origin_means() -> None:
     short = origin_test(cell.iloc[:30], values.iloc[:30], first=1, last=3)
     assert short["test_computed"] is False
     assert short["ci_low"] is None
+
+
+def test_origin_test_uses_complete_origins_only() -> None:
+    origins = pd.date_range("2024-01-01", periods=60, freq="D")
+    cell = pd.DataFrame({"origin": np.repeat(origins, 3), "horizon": np.tile([1, 2, 3], 60)})
+    cell = cell.drop(index=[4]).reset_index(drop=True)  # origin 2 lacks horizon 2
+    values = pd.Series(np.arange(len(cell), dtype=float) % 5, index=cell.index)
+    result = origin_test(cell, values, first=1, last=3)
+    assert result["n_origins_tested"] == 59

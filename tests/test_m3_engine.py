@@ -27,6 +27,7 @@ from atlas.probabilistic import (
     attach_outcomes,
     decision_status,
     exceedance_status,
+    exceedance_summary,
     interval_status,
     interval_summary,
     issue_forecasts,
@@ -35,6 +36,7 @@ from atlas.probabilistic import (
     select_interval_method,
     selection_differences,
 )
+from atlas.scoring import origin_test
 from atlas.series import DemandSeries
 from atlas.uncertainty_config import UncertaintyConfig
 from tests.m2_helpers import noisy_series, perturbed_after
@@ -653,3 +655,113 @@ def test_interval_summary_counts_and_scores_exactly() -> None:
     assert h7["n_evaluated"] == 3
     assert h7["coverage_80"] == pytest.approx(2 / 3)
     assert overall["coverage_test_computed_80"] is False  # 4 origins cannot support a test
+
+
+def test_gaussian_baseline_uses_horizon_one_residuals_at_every_horizon(
+    issued: tuple[pd.DataFrame, pd.DataFrame],
+) -> None:
+    intervals, _ = issued
+    gaussian = intervals[
+        (intervals["pair_id"] == "gaussian_one_step@rolling90") & (intervals["status"] == "ok")
+    ]
+    offsets = (gaussian[Q[-1]] - gaussian["prediction"]).round(6)
+    per_origin = offsets.groupby([gaussian["model_id"], gaussian["origin"]]).nunique()
+    assert (per_origin == 1).all()
+    # The horizon-1 residual targeting the issue day itself is the latest one used.
+    assert (gaussian["cal_last_target"] == gaussian["origin"]).all()
+    assert (gaussian.groupby(["model_id", "origin"])["cal_n"].nunique() == 1).all()
+
+
+def test_coverage_interval_and_test_are_centred_on_the_level() -> None:
+    rng = np.random.default_rng(12)
+    origins = pd.date_range("2023-07-01", periods=120, freq="D")
+    frames = []
+    for origin in origins:
+        block = hand_frame({"a": [10.0]}).iloc[:7].copy()
+        block["origin"] = origin
+        block["target_date"] = origin + pd.to_timedelta(block["horizon"], "D")
+        frames.append(block)
+    frame = pd.concat(frames, ignore_index=True)
+    # 80 % interval is [992, 1008]: put each outcome inside with probability 0.8.
+    inside = rng.random(len(frame)) < 0.8
+    frame["actual"] = np.where(inside, 1000.0, 1009.0)
+    row = next(r for r in interval_summary(frame, CONFIG, BUCKETS) if r["label"] == "days_1_7")
+    assert row["coverage_test_computed_80"] is True
+    assert row["coverage_ci_low_80"] < row["coverage_80"] < row["coverage_ci_high_80"]
+    assert row["coverage_ci_high_80"] < 1.0
+    expected = origin_test(
+        frame, pd.Series(inside.astype(float), index=frame.index), first=1, last=7, offset=0.8
+    )
+    assert row["coverage_p_80"] == expected["p_value_conservative"]
+    assert row["coverage_p_80"] > 0.05
+
+
+def test_selection_differences_detects_eligibility_changes(small_run: Any) -> None:
+    sealed = json.loads(json.dumps(small_run.payload["selection"]))
+    edited = json.loads(json.dumps(sealed))
+    edited["eligibility"][0]["eligible"] = not edited["eligibility"][0]["eligible"]
+    assert selection_differences(edited, sealed) == ["eligibility"]
+
+
+def test_brier_skill_needs_a_reference_for_every_forecast() -> None:
+    rows = []
+    for pair in ("x", "climatology_180d"):
+        for k, origin in enumerate(pd.date_range("2024-01-01", periods=60, freq="D")):
+            for h in range(1, 8):
+                if pair == "climatology_180d" and k == 0 and h == 1:
+                    continue  # the reference is missing for one forecast
+                rows.append(
+                    {
+                        "period": "ev",
+                        "model_id": "med" if pair == "x" else "model_free",
+                        "pair_id": pair,
+                        "origin": origin,
+                        "horizon": h,
+                        "target_date": origin + pd.Timedelta(days=h),
+                        "threshold_label": "hypothetical_low",
+                        "threshold_kind": "hypothetical",
+                        "threshold_provenance": "HYPOTHETICAL",
+                        "threshold_value": 9000.0,
+                        "probability": 0.3 if pair == "x" else 0.25,
+                        "event": float((k + h) % 3 == 0),
+                    }
+                )
+    frame = pd.DataFrame(rows)
+    summary = exceedance_summary(frame, CONFIG, BUCKETS, "climatology_180d")
+    mine = next(r for r in summary if r["pair_id"] == "x" and r["label"] == "days_1_7")
+    assert "brier_skill_score" not in mine
+    later = next(r for r in summary if r["pair_id"] == "x" and r["label"] == "days_5_7")
+    assert later["brier_skill_score"] is not None
+
+
+def test_status_boundaries_are_inclusive() -> None:
+    assert status_of(summary_rows(GOOD, eff_n=30.0))["status"] == DECISION_GRADE
+    assert status_of(summary_rows(GOOD, eff_n=29.99))["status"] == INSUFFICIENT_EVIDENCE
+    at_edge = dict(GOOD, days_1_7=(0.75, 0.92))  # exactly 5 pp and 3 pp below
+    assert status_of(summary_rows(at_edge))["status"] == DECISION_GRADE
+    beyond = dict(GOOD, days_1_7=(0.7499, 0.95))
+    assert status_of(summary_rows(beyond))["status"] == FAILED_CALIBRATION
+    assert exceed_status(brier_eff_n=30.0)["status"] == DECISION_GRADE
+    assert exceed_status(calibration_gap=0.05)["status"] == DECISION_GRADE
+
+
+def test_thin_or_missing_forecasts_cap_the_status() -> None:
+    thin = status_of(summary_rows(GOOD, n_thin=4))
+    assert thin["status"] == INSUFFICIENT_EVIDENCE
+    assert any("thin" in r for r in thin["reasons"])
+    config = make_config(thresholds=[CONFIG.thresholds[0].model_dump(mode="json")])
+    rows = [exceedance_row()]
+    capped = exceedance_status(
+        rows, config, period="ev", model_id="med", pair_id="x", not_issued=2
+    )[0]
+    assert capped["status"] == INSUFFICIENT_EVIDENCE
+
+
+def test_a_broken_seal_gets_no_decision_status(
+    records: pd.DataFrame, series: DemandSeries, small_run: Any
+) -> None:
+    sealed = dict(small_run.payload["selection"])
+    edited = {**sealed, "n_common": sealed["n_common"] + 1}
+    result = small(records, series, sealed_selection=edited)
+    assert result.payload["selection_seal_check"]["differences"] == ["n_common"]
+    assert result.payload["decision_status"] is None

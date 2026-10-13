@@ -209,7 +209,8 @@ class DecisionCriteriaConfig(_Config):
     ``failed_calibration``. Passing both with a HAC effective sample size below
     ``min_effective_sample_size`` is ``insufficient_evidence``.
 
-    For exceedance probabilities of each historical threshold: Brier score below the
+    For exceedance probabilities of each threshold (hypothetical ones included): Brier score
+    below the
     ``exceedance_reference`` baseline with conservative DM p < ``alpha``, mean probability
     within ``exceedance_max_calibration_gap`` of the observed frequency, and the same
     effective-sample-size requirement.
