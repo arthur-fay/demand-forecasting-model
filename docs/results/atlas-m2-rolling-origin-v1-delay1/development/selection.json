@@ -3,7 +3,7 @@
  "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
  "experiment_id": "atlas-m2-rolling-origin-v1-delay1",
  "record_type": "sealed_selection",
- "result_fingerprint": "87d65528865488a5e990f4e9e86d3a3a0ed39ba877909e5bddd156626d2ae8c6",
+ "result_fingerprint": "79d4f7962d2ed022a1b8081028efa84e9a176cd91aa2f9a28c35379f79b7f22d",
  "run_id": "atlas-m2-rolling-origin-v1-delay1-26ef670d-5ab8b3a5-development",
  "selection": {
   "best_baseline": "same_weekday_median_5w",
@@ -87,6 +87,7 @@
   "reason": "atlas_linear_regression beats the best baseline same_weekday_median_5w by at least 3 % in MAE and the selection-period DM test is significant at 0.05.",
   "regression_vs_best_baseline": {
    "dm_bartlett_p_value": 0.019365950587073612,
+   "dm_ci_basis": "rectangular",
    "dm_computed": true,
    "dm_estimator": "rectangular",
    "dm_n_origins": 486,

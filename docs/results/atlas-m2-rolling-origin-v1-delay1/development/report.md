@@ -57,23 +57,23 @@ Ranking on 14,580 forecasts common to every eligible candidate (486 origins):
 | 5 | seasonal_naive | baseline | 1,135.0 |
 | 6 | naive | baseline | 1,291.3 |
 
-Best regression `atlas_linear_regression` vs best baseline `same_weekday_median_5w`: MAE difference -133.2 (95 % HAC CI -265.3 to -1.1), improvement 13.9 %, DM p (conservative) 0.048; margin met: yes; significant: yes.
+Best regression `atlas_linear_regression` vs best baseline `same_weekday_median_5w`: MAE difference -133.2 (95 % HAC CI, conservative, -265.3 to -1.1), improvement 13.9 %, DM p (conservative) 0.048; margin met: yes; significant: yes.
 
 **Selected: `atlas_linear_regression`.** atlas_linear_regression beats the best baseline same_weekday_median_5w by at least 3 % in MAE and the selection-period DM test is significant at 0.05.
 
 ## development: accuracy by horizon bucket
 
-MAE, RMSE and bias in requests per day (bias = mean of prediction minus actual, with a 95 % HAC interval); WAPE and MAPE in %. `vs SN` is the MAE improvement over seasonal naive on common forecasts, `vs B*` over the best development baseline (`same_weekday_median_5w`); positive = better. `p` = DM p-value (conservative; n/a when too few origins).
+MAE, RMSE and bias in requests per day (bias = mean of prediction minus actual, with a 95 % HAC interval from the larger of the HLN and Bartlett-2h standard errors); WAPE and MAPE in %. `vs SN` is the MAE improvement over seasonal naive on common forecasts, `vs B*` over the best development baseline (`same_weekday_median_5w`); positive = better. `p` = DM p-value (conservative; n/a when too few origins).
 
 | bucket | model | origins | forecasts | failed | MAE | RMSE | bias [95 % CI] | WAPE % | MASE | MAPE % | vs SN % | p | vs B* % | p |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| day_1 | naive | 486 | 486 | 0 | 1,233.2 | 1,664.1 | 0.9 [-147.6, 149.4] | 12.97 | 1.428 | 12.91 | -17.1 | 0.009 | -35.2 | <0.001 |
-| day_1 | seasonal_naive | 486 | 486 | 0 | 1,052.8 | 1,551.3 | -6.3 [-144.7, 132.1] | 11.07 | 1.212 | 10.89 | ref |  | -15.4 | 0.005 |
-| day_1 | same_weekday_mean_4w | 486 | 486 | 0 | 917.7 | 1,313.6 | -8.0 [-125.2, 109.2] | 9.65 | 1.055 | 9.50 | 12.8 | 0.007 | -0.6 | 0.747 |
-| day_1 | same_weekday_median_5w | 486 | 486 | 0 | 912.1 | 1,288.1 | -67.0 [-181.8, 47.7] | 9.59 | 1.047 | 9.41 | 13.4 | 0.005 | B* |  |
-| day_1 | seasonal_exponential_smoothing | 486 | 486 | 0 | 877.4 | 1,255.7 | -12.1 [-124.1, 99.9] | 9.23 | 1.011 | 9.06 | 16.7 | <0.001 | 3.8 | 0.399 |
-| day_1 | legacy_linear_regression | 486 | 486 | 0 | 875.5 | 1,204.8 | 222.7 [117.1, 328.4] | 9.21 | 1.005 | 9.21 | 16.8 | <0.001 | 4.0 | 0.354 |
-| day_1 | atlas_linear_regression | 486 | 486 | 0 | 776.1 | 1,129.5 | -1.3 [-102.1, 99.4] | 8.16 | 0.895 | 7.89 | 26.3 | <0.001 | 14.9 | <0.001 |
+| day_1 | naive | 486 | 486 | 0 | 1,233.2 | 1,664.1 | 0.9 [-148.5, 150.4] | 12.97 | 1.428 | 12.91 | -17.1 | 0.009 | -35.2 | <0.001 |
+| day_1 | seasonal_naive | 486 | 486 | 0 | 1,052.8 | 1,551.3 | -6.3 [-193.9, 181.3] | 11.07 | 1.212 | 10.89 | ref |  | -15.4 | 0.005 |
+| day_1 | same_weekday_mean_4w | 486 | 486 | 0 | 917.7 | 1,313.6 | -8.0 [-169.8, 153.8] | 9.65 | 1.055 | 9.50 | 12.8 | 0.007 | -0.6 | 0.747 |
+| day_1 | same_weekday_median_5w | 486 | 486 | 0 | 912.1 | 1,288.1 | -67.0 [-224.8, 90.7] | 9.59 | 1.047 | 9.41 | 13.4 | 0.005 | B* |  |
+| day_1 | seasonal_exponential_smoothing | 486 | 486 | 0 | 877.4 | 1,255.7 | -12.1 [-153.0, 128.8] | 9.23 | 1.011 | 9.06 | 16.7 | <0.001 | 3.8 | 0.399 |
+| day_1 | legacy_linear_regression | 486 | 486 | 0 | 875.5 | 1,204.8 | 222.7 [86.3, 359.2] | 9.21 | 1.005 | 9.21 | 16.8 | <0.001 | 4.0 | 0.354 |
+| day_1 | atlas_linear_regression | 486 | 486 | 0 | 776.1 | 1,129.5 | -1.3 [-133.6, 130.9] | 8.16 | 0.895 | 7.89 | 26.3 | <0.001 | 14.9 | <0.001 |
 | days_2_7 | naive | 486 | 2,916 | 0 | 1,218.6 | 1,700.8 | -12.0 [-164.4, 140.4] | 12.80 | 1.409 | 12.81 | -14.8 | <0.001 | -32.6 | <0.001 |
 | days_2_7 | seasonal_naive | 486 | 2,916 | 0 | 1,061.6 | 1,564.8 | -14.7 [-225.5, 196.0] | 11.15 | 1.224 | 10.97 | ref |  | -15.5 | 0.008 |
 | days_2_7 | same_weekday_mean_4w | 486 | 2,916 | 0 | 929.1 | 1,325.1 | -16.3 [-255.0, 222.4] | 9.76 | 1.069 | 9.61 | 12.5 | 0.022 | -1.1 | 0.610 |
@@ -81,7 +81,7 @@ MAE, RMSE and bias in requests per day (bias = mean of prediction minus actual, 
 | days_2_7 | seasonal_exponential_smoothing | 486 | 2,916 | 0 | 939.6 | 1,354.1 | -20.5 [-208.9, 167.9] | 9.87 | 1.082 | 9.74 | 11.5 | <0.001 | -2.2 | 0.669 |
 | days_2_7 | legacy_linear_regression | 486 | 2,916 | 0 | 977.8 | 1,329.7 | 295.7 [49.2, 542.3] | 10.27 | 1.117 | 10.30 | 7.9 | 0.188 | -6.4 | 0.220 |
 | days_2_7 | atlas_linear_regression | 486 | 2,916 | 0 | 812.9 | 1,196.1 | 2.7 [-220.4, 225.7] | 8.54 | 0.936 | 8.24 | 23.4 | <0.001 | 11.6 | 0.016 |
-| days_8_14 | naive | 486 | 3,402 | 0 | 1,258.0 | 1,776.9 | -30.5 [-211.3, 150.4] | 13.18 | 1.454 | 13.18 | -13.7 | <0.001 | -31.8 | <0.001 |
+| days_8_14 | naive | 486 | 3,402 | 0 | 1,258.0 | 1,776.9 | -30.5 [-222.2, 161.3] | 13.18 | 1.454 | 13.18 | -13.7 | <0.001 | -31.8 | <0.001 |
 | days_8_14 | seasonal_naive | 486 | 3,402 | 0 | 1,106.8 | 1,631.6 | -33.9 [-292.3, 224.6] | 11.60 | 1.278 | 11.40 | ref |  | -16.0 | 0.006 |
 | days_8_14 | same_weekday_mean_4w | 486 | 3,402 | 0 | 988.6 | 1,384.6 | -35.5 [-355.4, 284.5] | 10.36 | 1.138 | 10.23 | 10.7 | 0.077 | -3.6 | 0.171 |
 | days_8_14 | same_weekday_median_5w | 486 | 3,402 | 0 | 954.2 | 1,353.0 | -93.0 [-382.9, 197.0] | 10.00 | 1.099 | 9.82 | 13.8 | 0.006 | B* |  |
@@ -197,6 +197,18 @@ Only targets reachable at every horizon, so all horizons share one set of days.
 | development | days_1_30 | atlas_linear_regression | 13,710 | 838.5 | 13.4 | 0.083 |
 
 
+## Bandwidth sensitivity of the selection and primary tests (post hoc)
+
+Added after the independent review; descriptive only (the selection and the recommendation use the pre-registered test). The primary HAC variance truncates at lag h - 1; wider bandwidths allow for dependence beyond shared target days. HLN factor and t(T - 1) throughout; eff. n = T * gamma_0 / long-run variance.
+
+| test | period | model | vs | mean diff | kernel | bandwidth | p | CI ± | eff. n |
+|---|---|---|---|---|---|---|---|---|---|
+| selection: best regression vs best baseline | development | atlas_linear_regression | same_weekday_median_5w | -133.2 | rectangular | 29 | 0.048 | 132.1 | 19.8 |
+| selection: best regression vs best baseline | development | atlas_linear_regression | same_weekday_median_5w | -133.2 | rectangular | 59 | 0.002 | 82.4 | 50.8 |
+| selection: best regression vs best baseline | development | atlas_linear_regression | same_weekday_median_5w | -133.2 | bartlett | 60 | 0.019 | 111.5 | 27.7 |
+| selection: best regression vs best baseline | development | atlas_linear_regression | same_weekday_median_5w | -133.2 | bartlett | 90 | 0.007 | 95.8 | 37.6 |
+| selection: best regression vs best baseline | development | atlas_linear_regression | same_weekday_median_5w | -133.2 | bartlett | 120 | 0.002 | 84.8 | 48.0 |
+
 ## Fit diagnostics
 
 | model | period | fits | failed | train rows | rank | rank-deficient fits | restricted cond. (median / max) | max train leverage | non-estimable | high leverage | clipped |
@@ -204,12 +216,12 @@ Only targets reachable at every horizon, so all horizons share one set of days.
 | atlas_linear_regression | development | 486 | 0 | 368..853 | 18..18 of 18 | 0 | 6.7 / 7.3 | 0.259 | 0 | 0 | 0 |
 | legacy_linear_regression | development | 486 | 0 | 368..853 | 28..29 of 32 | 486 | 40.4 / 19,722.9 | 1.000 | 496 | 89 | 0 |
 
-Regression MAE with and without non-estimable or high-leverage forecasts:
+Regression MAE with and without non-estimable or high-leverage forecasts; `B*` (`same_weekday_median_5w`) on exactly the same kept and removed forecasts:
 
-| period | model | forecasts | MAE | non-estimable | high leverage | kept | MAE kept |
-|---|---|---|---|---|---|---|---|
-| development | atlas_linear_regression | 14,580 | 823.0 | 0 | 0 | 14,580 | 823.0 |
-| development | legacy_linear_regression | 14,580 | 1,053.3 | 495 | 87 | 13,998 | 995.5 |
+| period | model | forecasts | MAE | non-estimable | high leverage | kept | MAE kept | B* kept | removed | MAE removed | B* removed |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| development | atlas_linear_regression | 14,580 | 823.0 | 0 | 0 | 14,580 | 823.0 | 956.1 | 0 | n/a | n/a |
+| development | legacy_linear_regression | 14,580 | 1,053.3 | 495 | 87 | 13,998 | 995.5 | 896.4 | 582 | 2,442.3 | 2,393.7 |
 
 ## Caveats
 

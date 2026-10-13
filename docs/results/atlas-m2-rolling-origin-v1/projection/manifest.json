@@ -1,6 +1,6 @@
 {
  "code": {
-  "code_sha256": "ebb30a06743c942af08a5979efae0d25e20e2c1e395c30f9cb32944767ac712f",
+  "code_sha256": "5f3ec3316f10743e50f5fb6f03fff950e0121bf7981d58e1bbaed6891724301a",
   "files": 33,
   "uv_lock_sha256": "96fa3fd14990c5317a8e6b8e11b3dc606a00a94876f8d22cdf67ae90a896ea86"
  },
@@ -188,12 +188,12 @@
  },
  "git": {
   "available": true,
-  "commit": "10343e254a94ccfa5c0c6e9a598bcbbc7de4488f",
+  "commit": "28708bda22c35f8caefa4cb15f42c7ecaeb035e4",
   "dirty": false,
   "dirty_paths": 0
  },
  "informational_not_fingerprinted": {
-  "created_at_utc": "2026-10-13T16:54:51+00:00"
+  "created_at_utc": "2026-10-13T19:21:41+00:00"
  },
  "label": "FUTURE PROJECTION: forecasts beyond the last observed day. No outcome has been observed; these numbers are not validated by any backtest.",
  "models": [
@@ -244,6 +244,11 @@
   "fits.csv": "6dc364150ba60a4caffae5ce72e63b69d85d0c6555b757d4c1adac0466ab045f",
   "projections.csv": "1fb2f1a0c1ae0dfa722e11ebd8b79906a9d5945e7d0f352c9c580b630ffacab3",
   "report.md": "3df57b23af15d6cde1e4db65cfdb46d15f62d34f96ba5635d5242d2aacceff3c"
+ },
+ "recommendation_source": {
+  "recommendation_sha256": "2fa912c3bd2b9fc1c3cfbce28da5135eb76baf9888933cdd3b063821ee419620",
+  "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a",
+  "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5-development-confirmation-legacy_window"
  },
  "recommended_model": "atlas_linear_regression",
  "record_type": "future_projection",

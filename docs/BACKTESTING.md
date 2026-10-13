@@ -15,10 +15,10 @@ uv run atlas backtest run --output-dir runs/dev            # pre-registered deve
 uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/development
 ```
 
-All numbers below are copied from the committed engine output in
-[`docs/results/`](results/) by a script, and a test checks the headline tables against
-`metrics.json`. Nothing here is a prospective validation: every forecast is a re-forecast of
-days that were already in the data.
+All numbers below, in tables and in the text, are generated from the committed engine output
+in [`docs/results/`](results/) by a script, and tests check the headline tables and the
+quoted numbers against `metrics.json`. Nothing here is a prospective validation: every
+forecast is a re-forecast of days that were already in the data.
 
 ## 1. Findings
 
@@ -26,29 +26,45 @@ days that were already in the data.
    re-implementation of the legacy regression reproduces all 90 published holdout predictions
    and all 30 published future forecasts. On the same 90 days, refitting at every origin
    gives 4.91 % at horizon 1. Run recursively, as the published forecast was, the same model
-   scores 5.5-5.8 % at horizons 2-30 on those 90 days, which were an unusually easy period.
-   Over the whole confirmation year its recursive MAPE is 9.0-9.6 % from horizon 7 on.
+   scores 5.5-5.9 % at horizons 2-30 on those 90 days, which were an
+   unusually easy period. Over the whole confirmation year its recursive MAPE is
+   9.0-9.8 % from horizon 7 on.
 2. **The faithful legacy model does not beat simple baselines reliably.** In the development
    period it is worse than the same-weekday median (B\*), the same-weekday mean and
-   exponential smoothing at every horizon bucket beyond day 1 (MAE 1,041.9 against 953.0 for
-   B\* over days 1-30). In the confirmation period it is better than B\* by 5.8 %, with a
-   confidence interval that includes zero (DM p = 0.26). Part of its development deficit is
-   a numerical artefact of its design, which the diagnostics isolate (section 6.11).
-3. **The modernised regression is the best forecaster in both periods, but its lead over the
-   best baseline is not statistically established.** It was selected on the development
-   period under the pre-registered rule and confirmed on the later period: confirmation MAE
-   984.9 against 1,112.2 for B\* (11.4 % better) and 1,371.5 for seasonal naive (28.2 %
-   better). Against seasonal naive the primary test is clear (Holm p = 0.007). Against
-   B\* the 95 % interval of the MAE difference, −256 to +2 requests per day, includes zero
-   (Holm p = 0.054). The confirmation year is worth about 14 independent observations for
-   this comparison.
-4. **Most of the error growth with horizon comes from recursion.** Applying the same fitted
-   regressions to *observed* previous days keeps their error nearly flat across horizons
-   (confirmation MAE about 690-750). Feeding their own predictions back raises it to about
-   1,030-1,090 at day 30.
-5. **The lead is not uniform.** The modernised regression wins large in the hard months
-   (holidays, year-end, winter surges) and loses to the same-weekday median in 6 of 28
-   origin months, including the calm summer of 2025.
+   exponential smoothing at every horizon bucket beyond day 1 (MAE 1,041.9 against
+   953.0 for B\* over days 1-30), although none of these 12 deficits is
+   statistically significant (conservative DM p 0.064-0.601). In the
+   confirmation period it is better than every baseline, and better than B\* by
+   5.8 % with an interval that includes zero (DM p = 0.26). Its non-estimable and high-leverage
+   forecasts, a numerical artefact of its design (section 6.11), do not explain the
+   development deficit: on the forecasts that remain it is still 10.2 %
+   worse than B\* on the same forecasts (9.3 % on all).
+3. **The modernised regression is the most accurate forecaster in both periods, but its lead
+   over the best baseline is not statistically established.** It has the lowest MAE, RMSE,
+   WAPE, MASE and MAPE at every horizon and bucket of both periods (not the smallest bias). It
+   was selected on the development period under the pre-registered rule and confirmed on the
+   later period: confirmation MAE 984.9 against 1,112.2 for B\* (11.4 % better) and 1,371.5
+   for seasonal naive (28.2 % better). Against seasonal naive the primary test is clear (Holm
+   p = 0.007) and stays significant under every HAC bandwidth tried. Against B\* the 95 % interval of the MAE
+   difference, −256 to +2 requests per day, includes zero (Holm p = 0.054). Across the HAC
+   bandwidths tried, which allow for the month-long regimes in the loss differential, its
+   p-value ranges from 0.047 to 0.096, and the confirmation year is
+   worth only about 10-14 independent observations for this comparison
+   (section 6.2).
+4. **In the confirmation period, almost all of the error growth with horizon comes from
+   recursion.** Applying the same fitted regressions to *observed* previous days keeps their
+   confirmation MAE nearly flat across horizons (686-749); feeding their own
+   predictions back raises it to 1,033-1,086 at day 30 (recursion accounts for
+   93 % and 96 % of the growth). In the development
+   period it accounts for less: 67 % for the modernised regression and
+   43 % for the legacy model, whose observed-input error itself grows
+   26 % from day 1 to day 30 (section 6.9).
+5. **The lead is not uniform.** The modernised regression loses to the same-weekday median
+   in 6 of 28 origin months, including the December 2024
+   year-end and the calm summer of 2025. In the confirmation period its lead over B\* comes
+   about equally from winter (November-February origins, 51 % of the net
+   gain) and spring 2026 (March-May, 60 %; May alone
+   31 %).
 6. **Recommendation**: `atlas_linear_regression`, by the pre-registered confirm-or-fallback
    rule, with the caveats in findings 3 and 5. The same-weekday median of five weeks is a
    close and much simpler alternative, and it is the fallback the protocol names. The legacy
@@ -93,8 +109,11 @@ every horizon against closed forms.
 the first week of the history; `α ∈ {0.05, 0.1, 0.2, 0.3, 0.5, 0.7}` and
 `γ ∈ {0.01, 0.05, 0.1, 0.2, 0.3}` (`γ ≤ 1 − α`) chosen at every origin by the smallest
 in-sample one-step squared error after a 28-day burn-in (deterministic tie-break). A
-missing day updates nothing. It is the fitted statistical baseline both design reviewers
-asked for; no SciPy or statsmodels dependency is needed.
+missing day updates nothing. The chosen `α`, `γ`, the final level and the seven seasonal
+terms are written to `coefficients.csv` for every origin, so each forecast can be
+recomputed from them (`level + season_step_k`, `k = (h − 1) mod 7 + 1`). It is the fitted
+statistical baseline both design reviewers asked for; no SciPy or statsmodels dependency
+is needed.
 
 **Faithful legacy regression** (`legacy-notebook-cell-14`). The 32 notebook columns in the
 notebook's order: trend, year, day of year, `is_weekend`, `sin`/`cos(2π·doy/365.25)`, lags
@@ -175,9 +194,10 @@ At each origin `o`:
 the engine records them per model, origin and horizon and carries on. Any other exception,
 including `LeakageError`, stops the run.
 
-| Condition | Direct baselines | Recursive regressions |
+| Condition | Weekly and naive baselines | Recursive regressions |
 |---|---|---|
 | Input day missing | only the horizons that read it fail (`unavailable_feature`) | every horizon of that origin fails (`missing_input`); nothing is imputed |
+| Input day missing (exponential smoothing) | the day is skipped (no update) and counted in `n_dropped_rows`; the forecasts are kept. It fails (`missing_input`) only when a day of the first week, used for initialisation, is missing | – |
 | Training row reads a missing day | – | the row is dropped and counted (`n_dropped_rows`) |
 | Too little history | `insufficient_history` for the affected horizons | `insufficient_history` or `insufficient_training_rows` |
 | Rank-deficient or constant design | – | `rank_deficient` / `constant_column` (modernised model); accepted and flagged (legacy) |
@@ -213,11 +233,20 @@ one loss differential per origin (the mean over the bucket's horizons, only for 
 with every horizon present), the Harvey-Leybourne-Newbold statistic (rectangular kernel to
 `h_max − 1`, Bartlett fallback, small-sample factor, Student t with `T − 1` degrees of
 freedom), a Bartlett sensitivity with bandwidth `2·h_max`, and reports the larger p-value.
-It is not computed for fewer than `max(3·h_max, 50)` origins or on a grid with gaps. The
-HAC effective sample size (`T·γ₀ / long-run variance`) shows how many independent
-observations a comparison is worth. p-values are indicative: they assume a
+The 95 % intervals (of the MAE difference and of the bias) use the larger of the two
+standard errors, so an interval excludes zero exactly when the reported p-value is below
+0.05.\* It is not computed for fewer than `max(3·h_max, 50)` origins or on a grid with
+gaps. The HAC effective sample size (`T·γ₀ / long-run variance`, at most `T`) shows how
+many independent observations a comparison is worth. p-values are indicative: they assume a
 covariance-stationary loss differential, and with expanding windows they compare forecasting
-*methods* rather than population models.
+*methods* rather than population models. Truncating at `h_max − 1` assumes that losses on
+different target days are uncorrelated; regimes lasting months violate that, so a
+bandwidth sensitivity is reported for the selection and primary tests (section 6.2).\*
+
+\* Amended after the independent review (section 9): the intervals previously used the HLN
+standard error alone and could exclude zero while the printed conservative p-value was
+above 0.05; the bandwidth sensitivity is new. Neither changes a forecast, the selection or
+the recommendation.
 
 **Selection** (development period only; rule fixed before any run):
 
@@ -230,9 +259,15 @@ covariance-stationary loss differential, and with expanding windows they compare
    3 % below B\*'s **and** the development DM test (conservative p-value) is below 0.05 with
    R\* ahead. Otherwise B\* is selected.
 
-The development run writes `selection.json`. Running any other period requires it (and the
-same configuration and data fingerprints), and re-running the development period must
-reproduce it.
+The development run writes `selection.json`. Running any other period requires it (same
+configuration and data fingerprints, valid structure), and such a run must include the
+development period again: the selection recomputed there must equal the sealed one in
+every decision field (rule, eligibility, ranking and its MAEs, B\*, R\*, the test, margin,
+significance and choice), or the run is marked incomplete and writes no recommendation.
+The period rules (one selection and one confirmation period, disjoint targets) are checked
+for the whole configuration, whichever periods a run names. `atlas forecast` accepts a
+recommendation only inside the complete run directory that wrote it. These checks were
+tightened after the independent review (section 9).
 
 **Recommendation** (confirmation period, rule fixed in advance): a selected regression stays
 recommended only if its confirmation MAE on common forecasts is not above B\*'s; otherwise B\*
@@ -249,8 +284,9 @@ by a warning-level M1 data-quality flag removed; legacy identification boundary 
 2024-12-02..2025-01-31) removed; holiday-related targets versus other days; targets
 reachable at every horizon (one common set of days for all horizons); MAE by origin month;
 the ten target days contributing most to each model-versus-B\* difference; regression
-metrics with and without non-estimable or high-leverage forecasts; and a one-day reporting
-delay (`configs/backtest/atlas-m2-rolling-origin-v1-delay1.json`, development only).
+metrics with and without non-estimable or high-leverage forecasts (paired with B\* on the
+same forecasts since the review); and a one-day reporting delay
+(`configs/backtest/atlas-m2-rolling-origin-v1-delay1.json`, development only).
 
 **Observed-input decomposition** (diagnostic only). At every origin, the fitted regression
 is also applied to the *observed* previous days instead of its own predictions: the legacy
@@ -264,7 +300,7 @@ asserts that it equals the recursive forecast.
 Periods: development 486 origins (2024-02-01..2025-05-31), confirmation 336 origins
 (2025-06-30..2026-05-31), each with horizons 1-30: 102,060 and 70,560 records; 0 failures,
 0 missing actuals. Reference run: `docs/results/atlas-m2-rolling-origin-v1/full/`
-(result fingerprint `b9f2fb4645a8727415e130a7b1df47f1565218659c4b62d9d4ba80d6a8721153`).
+(result fingerprint `d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a`).
 
 ### 6.1 Selection on the development period
 
@@ -280,13 +316,16 @@ Periods: development 486 origins (2024-02-01..2025-05-31), confirmation 336 orig
 The best regression beats the best baseline by 14.2 % (MAE difference −135.1, 95 % HAC
 interval −266.4 to −3.8; DM p 0.044 HLN, 0.018 Bartlett; conservative p 0.044; HAC
 effective sample size 27). Both conditions of the rule hold, so `atlas_linear_regression` is
-selected. This development p-value is optimistic: the selection was made on the same data.
-The record was sealed (`development/selection.json`, commit `10343e2`) before any
-confirmation-period forecast existed.
+selected. This development p-value is optimistic, because the selection was made on the
+same data; it does not depend on the HAC bandwidth (p 0.002-0.044 across the
+bandwidths of section 6.2). The record was
+sealed (`development/selection.json`, commit `10343e2`) before any confirmation-period run
+of the protocol; the confirmation-period computations made earlier, during design review
+and by the test suite, are listed in section 9.
 
 ### 6.2 Confirmation: recommendation and primary tests
 
-| test | comparison | forecasts | MAE difference [95 % HAC CI] | improvement | DM p (HLN) | DM p (Bartlett 2h) | Holm p (conservative) | eff. n |
+| test | comparison | forecasts | MAE difference [95 % CI] | improvement | DM p (HLN) | DM p (Bartlett 2h) | Holm p (conservative) | eff. n |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | H1 | ATLAS regression vs same-weekday median 5w (B*) | 10,080 | -127.3 [-256.4, 1.9] | 11.4 % | 0.054 | 0.047 | 0.054 | 13.8 |
 | H2 | ATLAS regression vs seasonal naive (SN) | 10,080 | -386.6 [-645.0, -128.2] | 28.2 % | 0.003 | 0.003 | 0.007 | 21.2 |
@@ -294,7 +333,41 @@ confirmation-period forecast existed.
 The selected regression's confirmation MAE (984.9) is below B\*'s (1,112.2), so the
 pre-registered rule keeps it: **recommended model `atlas_linear_regression`**. H2 is
 significant after Holm adjustment; H1 is not (0.054). Re-running the development period in
-the reference run reproduced the sealed selection exactly.
+the reference run reproduced the sealed selection in every decision field.
+
+**Bandwidth sensitivity (post hoc, added after the independent review).** The primary
+variance truncates at lag `h − 1`, which assumes losses on different target days are
+uncorrelated. The H1 loss differential stays autocorrelated far beyond lag 29 (its sign
+follows month-long regimes, section 6.11), so the primary interval is at the optimistic
+end. The same statistics under five bandwidths, the primary one first (HLN factor and
+`t(T − 1)` throughout):
+
+| test | period | comparison | HAC kernel, bandwidth | p | CI half-width | eff. n |
+|---|---:|---:|---:|---:|---:|---:|
+| selection | development | ATLAS regression vs same-weekday median 5w (B*) | rectangular 29 | 0.044 | 131.3 | 19.6 |
+| selection | development | ATLAS regression vs same-weekday median 5w (B*) | rectangular 59 | 0.002 | 85.5 | 46.2 |
+| selection | development | ATLAS regression vs same-weekday median 5w (B*) | bartlett 60 | 0.018 | 111.4 | 27.2 |
+| selection | development | ATLAS regression vs same-weekday median 5w (B*) | bartlett 90 | 0.006 | 96.7 | 36.1 |
+| selection | development | ATLAS regression vs same-weekday median 5w (B*) | bartlett 120 | 0.002 | 86.1 | 45.6 |
+| H1 | confirmation | ATLAS regression vs same-weekday median 5w (B*) | rectangular 29 | 0.054 | 129.2 | 13.0 |
+| H1 | confirmation | ATLAS regression vs same-weekday median 5w (B*) | rectangular 59 | 0.096 | 150.1 | 9.6 |
+| H1 | confirmation | ATLAS regression vs same-weekday median 5w (B*) | bartlett 60 | 0.047 | 125.3 | 13.8 |
+| H1 | confirmation | ATLAS regression vs same-weekday median 5w (B*) | bartlett 90 | 0.071 | 138.1 | 11.4 |
+| H1 | confirmation | ATLAS regression vs same-weekday median 5w (B*) | bartlett 120 | 0.091 | 147.8 | 9.9 |
+| H2 | confirmation | ATLAS regression vs seasonal naive (SN) | rectangular 29 | 0.003 | 258.4 | 20.8 |
+| H2 | confirmation | ATLAS regression vs seasonal naive (SN) | rectangular 59 | 0.018 | 319.1 | 13.6 |
+| H2 | confirmation | ATLAS regression vs seasonal naive (SN) | bartlett 60 | 0.003 | 255.9 | 21.2 |
+| H2 | confirmation | ATLAS regression vs seasonal naive (SN) | bartlett 90 | 0.007 | 282.0 | 17.4 |
+| H2 | confirmation | ATLAS regression vs seasonal naive (SN) | bartlett 120 | 0.010 | 293.6 | 16.1 |
+
+For H1 the p-value ranges from 0.047 to 0.096. Only the Bartlett `2h`
+estimate, the pre-registered sensitivity, falls below 0.05, and the pre-registered
+conservative rule already takes the larger of it and the primary p-value
+(0.054); every wider bandwidth gives a larger p-value. H2 stays significant
+(p at most 0.018, below 0.025 before and so below 0.05 after Holm adjustment).
+The development selection test becomes more, not less, significant under wider bandwidths
+(0.002-0.044). These numbers decide nothing; the selection and the recommendation use
+the pre-registered test.
 
 ### 6.3 Accuracy by horizon bucket (MAE, requests per day)
 
@@ -328,22 +401,22 @@ Confirmation:
 
 | model | bucket | origins | forecasts | MAE | RMSE | bias [95 % CI] | WAPE % | MASE | MAPE % |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| seasonal naive (SN) | day 1 | 336 | 336 | 1,225.7 | 2,001.7 | -6.9 [-222.0, 208.2] | 11.54 | 1.268 | 11.16 |
+| seasonal naive (SN) | day 1 | 336 | 336 | 1,225.7 | 2,001.7 | -6.9 [-316.3, 302.5] | 11.54 | 1.268 | 11.16 |
 | seasonal naive (SN) | days 2-7 | 336 | 2,016 | 1,205.4 | 1,983.3 | -22.5 [-375.8, 330.7] | 11.34 | 1.250 | 10.96 |
 | seasonal naive (SN) | days 8-14 | 336 | 2,352 | 1,354.8 | 2,126.2 | -47.3 [-536.0, 441.3] | 12.72 | 1.413 | 12.45 |
-| seasonal naive (SN) | days 15-30 | 336 | 5,376 | 1,450.3 | 2,192.5 | -74.2 [-441.8, 293.4] | 13.58 | 1.511 | 13.23 |
-| seasonal naive (SN) | days 1-30 | 336 | 10,080 | 1,371.5 | 2,130.4 | -55.4 [-334.8, 224.1] | 12.86 | 1.428 | 12.53 |
-| same-weekday median 5w (B*) | day 1 | 336 | 336 | 1,060.6 | 1,715.0 | -174.8 [-358.1, 8.6] | 9.99 | 1.099 | 9.58 |
+| seasonal naive (SN) | days 15-30 | 336 | 5,376 | 1,450.3 | 2,192.5 | -74.2 [-507.0, 358.6] | 13.58 | 1.511 | 13.23 |
+| seasonal naive (SN) | days 1-30 | 336 | 10,080 | 1,371.5 | 2,130.4 | -55.4 [-379.3, 268.6] | 12.86 | 1.428 | 12.53 |
+| same-weekday median 5w (B*) | day 1 | 336 | 336 | 1,060.6 | 1,715.0 | -174.8 [-449.3, 99.8] | 9.99 | 1.099 | 9.58 |
 | same-weekday median 5w (B*) | days 2-7 | 336 | 2,016 | 1,063.9 | 1,716.3 | -178.2 [-622.6, 266.1] | 10.01 | 1.106 | 9.61 |
 | same-weekday median 5w (B*) | days 8-14 | 336 | 2,352 | 1,117.8 | 1,746.6 | -204.8 [-764.3, 354.7] | 10.49 | 1.165 | 10.06 |
 | same-weekday median 5w (B*) | days 15-30 | 336 | 5,376 | 1,131.0 | 1,725.1 | -232.3 [-815.0, 350.4] | 10.59 | 1.179 | 10.12 |
 | same-weekday median 5w (B*) | days 1-30 | 336 | 10,080 | 1,112.2 | 1,728.0 | -213.2 [-712.8, 286.4] | 10.43 | 1.158 | 9.99 |
-| legacy regression | day 1 | 336 | 336 | 724.5 | 1,177.4 | -80.3 [-206.6, 45.9] | 6.82 | 0.754 | 6.55 |
+| legacy regression | day 1 | 336 | 336 | 724.5 | 1,177.4 | -80.3 [-221.8, 61.2] | 6.82 | 0.754 | 6.55 |
 | legacy regression | days 2-7 | 336 | 2,016 | 970.7 | 1,579.9 | -188.6 [-552.8, 175.5] | 9.13 | 1.010 | 8.69 |
 | legacy regression | days 8-14 | 336 | 2,352 | 1,052.3 | 1,694.9 | -289.7 [-846.9, 267.4] | 9.88 | 1.099 | 9.36 |
 | legacy regression | days 15-30 | 336 | 5,376 | 1,094.1 | 1,727.4 | -349.8 [-1,024.5, 324.9] | 10.24 | 1.144 | 9.69 |
 | legacy regression | days 1-30 | 336 | 10,080 | 1,047.3 | 1,675.5 | -294.5 [-885.1, 296.0] | 9.82 | 1.093 | 9.31 |
-| ATLAS regression | day 1 | 336 | 336 | 694.6 | 1,145.6 | -74.5 [-197.3, 48.4] | 6.54 | 0.724 | 6.23 |
+| ATLAS regression | day 1 | 336 | 336 | 694.6 | 1,145.6 | -74.5 [-209.0, 60.1] | 6.54 | 0.724 | 6.23 |
 | ATLAS regression | days 2-7 | 336 | 2,016 | 929.8 | 1,544.4 | -177.8 [-542.4, 186.8] | 8.75 | 0.969 | 8.26 |
 | ATLAS regression | days 8-14 | 336 | 2,352 | 984.0 | 1,626.4 | -253.1 [-779.1, 272.9] | 9.23 | 1.029 | 8.69 |
 | ATLAS regression | days 15-30 | 336 | 5,376 | 1,024.2 | 1,657.4 | -297.8 [-934.8, 339.2] | 9.59 | 1.073 | 9.03 |
@@ -358,75 +431,78 @@ above 1 do not mean "worse than seasonal naive" (see the improvement columns ins
 
 ### 6.5 Against seasonal naive and against B\* (confirmation, common forecasts)
 
-| model | bucket | common forecasts | MAE improvement | MAE difference [95 % HAC CI] | DM p | eff. n |
+| model | bucket | common forecasts | MAE improvement | MAE difference [95 % CI] | DM p | eff. n |
 |---|---:|---:|---:|---:|---:|---:|
-| naive | day 1 | 336 | 20.9 % | -256.0 [-420.4, -91.6] | 0.011 | 232.0 |
+| naive | day 1 | 336 | 20.9 % | -256.0 [-453.9, -58.1] | 0.011 | 232.0 |
 | naive | days 2-7 | 2,016 | -12.1 % | 146.1 [29.3, 262.9] | 0.014 | 270.5 |
-| naive | days 8-14 | 2,352 | -11.6 % | 157.3 [31.2, 283.4] | 0.016 | 242.2 |
+| naive | days 8-14 | 2,352 | -11.6 % | 157.3 [29.6, 285.0] | 0.016 | 242.2 |
 | naive | days 15-30 | 5,376 | -12.2 % | 176.7 [62.9, 290.6] | 0.002 | 336.0 |
 | naive | days 1-30 | 10,080 | -11.1 % | 151.7 [37.7, 265.6] | 0.009 | 336.0 |
-| same-weekday mean 4w | day 1 | 336 | 10.1 % | -123.9 [-248.3, 0.4] | 0.127 | 204.7 |
+| same-weekday mean 4w | day 1 | 336 | 10.1 % | -123.9 [-283.2, 35.3] | 0.127 | 204.7 |
 | same-weekday mean 4w | days 2-7 | 2,016 | 8.8 % | -105.6 [-242.1, 30.9] | 0.129 | 87.5 |
 | same-weekday mean 4w | days 8-14 | 2,352 | 14.3 % | -193.6 [-349.9, -37.4] | 0.015 | 78.6 |
-| same-weekday mean 4w | days 15-30 | 5,376 | 17.4 % | -251.8 [-464.5, -39.1] | 0.021 | 33.7 |
-| same-weekday mean 4w | days 1-30 | 10,080 | 14.9 % | -204.7 [-346.1, -63.4] | 0.005 | 57.0 |
-| same-weekday median 5w (B*) | day 1 | 336 | 13.5 % | -165.1 [-294.1, -36.0] | 0.039 | 226.7 |
+| same-weekday mean 4w | days 15-30 | 5,376 | 17.4 % | -251.8 [-465.5, -38.1] | 0.021 | 33.7 |
+| same-weekday mean 4w | days 1-30 | 10,080 | 14.9 % | -204.7 [-348.5, -61.0] | 0.005 | 57.0 |
+| same-weekday median 5w (B*) | day 1 | 336 | 13.5 % | -165.1 [-322.1, -8.0] | 0.039 | 226.7 |
 | same-weekday median 5w (B*) | days 2-7 | 2,016 | 11.7 % | -141.4 [-265.1, -17.7] | 0.025 | 83.4 |
-| same-weekday median 5w (B*) | days 8-14 | 2,352 | 17.5 % | -237.1 [-401.7, -72.5] | 0.005 | 65.4 |
+| same-weekday median 5w (B*) | days 8-14 | 2,352 | 17.5 % | -237.1 [-403.7, -70.4] | 0.005 | 65.4 |
 | same-weekday median 5w (B*) | days 15-30 | 5,376 | 22.0 % | -319.2 [-582.0, -56.5] | 0.017 | 23.1 |
 | same-weekday median 5w (B*) | days 1-30 | 10,080 | 18.9 % | -259.4 [-444.7, -74.0] | 0.006 | 34.0 |
-| exp. smoothing | day 1 | 336 | 32.2 % | -394.2 [-529.1, -259.3] | <0.001 | 206.3 |
+| exp. smoothing | day 1 | 336 | 32.2 % | -394.2 [-566.4, -222.0] | <0.001 | 206.3 |
 | exp. smoothing | days 2-7 | 2,016 | 10.1 % | -121.9 [-195.9, -47.9] | 0.001 | 176.5 |
-| exp. smoothing | days 8-14 | 2,352 | 7.2 % | -97.9 [-156.1, -39.7] | 0.006 | 217.2 |
+| exp. smoothing | days 8-14 | 2,352 | 7.2 % | -97.9 [-167.7, -28.1] | 0.006 | 217.2 |
 | exp. smoothing | days 15-30 | 5,376 | 4.1 % | -58.9 [-118.3, 0.5] | 0.052 | 336.0 |
 | exp. smoothing | days 1-30 | 10,080 | 6.7 % | -91.8 [-147.0, -36.6] | 0.001 | 336.0 |
-| legacy regression | day 1 | 336 | 40.9 % | -501.2 [-638.3, -364.0] | <0.001 | 201.2 |
+| legacy regression | day 1 | 336 | 40.9 % | -501.2 [-678.4, -323.9] | <0.001 | 201.2 |
 | legacy regression | days 2-7 | 2,016 | 19.5 % | -234.7 [-367.0, -102.4] | <0.001 | 96.8 |
-| legacy regression | days 8-14 | 2,352 | 22.3 % | -302.5 [-483.1, -122.0] | 0.002 | 63.9 |
+| legacy regression | days 8-14 | 2,352 | 22.3 % | -302.5 [-493.2, -111.9] | 0.002 | 63.9 |
 | legacy regression | days 15-30 | 5,376 | 24.6 % | -356.2 [-580.7, -131.7] | 0.002 | 28.1 |
-| legacy regression | days 1-30 | 10,080 | 23.6 % | -324.2 [-524.2, -124.2] | 0.002 | 27.3 |
-| ATLAS regression | day 1 | 336 | 43.3 % | -531.1 [-669.7, -392.5] | <0.001 | 200.6 |
-| ATLAS regression | days 2-7 | 2,016 | 22.9 % | -275.6 [-411.1, -140.1] | <0.001 | 88.3 |
-| ATLAS regression | days 8-14 | 2,352 | 27.4 % | -370.9 [-576.1, -165.6] | <0.001 | 44.9 |
-| ATLAS regression | days 15-30 | 5,376 | 29.4 % | -426.1 [-703.6, -148.5] | 0.003 | 22.5 |
+| legacy regression | days 1-30 | 10,080 | 23.6 % | -324.2 [-529.8, -118.6] | 0.002 | 27.3 |
+| ATLAS regression | day 1 | 336 | 43.3 % | -531.1 [-710.5, -351.7] | <0.001 | 200.6 |
+| ATLAS regression | days 2-7 | 2,016 | 22.9 % | -275.6 [-411.3, -140.0] | <0.001 | 88.3 |
+| ATLAS regression | days 8-14 | 2,352 | 27.4 % | -370.9 [-583.9, -157.9] | <0.001 | 44.9 |
+| ATLAS regression | days 15-30 | 5,376 | 29.4 % | -426.1 [-706.4, -145.8] | 0.003 | 22.5 |
 | ATLAS regression | days 1-30 | 10,080 | 28.2 % | -386.6 [-645.0, -128.2] | 0.003 | 21.2 |
 
-| model | bucket | common forecasts | MAE improvement | MAE difference [95 % HAC CI] | DM p | eff. n |
+| model | bucket | common forecasts | MAE improvement | MAE difference [95 % CI] | DM p | eff. n |
 |---|---:|---:|---:|---:|---:|---:|
-| naive | day 1 | 336 | 8.6 % | -90.9 [-231.6, 49.8] | 0.303 | 221.1 |
+| naive | day 1 | 336 | 8.6 % | -90.9 [-264.4, 82.5] | 0.303 | 221.1 |
 | naive | days 2-7 | 2,016 | -27.0 % | 287.6 [104.4, 470.7] | 0.002 | 138.5 |
-| naive | days 8-14 | 2,352 | -35.3 % | 394.4 [222.8, 565.9] | <0.001 | 142.2 |
+| naive | days 8-14 | 2,352 | -35.3 % | 394.4 [218.4, 570.3] | <0.001 | 142.2 |
 | naive | days 15-30 | 5,376 | -43.9 % | 496.0 [182.5, 809.4] | 0.002 | 57.5 |
 | naive | days 1-30 | 10,080 | -37.0 % | 411.0 [197.2, 624.9] | <0.001 | 101.1 |
-| seasonal naive (SN) | day 1 | 336 | -15.6 % | 165.1 [36.0, 294.1] | 0.039 | 226.7 |
+| seasonal naive (SN) | day 1 | 336 | -15.6 % | 165.1 [8.0, 322.1] | 0.039 | 226.7 |
 | seasonal naive (SN) | days 2-7 | 2,016 | -13.3 % | 141.4 [17.7, 265.1] | 0.025 | 83.4 |
-| seasonal naive (SN) | days 8-14 | 2,352 | -21.2 % | 237.1 [72.5, 401.7] | 0.005 | 65.4 |
+| seasonal naive (SN) | days 8-14 | 2,352 | -21.2 % | 237.1 [70.4, 403.7] | 0.005 | 65.4 |
 | seasonal naive (SN) | days 15-30 | 5,376 | -28.2 % | 319.2 [56.5, 582.0] | 0.017 | 23.1 |
 | seasonal naive (SN) | days 1-30 | 10,080 | -23.3 % | 259.4 [74.0, 444.7] | 0.006 | 34.0 |
-| same-weekday mean 4w | day 1 | 336 | -3.9 % | 41.1 [-14.4, 96.6] | 0.222 | 237.3 |
+| same-weekday mean 4w | day 1 | 336 | -3.9 % | 41.1 [-24.9, 107.2] | 0.222 | 237.3 |
 | same-weekday mean 4w | days 2-7 | 2,016 | -3.4 % | 35.8 [-49.7, 121.3] | 0.411 | 57.8 |
-| same-weekday mean 4w | days 8-14 | 2,352 | -3.9 % | 43.4 [-4.4, 91.3] | 0.148 | 76.2 |
-| same-weekday mean 4w | days 15-30 | 5,376 | -6.0 % | 67.4 [-0.7, 135.5] | 0.076 | 29.6 |
-| same-weekday mean 4w | days 1-30 | 10,080 | -4.9 % | 54.6 [2.8, 106.5] | 0.070 | 39.4 |
-| exp. smoothing | day 1 | 336 | 21.6 % | -229.1 [-340.7, -117.5] | 0.004 | 173.8 |
+| same-weekday mean 4w | days 8-14 | 2,352 | -3.9 % | 43.4 [-15.5, 102.4] | 0.148 | 76.2 |
+| same-weekday mean 4w | days 15-30 | 5,376 | -6.0 % | 67.4 [-7.0, 141.9] | 0.076 | 29.6 |
+| same-weekday mean 4w | days 1-30 | 10,080 | -4.9 % | 54.6 [-4.4, 113.7] | 0.070 | 39.4 |
+| exp. smoothing | day 1 | 336 | 21.6 % | -229.1 [-384.3, -73.9] | 0.004 | 173.8 |
 | exp. smoothing | days 2-7 | 2,016 | -1.8 % | 19.5 [-126.8, 165.8] | 0.793 | 100.8 |
-| exp. smoothing | days 8-14 | 2,352 | -12.4 % | 139.2 [-4.6, 282.9] | 0.067 | 82.7 |
+| exp. smoothing | days 8-14 | 2,352 | -12.4 % | 139.2 [-9.9, 288.2] | 0.067 | 82.7 |
 | exp. smoothing | days 15-30 | 5,376 | -23.0 % | 260.3 [-12.3, 533.0] | 0.061 | 33.1 |
 | exp. smoothing | days 1-30 | 10,080 | -15.1 % | 167.6 [-4.3, 339.5] | 0.056 | 55.6 |
-| legacy regression | day 1 | 336 | 31.7 % | -336.1 [-439.5, -232.7] | <0.001 | 168.9 |
+| legacy regression | day 1 | 336 | 31.7 % | -336.1 [-481.9, -190.3] | <0.001 | 168.9 |
 | legacy regression | days 2-7 | 2,016 | 8.8 % | -93.2 [-225.3, 38.8] | 0.166 | 68.7 |
 | legacy regression | days 8-14 | 2,352 | 5.9 % | -65.5 [-184.0, 53.1] | 0.278 | 50.9 |
 | legacy regression | days 15-30 | 5,376 | 3.3 % | -37.0 [-202.7, 128.7] | 0.661 | 22.8 |
 | legacy regression | days 1-30 | 10,080 | 5.8 % | -64.9 [-177.0, 47.3] | 0.256 | 21.4 |
-| ATLAS regression | day 1 | 336 | 34.5 % | -366.0 [-472.5, -259.6] | <0.001 | 174.3 |
+| ATLAS regression | day 1 | 336 | 34.5 % | -366.0 [-513.8, -218.2] | <0.001 | 174.3 |
 | ATLAS regression | days 2-7 | 2,016 | 12.6 % | -134.2 [-249.8, -18.6] | 0.023 | 63.1 |
-| ATLAS regression | days 8-14 | 2,352 | 12.0 % | -133.8 [-241.2, -26.5] | 0.017 | 33.4 |
+| ATLAS regression | days 8-14 | 2,352 | 12.0 % | -133.8 [-243.5, -24.2] | 0.017 | 33.4 |
 | ATLAS regression | days 15-30 | 5,376 | 9.4 % | -106.9 [-242.9, 29.2] | 0.123 | 20.4 |
 | ATLAS regression | days 1-30 | 10,080 | 11.4 % | -127.3 [-256.4, 1.9] | 0.054 | 13.8 |
 
 These p-values are exploratory and unadjusted, except for the two primary tests above.
-`eff. n` is the HAC effective sample size: how many independent observations the
-dependent per-origin differences are worth.
+The interval uses the larger of the two HAC standard errors, so it excludes zero exactly
+when the p-value is below 0.05. `eff. n` is the HAC effective sample size (Bartlett
+bandwidth `2h`, capped at the number of origins): how many independent observations the
+dependent per-origin differences are worth. Wider bandwidths give smaller values (section
+6.2).
 
 ### 6.6 Accuracy by horizon (MAE)
 
@@ -486,7 +562,8 @@ the same forecasts:
 
 The modernised regression is not worse than any baseline in any bucket of either period.
 The faithful legacy regression is worse than three baselines in every development bucket
-beyond day 1, and better than all of them in the confirmation period.
+beyond day 1 (no deficit significant: conservative p 0.064-0.601), and
+better than all of them in the confirmation period.
 
 ### 6.8 The legacy 4.93 % in context: the same 90 target days
 
@@ -549,10 +626,20 @@ days.
 | confirmation | ATLAS regression | 14 | 996.9 | 691.5 | 8.80 | 6.16 |
 | confirmation | ATLAS regression | 30 | 1,033.1 | 709.7 | 9.11 | 6.31 |
 
-At horizon 1 the two coincide (the engine asserts this at every origin). At longer
-horizons the observed-input error stays close to the horizon-1 error, while the recursive
-error grows: the error that matters for a 30-day plan comes from feeding predictions back,
-which the legacy evaluation never measured.
+At horizon 1 the two coincide (the engine asserts this at every origin). Share of the
+growth from day 1 to day 30 that comes from recursion, `1 − (obs₃₀ − obs₁) / (rec₃₀ − rec₁)`:
+
+| model | development | confirmation |
+|---|---:|---:|
+| legacy regression | 43 % (observed-input MAE 736.0 → 926.2) | 93 % (724.5 → 748.9) |
+| ATLAS regression | 67 % (663.9 → 720.2) | 96 % (694.6 → 709.7) |
+
+In the confirmation period the observed-input error stays close to the horizon-1 error
+and nearly all of the growth comes from feeding predictions back, which the legacy
+evaluation never measured. In the development period the observed-input error grows too,
+most for the legacy model (26 %): the coefficients are `h − 1` days
+old at horizon `h`, and its leap-day artefact (section 6.11) affects whole windows of
+targets. Recursion is then responsible for only part of the growth.
 
 ### 6.10 Sensitivity analyses (pre-registered)
 
@@ -581,9 +668,12 @@ which the legacy evaluation never measured.
 
 `n/a` p-values: the test is not computed when an exclusion leaves gaps in the origin grid or
 incomplete horizon buckets. In every analysis the modernised regression stays ahead of B\*
-(10-26 %), and its advantage is largest on holiday-related days, the only information it
-has that the baselines lack. The faithful legacy model stays behind B\* in development in
-every analysis, including after removing the origins affected by its leap-day artefact.
+(10-26 %), and its advantage is largest on holiday-related days. Holidays are not
+the only information it has that the baselines lack: its annual Fourier terms and trend
+have no counterpart in any baseline either. The faithful legacy model stays behind B\* in
+development in every analysis (−12.1 to −8.7 %), including after removing the origins
+affected by its leap-day artefact, except on holiday-related targets, where it is
++2.2 % ahead (no test computed).
 
 One-day reporting delay (development period; forecasts issued at `o` see data through
 `o − 1`):
@@ -599,8 +689,13 @@ One-day reporting delay (development period; forecasts issued at `o` see data th
 | ATLAS regression | 663.9 | 776.1 | 817.9 | 823.0 |
 
 The delay costs the models that rely on the latest days (naive, exponential smoothing, both
-regressions) about 110-330 requests per day at horizon 1; the weekly baselines are
-unaffected. Over horizons 1-30 the ranking does not change.
+regressions) about 110-330 requests per day at horizon 1; the weekly baselines
+are unaffected. Over horizons 1-30 the best regression, B\* and the selection do not
+change; lower down, the ranking changes (exp. smoothing 3 → 4; same-weekday mean 4w 4 → 3). The
+delay configuration's description says it "never selects or recommends"; because it
+carries the same selection block, its development run does write a `selection.json`. That
+file only documents the ranking under delay: it cannot seal any other run, whose
+configuration fingerprint differs.
 
 ### 6.11 Legacy diagnostics and accuracy by origin month
 
@@ -611,12 +706,12 @@ unaffected. Over horizons 1-30 the ranking does not change.
 | legacy regression | confirmation | 29-29 of 32 | 336 | 4,612.5 / 5,276.4 | 0.1408 | 0 | 0 | 612.5 |
 | legacy regression | development | 28-29 of 32 | 486 | 40.4 / 19,722.9 | 1.0000 | 465 | 69 | 554.3 |
 
-| period | model | forecasts | MAE | non-estimable | high leverage | kept | MAE kept |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| confirmation | ATLAS regression | 10,080 | 984.9 | 0 | 0 | 10,080 | 984.9 |
-| confirmation | legacy regression | 10,080 | 1,047.3 | 0 | 0 | 10,080 | 1,047.3 |
-| development | ATLAS regression | 14,580 | 817.9 | 0 | 0 | 14,580 | 817.9 |
-| development | legacy regression | 14,580 | 1,041.9 | 465 | 69 | 14,046 | 986.2 |
+| period | model | forecasts | MAE | non-estimable | high leverage | kept | MAE kept | B* on kept | removed | MAE removed | B* on removed |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| confirmation | ATLAS regression | 10,080 | 984.9 | 0 | 0 | 10,080 | 984.9 | 1,112.2 | 0 | n/a | n/a |
+| confirmation | legacy regression | 10,080 | 1,047.3 | 0 | 0 | 10,080 | 1,047.3 | 1,112.2 | 0 | n/a | n/a |
+| development | ATLAS regression | 14,580 | 817.9 | 0 | 0 | 14,580 | 817.9 | 953.0 | 0 | n/a | n/a |
+| development | legacy regression | 14,580 | 1,041.9 | 465 | 69 | 14,046 | 986.2 | 895.2 | 534 | 2,509.5 | 2,472.6 |
 
 | period | origin month | B* MAE | B* bias | legacy MAE | legacy bias | ATLAS MAE | ATLAS bias | ATLAS vs B* |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -654,18 +749,31 @@ unaffected. Over horizons 1-30 the ranking does not change.
   2025 dates from December 2024 origins are **not estimable**. From 2025-01-01 the same
   expression becomes a step that is estimated from the first few 2025 days (training
   leverage up to 1.0000; restricted condition number up to 19,723). The legacy forecasts
-  then over-predict for months: its mean bias is +1,715 for January 2025 origins, +1,294
-  for February and +903 for March, while the modernised regression's stays small.
+  then over-predict for months: its mean bias is +1,715 for January 2025 origins,
+  +1,294 for February and +903 for March. The modernised
+  regression's is −39 and +192 in January and February, but
+  +439 in March 2025 (B\*: +96), which is why it loses that
+  month.
 - Removing the non-estimable and high-leverage forecasts lowers the legacy development MAE
-  from 1,041.9 to 986.2. That is still worse than B\* (953.0).
+  from 1,041.9 to 986.2, but B\* on exactly the same 14,046
+  forecasts scores 895.2: the legacy model is still 10.2 % worse
+  (9.3 % on all forecasts). The 534 removed forecasts are hard
+  for every model (legacy 2,509.5, B\* 2,472.6), so these diagnostics
+  do not explain the legacy model's development deficit. February and March 2025 origins
+  contribute 41 % and 32 % of it; no diagnostic removes
+  them.
 - December and January origins are the hardest for every model (Christmas, New Year and
   winter surges inside the horizon).
-- The modernised regression is worse than B\* for origins in 6 of 28 months:
-  - 2024-08, 2024-12 and 2025-03 (development);
-  - 2025-06..08 (confirmation), by 22-40 % in calm, low-error months.
+- The modernised regression is worse than B\* for origins in 6 of
+  28 months:
+  - 2024-08, 2024-12, 2025-03 (development), including the December 2024 year-end
+    (2,166.4 against 2,075.9);
+  - 2025-06, 2025-07, 2025-08 (confirmation), by 22-40 % in calm, low-error months
+    (2025-06 holds a single origin).
 
-  Its overall lead comes from large gains in the difficult months (for example 2025-01:
-  1,107 against 1,986). It is not uniformly better.
+  Its overall lead is the sum of many months, not of the hardest ones alone: December and
+  January origins give 40 % of the confirmation lead; spring 2026 gives
+  60 %. It is not uniformly better.
 
 ## 7. Leakage prevention
 
@@ -678,7 +786,7 @@ Barriers, each independently sufficient for its kind of leak:
 | Actuals attached last | `_attach_actuals` after every forecast exists | spy model sees only data through the cutoff; positive controls change exactly the expected horizons |
 | Only `ForecastError` is recorded | leakage and other bugs stop the run instead of becoming "failed" rows | tests with leaky, raising and contract-breaking models |
 | No cached slicing across origins | training rows built per origin from the truncated series | shock test: wild changes after the origin leave the recursive path bit-identical |
-| Pre-registration | config and selection rule committed (`a16672f`) before any run; selection sealed (`10343e2`) before any confirmation forecast | git history; `selection_differs_from_seal` check |
+| Pre-registration | config and selection rule committed (`a16672f`) before any run; selection sealed (`10343e2`) before any confirmation run of the protocol | git history; period rules checked for the whole configuration; any run beyond the development period must re-run it and reproduce the seal in every decision field (`selection_differs_from_seal`); incomplete runs write no recommendation |
 
 Recursive feedback is proven by:
 - a counterfactual-parity test (each step's feature row equals the row built from the actual
@@ -687,8 +795,8 @@ Recursive feedback is proven by:
 - a plain-Python re-implementation of notebook cell 16 that must equal the legacy forecast;
 - the 30/30 published-forecast reproduction, which fails if unrounded values are fed back.
 
-The test files are `tests/test_m2_*.py`. Each was checked against planted bugs (mutation
-testing; see the PR description).
+The test files are `tests/test_m2_*.py`. They were checked against planted bugs (mutation
+testing, before and after the independent review; see the PR description).
 
 ## 8. Reproducing the results
 
@@ -700,19 +808,26 @@ uv run atlas backtest run --require-clean \
     --period development --period confirmation --period legacy_window \
     --sealed-selection docs/results/atlas-m2-rolling-origin-v1/development/selection.json \
     --output-dir runs/v1-full
-uv run atlas backtest verify runs/v1-full       # re-run; every result file must be identical
+uv run atlas backtest verify runs/v1-full       # re-run; every file must be identical
 uv run atlas backtest run --require-clean \
     --config configs/backtest/atlas-m2-rolling-origin-v1-delay1.json --output-dir runs/v1-delay1
 uv run atlas forecast --recommendation runs/v1-full/recommendation.json
 ```
+
+`verify` recomputes everything from the snapshot with the current code, including the
+data-quality flags, and compares every regenerated file (result files, `report.md`,
+`config.json`). The sealed development run in `docs/results/.../development/` was produced
+with the code of commit `a16672f`; the reporting code has changed since (section 9), so it
+verifies byte for byte at that commit (`git worktree add <dir> a16672f`), while the
+reference run reproduces its forecasts and its selection with the current code.
 
 | Item | Value |
 |---|---|
 | Protocol configuration | `configs/backtest/atlas-m2-rolling-origin-v1.json`, fingerprint `78da64e8…1753` |
 | Data | `legacy-v0` `daily_total` (SHA-256 `16a338f4…d65c`), data fingerprint `5ab8b3a5…3a4d` |
 | Development result fingerprint | `fbb948ec6804f123f2c068d8f8abeac9383d0ca643f5ef086eb9fbe853dcea43` (code commit `a16672f`) |
-| Reference (full) result fingerprint | `b9f2fb4645a8727415e130a7b1df47f1565218659c4b62d9d4ba80d6a8721153` (code commit `10343e2`) |
-| Delay sensitivity result fingerprint | `87d65528865488a5e990f4e9e86d3a3a0ed39ba877909e5bddd156626d2ae8c6` |
+| Reference (full) result fingerprint | `d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a` (code commit `28708bd`) |
+| Delay sensitivity result fingerprint | `79d4f7962d2ed022a1b8081028efa84e9a176cd91aa2f9a28c35379f79b7f22d` |
 | Run time | about 3 minutes for the development period, 6 for the full protocol (one core) |
 
 Each manifest records the configuration, data and code fingerprints, git commit and
@@ -728,23 +843,54 @@ no raw prediction lies within 0.0015 of a rounding boundary.
 ## 9. Exposure log
 
 What was computed, on which period, before the protocol was frozen (commit `a16672f`).
-Reviewer figures are never quoted as results.
+Reviewer figures are never quoted as results; the confirmation levels below are quoted only
+to document what was seen (they equal the engine's, section 6.3).
 
 | When | Who | What | Period |
 |---|---|---|---|
 | Prototype | implementer | Legacy reproduction of the published holdout (2026-04-02..06-30) and July 2026 forecast | legacy window (published numbers) |
 | Prototype | implementer | 30-day MAE of six models at five single origins (2024-02-01, 2024-12-15, 2025-01-03, 2025-05-31, **2026-05-31**) | four development, **one confirmation** origin |
 | Prototype | implementer | Smoke runs on 2024-02..03 origins; timing run on 2024-03-01..20 | development |
-| Design review | statistics reviewer | Development-period errors of the baselines; error series of baselines in confirmation for dependence checks (levels withheld) | development; confirmation (dependence only) |
-| Design review | leakage reviewer | Independent legacy refits at December 2024 to May 2025 origins | development |
+| Design review | statistics reviewer | Development-period errors of the baselines. **Confirmation-period MAE and RMSE of the four weekly baselines, B\* included** (naive 1,523.2, seasonal naive 1,371.5, mean 4w 1,166.8, median 5w 1,112.2), and confirmation-period DM statistics for baseline pairs under four HAC estimators (Bartlett without lags, rectangular to `h − 1`, Bartlett `2h` and `3h`), computed for a dependence check. The reviewer's report did not quote the levels, but they were computed and displayed in the session | development; **confirmation (baselines only)** |
+| Design review | leakage reviewer | Independent legacy refits at December 2024 to May 2025 origins, and the legacy model's 30-day MAE at **three confirmation origins** (2025-12-15, 2026-01-01, 2026-01-02) | development; three confirmation origins |
+| Freeze commit | test suite | A short copy of the protocol run at confirmation origins 2025-07-01..05 (all models, 1,050 forecasts, metrics and a recommendation computed, accuracy neither asserted nor printed when tests pass) and legacy-window origins 2026-06-20..29; seasonal naive on the 90 legacy holdout days | five confirmation origins; legacy window |
 | After freeze | protocol | Development run → sealed selection → full run, delay sensitivity, legacy refit, projection | as configured |
+| After review | protocol | Full run, delay sensitivity, legacy refit and projection regenerated with the amended reporting code (below) | as configured |
+
+The primary-test variance (HLN rectangular kernel to `h − 1`, a Bartlett `2h` sensitivity
+and the conservative p) replaced the originally designed Bartlett estimator after the
+statistics reviewer had computed confirmation-period DM statistics for baseline pairs under
+these estimators. The change was motivated by development-period arguments; it is listed
+here because it was made with that exposure. The conservative rule takes the larger of the
+two p-values, which works against significance.
 
 Changes made to model specifications before the freeze, and why:
 - the modernised regression dropped the actual-date holiday indicator (identifiability: two
   distinguishing training days), not because of accuracy;
 - exponential smoothing was added on reviewers' advice.
 
-No specification, rule or configuration changed after the freeze.
+No model specification, selection rule or configuration changed after the freeze.
+
+**Amendments after the independent review** (reporting and enforcement only):
+- the 95 % intervals use the larger of the two DM standard errors, so they agree with the
+  reported conservative p-value (before, some intervals excluded zero while the printed p
+  was above 0.05; the headline intervals are unchanged because the HLN error is the larger
+  one there);
+- the bandwidth sensitivity of section 6.2 and the paired B\* columns of the reliability
+  table were added; exponential-smoothing parameters are now written to `coefficients.csv`;
+- the period rules are checked for the whole configuration, every run beyond the
+  development period must re-run it and reproduce the seal in every decision field, an
+  incomplete run writes no `selection.json` or `recommendation.json`, and `atlas forecast`
+  accepts a recommendation only from its complete run;
+- `verify` recomputes the data-quality flags and compares every regenerated file;
+- several statements in this document were corrected (legacy MAPE ranges, the role of the
+  legacy diagnostics, the observed-input decomposition, the sources of the modernised
+  regression's lead, the delay ranking, this exposure log).
+
+The regenerated reference run reproduces the earlier one exactly where these changes do
+not reach: `forecasts.csv`, `fits.csv` and `observed_inputs.csv` are byte-identical
+(SHA-256 `forecasts.csv` `0e512044…`, `fits.csv` `5443998e…`, `observed_inputs.csv` `d20ee7ba…` in both runs), the recomputed selection equals the seal, and the recommendation is
+unchanged.
 
 ## 10. Limitations and failure cases
 
@@ -755,20 +901,24 @@ No specification, rule or configuration changed after the freeze.
 - **One final data vintage.** The 311 records were extracted once, after 2026-06-30; values
   for recent days may have been revised later. At each historical origin the models see
   final values, not what was known then. The one-day-delay sensitivity does not change the
-  ranking, but the size of revision effects is unknown.
+  best regression, B\* or the selection, but the size of revision effects is unknown.
 - **Small effective samples.** 336 confirmation origins with 30-day windows are worth about
-  14-34 independent observations for the main comparisons. For H1 an observed MAE
-  difference has to exceed about 129 requests per day (the half-width of its interval,
-  roughly 12 % of B\*'s MAE) to be significant at 5 %; smaller real differences cannot be
-  resolved with this history.
+  14-27 independent observations for the main comparisons (the two regressions
+  against seasonal naive and B\*, days 1-30) under the primary bandwidth, and fewer under
+  wider ones. For H1 an observed MAE difference has to exceed
+  about 129 requests per day (the half-width of its interval, roughly
+  12 % of B\*'s MAE) to be significant at 5 % (125-150 across the
+  bandwidths of section 6.2): the primary figures sit at the optimistic end of that range.
+  Smaller real differences cannot be resolved with this history.
 - **Not uniformly better.** The recommended regression loses to the same-weekday median in
-  6 of 28 origin months, including all of summer 2025 (section 6.11). Its average lead is
-  driven by the hard months: holidays, year-end and winter surges.
+  6 of 28 origin months, including the December 2024 year-end
+  and summer 2025 (section 6.11). Its confirmation lead comes about equally from winter and
+  spring 2026, not from a few hard months.
 - **Year-end and anomalies.** December and January origins are the weakest for every model.
   Days with intake interruptions or surges (M1 flags) are kept in the primary metrics;
   excluding them changes the size but not the direction of any comparison.
-- **Seasonality from one to three years of history.** Training data span 12 months at the
-  first development origin and 40 months at the last confirmation origin, so annual
+- **Seasonality from one to three years of history.** Training data span 13 months at the
+  first development origin and 41 months at the last confirmation origin, so annual
   effects are estimated from one to three cycles.
 - **Not covered.** Prediction intervals (M3), other series (agency, borough), any model
   needing new dependencies, and scoring the archived July 2026 forecast (no outcome data).
@@ -788,7 +938,8 @@ No specification, rule or configuration changed after the freeze.
 - **Calibration and evaluation need separate data.** The confirmation period cannot both
   calibrate and evaluate intervals. M3 needs a nested scheme (for example calibrate on
   development errors, evaluate on confirmation) fixed in advance, like M2's protocol.
-- **Error growth comes from recursion.** Interval width must grow with horizon, as the
-  recursive errors do (section 6.9); one-step residuals would under-cover.
+- **Error growth comes mostly from recursion.** Interval width must grow with horizon, as
+  the recursive errors do (section 6.9); one-step residuals would under-cover. In the
+  development period part of the growth also comes from the ageing of the coefficients.
 - **Known weak spots** for interval calibration: year-end, holidays, and the confirmation
   year's under-forecasting bias.

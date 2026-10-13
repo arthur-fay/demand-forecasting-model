@@ -1,6 +1,6 @@
 {
  "code": {
-  "code_sha256": "ebb30a06743c942af08a5979efae0d25e20e2c1e395c30f9cb32944767ac712f",
+  "code_sha256": "5f3ec3316f10743e50f5fb6f03fff950e0121bf7981d58e1bbaed6891724301a",
   "files": 33,
   "uv_lock_sha256": "96fa3fd14990c5317a8e6b8e11b3dc606a00a94876f8d22cdf67ae90a896ea86"
  },
@@ -236,13 +236,13 @@
  ],
  "git": {
   "available": true,
-  "commit": "10343e254a94ccfa5c0c6e9a598bcbbc7de4488f",
+  "commit": "28708bda22c35f8caefa4cb15f42c7ecaeb035e4",
   "dirty": false,
   "dirty_paths": 0
  },
  "informational_not_fingerprinted": {
-  "created_at_utc": "2026-10-13T16:50:44+00:00",
-  "runtime_seconds": 297.9
+  "created_at_utc": "2026-10-13T19:18:48+00:00",
+  "runtime_seconds": 294.6
  },
  "label": "HISTORICAL BACKTEST: rolling-origin re-forecasts of past days from a frozen data snapshot, refitted at every origin with data through that origin only and scored against the recorded actuals. Not prospective validation.",
  "models": [
@@ -424,14 +424,14 @@
   }
  ],
  "outputs": {
-  "coefficients.csv": "dbf0e9a466a76951ef510ffdaf69c6231065023526feb4524587e8804db92b9e",
+  "coefficients.csv": "bf06a6a8828fe5795b869eb2e3f90bdf96b6c4fc49cea3227db99f5b07166e5e",
   "config.json": "56730e2a6a62e063dc04d78aaedbf3d80f57a75b3695688fc9538e474c675bf2",
   "fits.csv": "5443998e2182deb9782bdadc0cbeb48c5e5923ac99d5ad3af95b0c3237099717",
   "forecasts.csv": "0e512044257fb716152618c64c88a10450f4d49dbe6fd59ed61b6538f71eeaba",
-  "metrics.json": "542bc24caec4ab0008727270979c018b1a16063da8151ac5ca8a6ca42e233574",
+  "metrics.json": "4fc9f5efe2e5edbaf7d7f4333e8c486daf53593bc94dd2608401774f33ebf86c",
   "observed_inputs.csv": "d20ee7bafc66e37a303a2d5c7f9f6c1cd28186304856571001dddb579634e151",
-  "recommendation.json": "842a04d23a3f308e90dfbd427df9cb6b88a068be6eb50adcfb4b6ac7b1d9c375",
-  "report.md": "5de2ed5b24757344d99e8079aa276195eb80faf6f8a310e68867f86995713828"
+  "recommendation.json": "2fa912c3bd2b9fc1c3cfbce28da5135eb76baf9888933cdd3b063821ee419620",
+  "report.md": "763dea89903d26efee1d82929d897bc095ad585c0adee1895db6f19ef93ef882"
  },
  "periods_run": [
   "development",
@@ -446,7 +446,7 @@
   "observed_inputs.csv",
   "metrics.json"
  ],
- "result_fingerprint": "b9f2fb4645a8727415e130a7b1df47f1565218659c4b62d9d4ba80d6a8721153",
+ "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a",
  "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5-development-confirmation-legacy_window",
  "schema_version": 1,
  "sealed_selection": {

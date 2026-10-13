@@ -221,7 +221,7 @@ def test_documented_bucket_tables_match_the_metrics(period: str) -> None:
 
 def test_documented_headline_numbers_match_the_metrics() -> None:
     metrics = read_json(V1 / "full" / "metrics.json")
-    document = DOC.read_text(encoding="utf-8")
+    document = " ".join(DOC.read_text(encoding="utf-8").split())
     tests = {t["hypothesis"][:2]: t for t in metrics["recommendation"]["primary_tests"]}
     h1, h2 = tests["H1"], tests["H2"]
     assert f"{h1['mae_difference']:,.1f} [{h1['mae_difference_ci_low']:,.1f}, " in document

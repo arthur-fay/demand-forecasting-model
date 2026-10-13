@@ -13,6 +13,7 @@
   "primary_tests": [
    {
     "dm_bartlett_p_value": 0.04651587601621672,
+    "dm_ci_basis": "rectangular",
     "dm_computed": true,
     "dm_estimator": "rectangular",
     "dm_n_origins": 336,
@@ -48,6 +49,7 @@
    },
    {
     "dm_bartlett_p_value": 0.0031704257056217942,
+    "dm_ci_basis": "rectangular",
     "dm_computed": true,
     "dm_estimator": "rectangular",
     "dm_n_origins": 336,
@@ -88,5 +90,5 @@
   "selected_model": "atlas_linear_regression"
  },
  "record_type": "recommendation",
- "result_fingerprint": "b9f2fb4645a8727415e130a7b1df47f1565218659c4b62d9d4ba80d6a8721153"
+ "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a"
 }
