@@ -41,13 +41,16 @@ All three call one private function (`_build`) with the same `FeatureSet`, so:
 These properties are tested exactly, not approximately (`tests/test_features.py`).
 
 Training rows do not depend on the origin: row `t` at horizon `h` reads only data through
-`t − h`. M2 can therefore build `training_features` once at the latest origin and slice it
-for each earlier origin; a test checks this.
+`t − h`. A caller could therefore build `training_features` once at the latest origin and
+slice it for each earlier origin; a test checks this. The M2 backtest deliberately does not
+use that shortcut: every origin builds its training matrix from a series that ends at the
+origin, so an off-by-one in a slice cannot leak a label.
 
-`recursive_forecast` takes a `predictor` callable (feature row → number). It fits nothing:
-M1 contains no trained model. The predictor's output must be finite and non-negative.
-Features that read no demand (calendar, trend, holidays, events) are computed once for all
-steps; demand features are recomputed per step. A 30-step forecast takes about 0.15 s
+`recursive_forecast` takes a `predictor` callable (feature row → number). It fits nothing;
+the M2 regressions (`atlas.models.RecursiveLinearForecaster`) supply the predictor. The
+predictor's output must be finite and non-negative. Features that read no demand
+(calendar, trend, holidays, events) are computed once for all steps; demand features are
+recomputed per step. A 30-step forecast takes about 0.15 s
 (about 5 ms per step), and a full training matrix takes about 15 ms.
 
 ## Leakage controls
@@ -131,7 +134,30 @@ Differences from the legacy notebook (cell index 14), all deliberate:
 | Separate code paths for training and the recursive forecast | One implementation for both |
 
 The choice of features for any model is an M2 decision. The default set is a well-tested
-starting point, not a validated model specification.
+starting point, not a validated model specification. M2 made that choice in
+`atlas-m2-regression-v1`; see [BACKTESTING.md](BACKTESTING.md).
+
+## Feature classes added in M2
+
+M2 needs four more building blocks. They are computed by the same `_build` and checked by the
+same runtime guard as every other feature; none of them is in the default set, whose pinned
+fingerprint is unchanged.
+
+| Class | Name | Definition | Used by |
+|---|---|---|---|
+| `Calendar(CalendarField.YEAR)` | `year` | Calendar year of `t` | legacy model |
+| `MonthIndicator(m)` | `is_month_m` | 1 if `t` is in calendar month `m` | legacy model (full set of 12) |
+| `LegacyAnnualCycle(f)` | `legacy_annual_sin`, `legacy_annual_cos` | `sin`/`cos` of `2π · day_of_year / 365.25`, the notebook's convention (drifts by up to a day a year; exceeds a full cycle on 31 December of a leap year). Kept only for exact reproduction | legacy model |
+| `SameWeekdayMedian(k, first_week=w)` | `same_weekday_median_kw` | Median of `y[t-7w] .. y[t-7(w+k-1)]`; `NaN` if any is missing | median baseline |
+
+The two M2 model feature sets are built from these classes plus the M1 ones:
+
+- `legacy-notebook-cell-14` (`atlas.models.legacy_feature_set`): the 32 legacy columns in
+  the notebook's order;
+- `atlas-m2-regression-v1` (`atlas.models.atlas_regression_feature_set`): 18 non-collinear
+  features.
+
+Both fingerprints are pinned by tests. See [BACKTESTING.md](BACKTESTING.md).
 
 ## Custom features and feature sets
 

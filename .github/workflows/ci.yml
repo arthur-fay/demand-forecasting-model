@@ -17,7 +17,7 @@ jobs:
   quality:
     name: Lint, type-check, test and verify legacy-v0
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       UV_PYTHON: "3.12"
     steps:
@@ -56,3 +56,11 @@ jobs:
 
       - name: Reconciliation residual and data-quality flags (M1)
         run: uv run atlas quality
+
+      - name: Legacy model refit reproduces the published holdout and forecast (M2)
+        run: uv run atlas backtest legacy
+
+      - name: Smoke backtest and byte-identical verification (M2)
+        run: |
+          uv run atlas backtest run --config configs/backtest/smoke.json --output-dir "$RUNNER_TEMP/m2-smoke"
+          uv run atlas backtest verify "$RUNNER_TEMP/m2-smoke"

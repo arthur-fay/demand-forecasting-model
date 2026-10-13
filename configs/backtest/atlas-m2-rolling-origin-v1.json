@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "experiment_id": "atlas-m2-rolling-origin-v1",
+  "description": "ATLAS M2 pre-registered protocol. Rolling-origin evaluation of the recursive 30-day forecasting procedure on legacy-v0: daily origins, expanding windows, refit at every origin with data through that origin only. Development period (selection) 2024-02-01..2025-05-31; embargo 2025-06-01..2025-06-29; confirmation period 2025-06-30..2026-05-31 (later, disjoint targets; never used to choose). The descriptive legacy_window period re-scores the legacy holdout days 2026-04-02..2026-06-30 at every horizon. Model specifications, selection rule, primary tests and sensitivity analyses were fixed before any run of this configuration.",
+  "snapshot_id": "legacy-v0",
+  "target_table": "daily_total",
+  "max_horizon": 30,
+  "min_history_days": 365,
+  "data_delay_days": 0,
+  "observed_input_diagnostic": true,
+  "training_window": {"kind": "expanding"},
+  "periods": [
+    {"name": "development", "role": "selection", "first_origin": "2024-02-01", "last_origin": "2025-05-31", "origin_stride_days": 1},
+    {"name": "confirmation", "role": "confirmation", "first_origin": "2025-06-30", "last_origin": "2026-05-31", "origin_stride_days": 1},
+    {"name": "legacy_window", "role": "descriptive", "first_origin": "2026-03-03", "last_origin": "2026-06-29", "origin_stride_days": 1, "allow_incomplete_horizons": true}
+  ],
+  "horizon_buckets": [
+    {"label": "day_1", "first": 1, "last": 1},
+    {"label": "days_2_7", "first": 2, "last": 7},
+    {"label": "days_8_14", "first": 8, "last": 14},
+    {"label": "days_15_30", "first": 15, "last": 30}
+  ],
+  "models": [
+    {"type": "naive", "model_id": "naive"},
+    {"type": "seasonal_naive", "model_id": "seasonal_naive", "season_days": 7},
+    {"type": "same_weekday_mean", "model_id": "same_weekday_mean_4w", "weeks": 4},
+    {"type": "same_weekday_median", "model_id": "same_weekday_median_5w", "weeks": 5},
+    {"type": "seasonal_exponential_smoothing", "model_id": "seasonal_exponential_smoothing", "season_days": 7, "burn_in_days": 28},
+    {"type": "legacy_linear_regression", "model_id": "legacy_linear_regression", "min_training_rows": 365},
+    {"type": "atlas_linear_regression", "model_id": "atlas_linear_regression", "min_training_rows": 365}
+  ],
+  "reference_model": "seasonal_naive",
+  "selection": {
+    "period": "development",
+    "candidates": ["naive", "seasonal_naive", "same_weekday_mean_4w", "same_weekday_median_5w", "seasonal_exponential_smoothing", "atlas_linear_regression"],
+    "metric": "mae",
+    "first_horizon": 1,
+    "last_horizon": 30,
+    "max_failure_rate": 0.0,
+    "regression_margin_pct": 3.0,
+    "alpha": 0.05
+  },
+  "sensitivity": {
+    "exclude_flagged_targets": true,
+    "holiday_stratum": true,
+    "origin_exclusions": [
+      {"label": "legacy_identification_boundary", "first_origin": "2024-12-02", "last_origin": "2025-01-31", "reason": "Origins whose legacy design is affected by the leap-day step: trend, year and day of year are exactly collinear until 2025-01-01 (2025 targets not estimable from December 2024 origins), and afterwards the step is identified from very few 2025 rows (high leverage)."}
+    ]
+  },
+  "comparison_windows": [
+    {"label": "legacy_holdout_window", "kind": "legacy_holdout", "description": "The 90 target days of the legacy one-step holdout, scored by every model at every horizon from the descriptive legacy_window origins (one refit per origin).", "period": "legacy_window", "first_target": "2026-04-02", "last_target": "2026-06-30"}
+  ]
+}

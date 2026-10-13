@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "experiment_id": "atlas-m2-rolling-origin-v1-delay1",
+  "description": "Pre-registered sensitivity of atlas-m2-rolling-origin-v1 to data vintage: identical protocol, but every forecast issued at origin o sees data through o-1 only (a one-day reporting delay), while still targeting o+1..o+30. Run on the development period only; it never selects or recommends.",
+  "snapshot_id": "legacy-v0",
+  "target_table": "daily_total",
+  "max_horizon": 30,
+  "min_history_days": 365,
+  "data_delay_days": 1,
+  "observed_input_diagnostic": false,
+  "training_window": {"kind": "expanding"},
+  "periods": [
+    {"name": "development", "role": "selection", "first_origin": "2024-02-01", "last_origin": "2025-05-31", "origin_stride_days": 1}
+  ],
+  "horizon_buckets": [
+    {"label": "day_1", "first": 1, "last": 1},
+    {"label": "days_2_7", "first": 2, "last": 7},
+    {"label": "days_8_14", "first": 8, "last": 14},
+    {"label": "days_15_30", "first": 15, "last": 30}
+  ],
+  "models": [
+    {"type": "naive", "model_id": "naive"},
+    {"type": "seasonal_naive", "model_id": "seasonal_naive", "season_days": 7},
+    {"type": "same_weekday_mean", "model_id": "same_weekday_mean_4w", "weeks": 4},
+    {"type": "same_weekday_median", "model_id": "same_weekday_median_5w", "weeks": 5},
+    {"type": "seasonal_exponential_smoothing", "model_id": "seasonal_exponential_smoothing", "season_days": 7, "burn_in_days": 28},
+    {"type": "legacy_linear_regression", "model_id": "legacy_linear_regression", "min_training_rows": 365},
+    {"type": "atlas_linear_regression", "model_id": "atlas_linear_regression", "min_training_rows": 365}
+  ],
+  "reference_model": "seasonal_naive",
+  "selection": {
+    "period": "development",
+    "candidates": ["naive", "seasonal_naive", "same_weekday_mean_4w", "same_weekday_median_5w", "seasonal_exponential_smoothing", "atlas_linear_regression"],
+    "metric": "mae",
+    "first_horizon": 1,
+    "last_horizon": 30,
+    "max_failure_rate": 0.0,
+    "regression_margin_pct": 3.0,
+    "alpha": 0.05
+  },
+  "sensitivity": {"exclude_flagged_targets": false, "holiday_stratum": false, "origin_exclusions": []}
+}

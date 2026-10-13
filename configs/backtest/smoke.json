@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "experiment_id": "atlas-m2-smoke",
+  "description": "Small, fast end-to-end check of the backtest machinery for CI. Origins lie in early 2024 (development era) only, there is no selection rule, and the results are not evidence about model accuracy.",
+  "snapshot_id": "legacy-v0",
+  "target_table": "daily_total",
+  "max_horizon": 30,
+  "min_history_days": 365,
+  "observed_input_diagnostic": true,
+  "training_window": {"kind": "expanding"},
+  "periods": [
+    {"name": "early", "role": "selection", "first_origin": "2024-02-01", "last_origin": "2024-02-07", "origin_stride_days": 3},
+    {"name": "late", "role": "confirmation", "first_origin": "2024-03-15", "last_origin": "2024-03-21", "origin_stride_days": 3}
+  ],
+  "horizon_buckets": [
+    {"label": "day_1", "first": 1, "last": 1},
+    {"label": "days_2_7", "first": 2, "last": 7},
+    {"label": "days_8_14", "first": 8, "last": 14},
+    {"label": "days_15_30", "first": 15, "last": 30}
+  ],
+  "models": [
+    {"type": "naive", "model_id": "naive"},
+    {"type": "seasonal_naive", "model_id": "seasonal_naive", "season_days": 7},
+    {"type": "same_weekday_mean", "model_id": "same_weekday_mean_4w", "weeks": 4},
+    {"type": "same_weekday_median", "model_id": "same_weekday_median_5w", "weeks": 5},
+    {"type": "seasonal_exponential_smoothing", "model_id": "seasonal_exponential_smoothing"},
+    {"type": "legacy_linear_regression", "model_id": "legacy_linear_regression", "min_training_rows": 365},
+    {"type": "atlas_linear_regression", "model_id": "atlas_linear_regression", "min_training_rows": 365}
+  ],
+  "reference_model": "seasonal_naive"
+}

@@ -1,7 +1,7 @@
 [project]
 name = "atlas"
-version = "0.1.0"
-description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality and forecast features for NYC 311 demand analysis (milestones M0-M1)."
+version = "0.2.0"
+description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features and rolling-origin backtesting for NYC 311 demand analysis (milestones M0-M2)."
 readme = "docs/DEVELOPMENT.md"
 requires-python = ">=3.12"
 authors = [{ name = "Arthur Fay" }]
@@ -11,6 +11,7 @@ classifiers = [
     "Private :: Do Not Upload",
 ]
 dependencies = [
+    "numpy>=2.0,<3",
     "pandas>=3.0,<3.1",
     "pydantic>=2.9,<3",
 ]

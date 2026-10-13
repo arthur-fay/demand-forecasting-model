@@ -60,6 +60,18 @@ src/atlas/
   reconciliation.py  daily_borough_components with the UNASSIGNED aggregate residual
   quality.py         Data-quality flags and the `quality` stage
   features.py        Feature definitions and the training / forecast / recursive builders
+
+  M2 additions
+  regression.py      Least squares with rank, conditioning, leverage and estimability
+  models.py          Forecaster interface; baselines, exponential smoothing, two regressions
+  backtest.py        Rolling-origin engine and future projection (one prediction path)
+  metrics.py         Error metrics, buckets, paired comparisons on common forecasts
+  stats.py           HLN Diebold-Mariano test, HAC variances, Student t, Holm
+  evaluation.py      Protocol: selection, recommendation, sensitivity, decomposition
+  report.py          Deterministic Markdown report from the metrics payload
+  experiment.py      Versioned configuration, fingerprints, provenance, run persistence
+  legacy_refit.py    Exact reproduction of the legacy holdout and 30-day forecast
+  runner.py          Fail-closed M2 commands (backtest run/verify/legacy, forecast)
 ```
 
 ### Data flow
@@ -113,6 +125,35 @@ of legacy outputs, and `atlas check` is unchanged.
 | Flags are causal annotations, never edits or features | Usable in rolling-origin evaluation; the data stays as recorded |
 | M1 tables checked by the M0 loader (`validate_frame`) | One set of contract rules for files and in-memory tables |
 | Pinned feature-set fingerprint and pinned legacy flag inventory | Definition or detection changes must be deliberate |
+
+### M2 data flow
+
+```
+validated daily_total ─► DemandSeries ─► for each origin o (chronological):
+                                           history = series.through(o)        (barrier 0)
+                                           for each model: forecast_at_origin(model, history, 30)
+                                             fit:      training_features(history, h=1)   (M1)
+                                             forecast: direct M1 rows, or recursive_forecast (M1)
+                                         ─► records without actuals
+                         after all forecasts ─► actuals attached by target date ─► records
+records ─► evaluation (selection on development; confirmation; sensitivity) ─► metrics.json
+                                                                           └► report.md
+```
+
+`atlas forecast` calls the same `forecast_at_origin` at the last observed day and writes
+records of type `future_projection`, which carry no actual values.
+
+| M2 decision | Reason |
+|---|---|
+| Every model is fitted on a `DemandSeries` that *ends* at the origin | Later observations are absent from the object, not hidden; the M1 truncation and runtime guard still apply inside |
+| One function, `forecast_at_origin`, for backtests and projections | The backtest exercises the operational prediction path |
+| Only `ForecastError` becomes a recorded failure | `LeakageError` and other bugs stop the run instead of becoming "failed" rows |
+| Actuals attached after every forecast exists | Model code never sees a target value |
+| Faithful legacy model kept separate from the modernised regression | Reproduction (exact, 120 published values) and improvement are different claims |
+| Pre-registered selection, sealed before confirmation | The confirmation period cannot influence the choice |
+| HLN Diebold-Mariano with HAC variance; effective sample size reported | Forecast windows from neighbouring origins overlap |
+| Plain files per run (manifest, CSV, JSON, Markdown); no database | Lightweight, diffable, verifiable byte for byte |
+| No process pool | About six minutes serially; fewer moving parts, coverage of all code |
 
 ### Extending to new snapshots
 

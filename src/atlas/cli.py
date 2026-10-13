@@ -24,6 +24,12 @@ from atlas.features import default_feature_set
 from atlas.issues import CheckReport, Severity
 from atlas.pipeline import Stage, run, run_quality
 from atlas.registry import spec_for
+from atlas.runner import (
+    legacy_refit_command,
+    projection_command,
+    run_backtest_command,
+    verify_command,
+)
 from atlas.snapshot import build_manifest, manifest_to_json
 
 EXIT_OK = 0
@@ -44,7 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="atlas",
         description=(
             "ATLAS: verify, validate and reproduce the registered data snapshot (M0); "
-            "assess data quality and describe forecast features (M1)."
+            "assess data quality and describe forecast features (M1); rolling-origin "
+            "backtests and labelled future projections (M2)."
         ),
     )
     parser.add_argument("--version", action="version", version=f"atlas {__version__}")
@@ -84,7 +91,79 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "features", help="Describe the default feature set (definitions only; reads no data)."
     )
+
+    backtest = commands.add_parser(
+        "backtest", help="Rolling-origin backtests of the forecasting models (M2)."
+    )
+    backtest_commands = backtest.add_subparsers(dest="backtest_command", required=True)
+    run_parser = backtest_commands.add_parser(
+        "run", help="Integrity, validation, then a rolling-origin backtest written to a run dir."
+    )
+    _add_config_argument(run_parser)
+    run_parser.add_argument(
+        "--output-dir", type=Path, default=None, help="Run directory (default: runs/<run id>)."
+    )
+    run_parser.add_argument(
+        "--period",
+        action="append",
+        default=None,
+        help="Run this configured period (repeatable; default: the selection period only).",
+    )
+    run_parser.add_argument(
+        "--sealed-selection",
+        type=Path,
+        default=None,
+        help="selection.json of a development run; required for any other period.",
+    )
+    run_parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="Refuse to run if code, configs or tests have uncommitted changes (reference runs).",
+    )
+    verify = backtest_commands.add_parser(
+        "verify", help="Re-run a recorded backtest; pass only if every result file is identical."
+    )
+    verify.add_argument("run_dir", type=Path, help="Directory of a recorded backtest run.")
+    legacy = backtest_commands.add_parser(
+        "legacy",
+        help="Refit the legacy model and compare with its published holdout and forecast.",
+    )
+    legacy.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Also write the 90 one-step holdout records and their metrics here.",
+    )
+    forecast = commands.add_parser(
+        "forecast",
+        help="FUTURE PROJECTION beyond the last observed day (same code path; not validated).",
+    )
+    _add_config_argument(forecast)
+    forecast.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Run directory (default: runs/projections/<run id>).",
+    )
+    forecast.add_argument(
+        "--recommendation",
+        type=Path,
+        default=None,
+        help="recommendation.json of a confirmation run: project only the recommended model.",
+    )
     return parser
+
+
+DEFAULT_CONFIG = Path("configs/backtest/atlas-m2-rolling-origin-v1.json")
+
+
+def _add_config_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=f"Experiment configuration (default: {DEFAULT_CONFIG} in the repository).",
+    )
 
 
 def _format_value(value: Any) -> str:
@@ -143,6 +222,8 @@ def _render_facts(report: CheckReport, stream: TextIO) -> None:
         )
         counts = ", ".join(f"{code} {n}" for code, n in facts["flag_counts"].items())
         stream.write(f"  flags: {counts}\n")
+    elif report.name in _M2_RENDERERS:
+        _M2_RENDERERS[report.name](facts, stream)
     elif report.name == "reproduction" and "historical_totals" in facts:
         totals = facts["historical_totals"]
         stream.write(
@@ -161,6 +242,96 @@ def _render_facts(report: CheckReport, stream: TextIO) -> None:
             stream.write(
                 f"    {mark} {kpi['name']} = {_format_value(kpi['committed'])} [{kpi['meaning']}]\n"
             )
+
+
+def _render_backtest(facts: Any, stream: TextIO) -> None:
+    if "run_dir" not in facts:
+        return
+    stream.write(
+        f"  HISTORICAL BACKTEST {facts['run_id']}: periods {', '.join(facts['periods'])}; "
+        f"{_format_value(facts['origins'])} origins, {_format_value(facts['records'])} records\n"
+        f"  result fingerprint {facts['result_fingerprint']}\n  written to {facts['run_dir']}\n"
+    )
+    stream.write("  MAE by bucket (improvement over seasonal naive on common forecasts):\n")
+    for row in facts["buckets"]:
+        versus = row["mae_improvement_pct"]
+        tag = "reference" if versus is None else f"{versus:+.1f}%"
+        mae = "n/a" if row["mae"] is None else f"{row['mae']:,.1f}"
+        stream.write(
+            f"    {row['period']:13} {row['label']:11} {row['model_id']:31} MAE {mae:>9} "
+            f"({tag}) n={_format_value(row['n_predictions'])}\n"
+        )
+    selection = facts["selection"]
+    if selection:
+        stream.write(
+            f"  selection ({selection['period']}): best baseline {selection['best_baseline']}, "
+            f"best regression {selection['best_regression']}, selected "
+            f"{selection['selected_model']}\n"
+        )
+        if selection["recommended_model"]:
+            stream.write(
+                f"  recommended after confirmation: {selection['recommended_model']} "
+                f"({selection['recommendation_reason']})\n"
+            )
+
+
+def _render_verification(facts: Any, stream: TextIO) -> None:
+    if "identical" not in facts:
+        return
+    verdict = "identical" if facts["identical"] else "DIFFERENT"
+    stream.write(
+        f"  results {verdict}: " + ", ".join(f"{k} {v}" for k, v in facts["files"].items())
+    )
+    stream.write(f"\n  result fingerprint {facts['result_fingerprint']}\n")
+    if facts["altered_on_disk"]:
+        stream.write(f"  altered on disk: {', '.join(facts['altered_on_disk'])}\n")
+    if facts["forecast_difference"]:
+        stream.write(f"  forecast comparison: {facts['forecast_difference']}\n")
+    for name, (then, now) in facts["provenance_differences"].items():
+        stream.write(f"  provenance differs: {name} recorded {then}, now {now}\n")
+
+
+def _render_legacy_refit(facts: Any, stream: TextIO) -> None:
+    if "holdout" not in facts:
+        return
+    holdout, recursive = facts["holdout"], facts["recursive_forecast"]
+    stream.write(
+        f"  1. LEGACY ONE-STEP HOLDOUT {holdout['first_date']}..{holdout['last_date']} "
+        f"({holdout['procedure']}): {holdout['predictions_reproduced']} of "
+        f"{holdout['predictions_published']} predictions reproduced\n"
+    )
+    for row in holdout["metrics"]:
+        mark = "ok " if row["ok"] else "BAD"
+        stream.write(
+            f"     {mark} {row['metric']}: recomputed {row['recomputed']:.4f}, "
+            f"published {row['committed']}\n"
+        )
+    stream.write(
+        f"  2. legacy recursive forecast {recursive['first_date']}..{recursive['last_date']}: "
+        f"{recursive['forecasts_reproduced']} of {recursive['forecasts_published']} reproduced; "
+        f"fed-back inputs equal: {recursive['fed_back_inputs_equal_published']}; largest "
+        f"|raw - rounded| {recursive['max_abs_raw_minus_rounded']:.4f}\n"
+    )
+
+
+def _render_projection(facts: Any, stream: TextIO) -> None:
+    if "run_dir" not in facts:
+        return
+    stream.write(
+        f"  FUTURE PROJECTION from {facts['origin']} (1..{facts['max_horizon']} days); "
+        f"NOT VALIDATED; written to {facts['run_dir']}\n"
+    )
+    for model_id, total in facts["totals"].items():
+        shown = "n/a" if total is None else f"{total:,.0f}"
+        stream.write(f"    {model_id:31} {facts['max_horizon']}-day total {shown}\n")
+
+
+_M2_RENDERERS = {
+    "backtest": _render_backtest,
+    "verification": _render_verification,
+    "legacy_refit": _render_legacy_refit,
+    "projection": _render_projection,
+}
 
 
 def _features(output_format: str, stream: TextIO) -> int:
@@ -193,6 +364,26 @@ def _manifest(settings: Settings, stream: TextIO) -> int:
     return EXIT_OK
 
 
+def _config_path(args: argparse.Namespace, settings: Settings) -> Path:
+    path: Path = args.config if args.config is not None else settings.repo_root / DEFAULT_CONFIG
+    return path
+
+
+def _backtest(args: argparse.Namespace, settings: Settings) -> list[CheckReport]:
+    if args.backtest_command == "run":
+        return run_backtest_command(
+            settings,
+            _config_path(args, settings),
+            output_dir=args.output_dir,
+            periods=args.period,
+            sealed_selection=args.sealed_selection,
+            require_clean=args.require_clean,
+        )
+    if args.backtest_command == "verify":
+        return verify_command(settings, args.run_dir)
+    return legacy_refit_command(settings, output_dir=args.output_dir)
+
+
 def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int:
     out = stdout if stdout is not None else sys.stdout
     parser = build_parser()
@@ -205,6 +396,15 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
             return _manifest(settings, out)
         if args.command == "quality":
             reports = run_quality(settings)
+        elif args.command == "backtest":
+            reports = _backtest(args, settings)
+        elif args.command == "forecast":
+            reports = projection_command(
+                settings,
+                _config_path(args, settings),
+                output_dir=args.output_dir,
+                recommendation=args.recommendation,
+            )
         else:
             reports = run(settings, through=_STAGES[args.command])
     except AtlasError as exc:

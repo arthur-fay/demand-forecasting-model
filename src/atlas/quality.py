@@ -572,9 +572,22 @@ def assess_snapshot(
             )
         )
 
+    flags = _snapshot_flags(daily_total, daily_segments, register, thresholds, residual)
+    flags_frame(flags)  # contract check of the flag table
+    report = quality_report(flags, facts)
+    return CheckReport(name=report.name, issues=(*issues, *report.issues), facts=report.facts)
+
+
+def _snapshot_flags(
+    daily_total: pd.DataFrame,
+    daily_segments: pd.DataFrame,
+    register: KnownExceptions,
+    thresholds: QualityThresholds,
+    residual: pd.Series,
+) -> list[QualityFlag]:
     total = DemandSeries.from_frame(daily_total, name="daily_total", allow_missing=True)
     declared = register.reconciliation
-    flags = detect_flags(
+    return detect_flags(
         total,
         daily_segments,
         thresholds,
@@ -583,6 +596,28 @@ def assess_snapshot(
             declared.expected.share_threshold_pct if declared else DEFAULT_SHARE_THRESHOLD_PCT
         ),
     )
-    flags_frame(flags)  # contract check of the flag table
-    report = quality_report(flags, facts)
-    return CheckReport(name=report.name, issues=(*issues, *report.issues), facts=report.facts)
+
+
+def snapshot_flags(
+    daily_total: pd.DataFrame,
+    daily_segments: pd.DataFrame,
+    register: KnownExceptions,
+    thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
+) -> list[QualityFlag]:
+    """Every flag ``atlas quality`` reports for a validated snapshot (M2 evaluation filter).
+
+    Raises :class:`DataQualityError` when the reconciliation residual cannot be built.
+    Flags are causal annotations: M2 uses them only to choose which target days a
+    secondary analysis leaves out, never as model inputs.
+    """
+    components = build_borough_components(daily_total, daily_segments, register)
+    return _snapshot_flags(daily_total, daily_segments, register, thresholds, components.residual())
+
+
+def warning_flag_dates(flags: Iterable[QualityFlag]) -> list[date]:
+    """Every date covered by a warning-level flag, sorted and without duplicates."""
+    days: set[date] = set()
+    for flag in flags:
+        if flag_severity(flag) is Severity.WARNING:
+            days.update(flag.start + timedelta(days=k) for k in range(flag.days))
+    return sorted(days)

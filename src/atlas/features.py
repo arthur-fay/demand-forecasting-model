@@ -352,6 +352,47 @@ class SameWeekdayMean(Feature):
         return np.where(np.isnan(window).any(axis=1), np.nan, window.mean(axis=1))
 
 
+@dataclass(frozen=True)
+class SameWeekdayMedian(Feature):
+    """Median of the previous ``weeks`` values on the target's weekday (M2 baseline input).
+
+    Reads the same days as :class:`SameWeekdayMean`; ``NaN`` if any of them is missing.
+    With an even ``weeks`` the median is the mean of the two middle values.
+    """
+
+    weeks: int
+    first_week: int = 1
+    kind: ClassVar[FeatureKind] = FeatureKind.ROLLING
+
+    def __post_init__(self) -> None:
+        _check_offset(self.weeks, "weeks")
+        _check_offset(self.first_week, "first_week")
+        _check_offset(7 * (self.first_week + self.weeks - 1), "largest offset")
+
+    @property
+    def name(self) -> str:
+        suffix = "" if self.first_week == 1 else f"_from_{self.first_week}w"
+        return f"same_weekday_median_{self.weeks}w{suffix}"
+
+    @property
+    def description(self) -> str:
+        return (
+            f"Median demand on the target's weekday over {self.weeks} week(s), starting "
+            f"{self.first_week} week(s) before the target date."
+        )
+
+    @property
+    def offsets(self) -> tuple[int, ...]:
+        return tuple(7 * week for week in range(self.first_week, self.first_week + self.weeks))
+
+    def compute(self, context: FeatureContext) -> np.ndarray:
+        window = context.read_window(self.offsets)
+        incomplete = np.isnan(window).any(axis=1)
+        # The median of a row with a NaN is never used, so silence numpy's warning for it.
+        filled = np.where(np.isnan(window), 0.0, window)
+        return np.where(incomplete, np.nan, np.median(filled, axis=1))
+
+
 class CalendarField(StrEnum):
     ISO_WEEKDAY = "iso_weekday"  # Monday = 1 ... Sunday = 7
     IS_WEEKEND = "is_weekend"  # Saturday or Sunday
@@ -361,6 +402,7 @@ class CalendarField(StrEnum):
     ISO_WEEK = "iso_week"  # 1 .. 53, of the ISO year
     IS_MONTH_START = "is_month_start"
     IS_MONTH_END = "is_month_end"
+    YEAR = "year"  # calendar year (used by the legacy model specification, M2)
 
 
 @dataclass(frozen=True)
@@ -400,6 +442,8 @@ class Calendar(Feature):
                 values = dates.is_month_start
             case CalendarField.IS_MONTH_END:
                 values = dates.is_month_end
+            case CalendarField.YEAR:
+                values = dates.year
             case _:  # pragma: no cover - exhaustive over CalendarField
                 raise AssertionError(self.field)
         return np.asarray(values, dtype="float64")
@@ -425,6 +469,58 @@ class WeekdayIndicator(Feature):
 
     def compute(self, context: FeatureContext) -> np.ndarray:
         return np.asarray(context.targets.dayofweek + 1 == self.iso_weekday, dtype="float64")
+
+
+@dataclass(frozen=True)
+class MonthIndicator(Feature):
+    """1.0 when the target's calendar month is ``month`` (1 = January), else 0.0."""
+
+    month: int
+    kind: ClassVar[FeatureKind] = FeatureKind.CALENDAR
+
+    def __post_init__(self) -> None:
+        _check_int(self.month, "month", 1, 12)
+
+    @property
+    def name(self) -> str:
+        return f"is_month_{self.month}"
+
+    @property
+    def description(self) -> str:
+        return f"Indicator: the target date is in calendar month {self.month}."
+
+    def compute(self, context: FeatureContext) -> np.ndarray:
+        return np.asarray(context.targets.month == self.month, dtype="float64")
+
+
+@dataclass(frozen=True)
+class LegacyAnnualCycle(Feature):
+    """``sin`` or ``cos`` of ``2 * pi * day_of_year / 365.25``: the legacy notebook convention.
+
+    Exists only so the legacy model can be reproduced exactly (M2). It drifts by up to a
+    day per year and exceeds a full cycle on 31 December of a leap year; new models should
+    use :class:`AnnualFourier`.
+    """
+
+    function: str  # "sin" or "cos"
+    kind: ClassVar[FeatureKind] = FeatureKind.CALENDAR
+
+    def __post_init__(self) -> None:
+        if self.function not in ("sin", "cos"):
+            raise FeatureError("function must be 'sin' or 'cos'")
+
+    @property
+    def name(self) -> str:
+        return f"legacy_annual_{self.function}"
+
+    @property
+    def description(self) -> str:
+        return f"Legacy annual term: {self.function}(2*pi*day_of_year/365.25)."
+
+    def compute(self, context: FeatureContext) -> np.ndarray:
+        day_of_year = np.asarray(context.targets.dayofyear, dtype="float64")
+        angle = 2.0 * math.pi * day_of_year / 365.25
+        return np.sin(angle) if self.function == "sin" else np.cos(angle)
 
 
 @dataclass(frozen=True)
