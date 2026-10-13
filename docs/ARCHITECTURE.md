@@ -72,6 +72,16 @@ src/atlas/
   experiment.py      Versioned configuration, fingerprints, provenance, run persistence
   legacy_refit.py    Exact reproduction of the legacy holdout and 30-day forecast
   runner.py          Fail-closed M2 commands (backtest run/verify/legacy, forecast)
+
+  M3 additions
+  uncertainty_config.py  Versioned M3 configuration; ties to the pinned M2 protocol
+  calibration.py         Residual store, eligibility by target date and latency, pooling
+  intervals.py           Predictive distributions and interval methods
+  exceedance.py          Historical and HYPOTHETICAL thresholds; exceedance ordering checks
+  scoring.py             Coverage, interval score, pinball, WIS, Brier, reliability, HAC tests
+  probabilistic.py       Issue, score, select and judge probabilistic forecasts
+  uncertainty_report.py  Deterministic Markdown report from the metrics payload
+  uncertainty_runner.py  Fail-closed M3 commands (uncertainty run/verify/inspect/project)
 ```
 
 ### Data flow
@@ -154,6 +164,30 @@ records of type `future_projection`, which carry no actual values.
 | HLN Diebold-Mariano with HAC variance; effective sample size reported | Forecast windows from neighbouring origins overlap |
 | Plain files per run (manifest, CSV, JSON, Markdown); no database | Lightweight, diffable, verifiable byte for byte |
 | No process pool | About six minutes serially; fewer moving parts, coverage of all code |
+
+### M3 data flow
+
+```
+M3 config ─► pinned M2 config + M2 recommendation (complete run, primary model checked)
+validated daily_total ─► run_backtest (M2 engine, every origin of the residual span)
+records ─► ResidualStore (r = actual - prediction, status ok only)
+for each M3 period, origin o (chronological), model, method/scheme:
+    calibration set = residuals with target <= c - latency  (c = o rolling; period start fixed)
+    predictive distribution ─► quantiles (non-crossing, >= 0) + P(Y > T) for each threshold
+after every forecast exists ─► actuals attached by target date
+selection period ─► WIS ranking ─► sealed selection.json
+evaluation period ─► coverage, scores, Brier, reliability, strata ─► decision status
+                                                              └► calibration_status.json
+```
+
+| M3 decision | Reason |
+|---|---|
+| Residuals from the M2 engine itself, not from a re-implementation | The intervals describe the errors of the forecasts M2 evaluated; a test checks the spot check |
+| One access path to residuals, sliced by target date, with a cutoff guard | An earlier forecast can never be calibrated with a later observation |
+| Sample sizes in distinct forecast paths; HAC effective size per set | Overlapping paths are not independent observations |
+| Explicit predictive distribution per method | Quantiles, intervals and probabilities are mutually consistent; probabilities are never read off interval endpoints |
+| Selection on M2's development targets, evaluation on the confirmation period, labelled as exposed | Selection, calibration and evaluation use different data, without pretending the later period is untouched |
+| Status withheld rather than results adjusted | A failed or under-powered calibration is disclosed as such |
 
 ### Extending to new snapshots
 

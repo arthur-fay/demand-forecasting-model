@@ -29,6 +29,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from typing import Any, Final, Literal
 
 import numpy as np
@@ -101,8 +102,13 @@ def student_t_two_sided_p(statistic: float, df: float) -> float:
     return regularized_incomplete_beta(df / 2.0, 0.5, df / (df + statistic * statistic))
 
 
+@lru_cache(maxsize=4096)
 def student_t_quantile(probability: float, df: float) -> float:
-    """Quantile of the Student-t distribution (bisection on the CDF; ``0 < p < 1``)."""
+    """Quantile of the Student-t distribution (bisection on the CDF; ``0 < p < 1``).
+
+    Pure and deterministic, so results are cached (M3 computes thousands of intervals
+    with the same few degrees of freedom).
+    """
     if not 0.0 < probability < 1.0:
         raise ForecastError("probability must be strictly between 0 and 1")
     if probability == 0.5:

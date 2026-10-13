@@ -1,7 +1,7 @@
 [project]
 name = "atlas"
-version = "0.2.0"
-description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features and rolling-origin backtesting for NYC 311 demand analysis (milestones M0-M2)."
+version = "0.3.0"
+description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals and exceedance probabilities for NYC 311 demand analysis (milestones M0-M3)."
 readme = "docs/DEVELOPMENT.md"
 requires-python = ">=3.12"
 authors = [{ name = "Arthur Fay" }]

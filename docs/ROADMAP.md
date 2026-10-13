@@ -1,7 +1,7 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. M0 and M1 are merged; M2 is implemented on
-`feature/atlas-m2-backtesting` and awaits review. Nothing from M3 onward is implemented.
+Each milestone requires separate approval. M0, M1 and M2 are merged; M3 is implemented on
+`feature/atlas-m3-uncertainty-risk` and awaits review. Nothing from M4 onward is implemented.
 
 ## M0: Foundation (merged)
 
@@ -36,7 +36,7 @@ Still deferred (not part of the approved M1 scope, which excludes network access
 - An agency-level breakdown of the residual, which needs a new extraction.
 - New York City and New York State observances that are not federal holidays.
 
-## M2: Forecasting and backtesting (implemented; awaiting approval)
+## M2: Forecasting and backtesting (merged)
 
 See [BACKTESTING.md](BACKTESTING.md).
 
@@ -68,10 +68,34 @@ Deliberately not done in M2:
 - **Scoring the archived July 2026 forecast:** it needs data after 2026-06-30, which would be
   a new extraction (not authorised).
 
+## M3: Prediction intervals and probabilistic risk (implemented; awaiting approval)
+
+See [UNCERTAINTY.md](UNCERTAINTY.md).
+
+- Residuals of the M2 recursive forecasts, re-generated with the M2 engine at every origin,
+  eligible for calibration only when `target_date <= calibration origin - latency`.
+- Horizon-specific calibration with predeclared bucket pooling counted in distinct forecast
+  paths, an effective-sample-size label (`thin`) and `unavailable` when there is too little
+  history.
+- Three interval methods (empirical additive, empirical relative, split conformal), each
+  with a rolling (online) and a fixed calibration scheme; Gaussian one-step and climatology
+  baselines.
+- Exceedance probabilities from explicit predictive distributions for the trailing-180-day
+  demand percentile (recomputed at each origin) and for user-supplied thresholds that must
+  be labelled `HYPOTHETICAL`.
+- A pre-registered protocol (method selected on M2's development targets, sealed, evaluated
+  on M2's confirmation period, which is labelled as already exposed), dependence-aware
+  scores and decision-grade criteria; `atlas uncertainty run|verify|inspect|project`.
+
+Deliberately not done in M3:
+
+- **Quantile regression or full distributional models:** they would need new dependencies or
+  new model specifications; M3 calibrates the M2 forecasts instead.
+- **Monotone widening across horizons:** not imposed; the report measures it.
+- **Scoring the archived July 2026 forecast:** still needs data after 2026-06-30.
+
 ## Later milestones (deferred, outline only)
 
-- **M3:** calibrated, horizon-specific prediction intervals and exceedance probabilities in
-  place of fixed risk tiers.
 - **M4:** scenario analysis and a small backlog optimisation model. Its operational
   parameters are explicitly `HYPOTHETICAL` unless evidence is supplied.
 - **M5:** FastAPI service with typed contracts.
