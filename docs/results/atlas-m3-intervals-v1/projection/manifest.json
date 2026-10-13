@@ -1,0 +1,344 @@
+{
+ "backtest_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+ "calibration_status": "failed_calibration",
+ "code": {
+  "code_sha256": "9c26f4f5f37c9dc643dda8079c777821bf31221b616da307311e6a21cc38e628",
+  "files": 41,
+  "uv_lock_sha256": "b68edb43057d6cef83760598b02f6eeb5f809979fc91ea008174fa5f490b354e"
+ },
+ "config": {
+  "backtest_config": "configs/backtest/atlas-m2-rolling-origin-v1.json",
+  "backtest_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+  "baselines": [
+   {
+    "method": "gaussian_one_step",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "climatology_180d",
+    "scheme": null
+   }
+  ],
+  "calibration": {
+   "data_latency_days": 0,
+   "min_calibration_origins": 100,
+   "min_effective_calibration": 20.0,
+   "pooling": "horizon_then_bucket"
+  },
+  "candidates": [
+   {
+    "method": "empirical_additive",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "empirical_relative",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "conformal_absolute",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "empirical_additive",
+    "scheme": "fixed365"
+   },
+   {
+    "method": "empirical_relative",
+    "scheme": "fixed365"
+   },
+   {
+    "method": "conformal_absolute",
+    "scheme": "fixed365"
+   }
+  ],
+  "decision_criteria": {
+   "alpha": 0.05,
+   "coverage": [
+    {
+     "level": 0.8,
+     "tolerance_pct": 5.0
+    },
+    {
+     "level": 0.95,
+     "tolerance_pct": 3.0
+    }
+   ],
+   "exceedance_max_calibration_gap": 0.05,
+   "exceedance_reference": "climatology_180d",
+   "min_effective_sample_size": 30.0
+  },
+  "description": "ATLAS M3 pre-registered protocol: horizon-specific prediction intervals (80 % and 95 %) and threshold-exceedance probabilities for the M2 recursive 30-day forecasts on legacy-v0, calibrated only on residuals whose target date was observed by the issue date (latency 0 days, as in M2). Residuals come from the M2 engine re-run at every origin 2024-02-01..2026-06-29. Interval method and calibration scheme are selected on m3_selection (origins 2024-08-01..2025-05-31, scoring only M2 development-period targets) by mean WIS for the M2-recommended atlas_linear_regression, sealed, then evaluated on m3_evaluation (origins 2025-06-30..2026-05-31, the M2 confirmation period, already exposed in M2 and therefore a historical evaluation, not an untouched test). Candidates, baselines, thresholds, pooling rule and decision criteria were fixed before any M3 run on these data.",
+  "experiment_id": "atlas-m3-intervals-v1",
+  "levels": [
+   0.8,
+   0.95
+  ],
+  "max_horizon": 30,
+  "methods": [
+   {
+    "method_id": "empirical_additive",
+    "score": "additive",
+    "type": "empirical_quantile"
+   },
+   {
+    "method_id": "empirical_relative",
+    "score": "relative",
+    "type": "empirical_quantile"
+   },
+   {
+    "method_id": "conformal_absolute",
+    "score": "absolute",
+    "type": "split_conformal"
+   },
+   {
+    "method_id": "gaussian_one_step",
+    "type": "gaussian_one_step"
+   },
+   {
+    "method_id": "climatology_180d",
+    "min_observations": 150,
+    "type": "climatology",
+    "window_days": 180
+   }
+  ],
+  "periods": [
+   {
+    "description": "Interval-method selection. Starts six months after the first residual origin so that every horizon has at least 100 eligible calibration origins at the first issue; scores only M2 development-period targets (through 2025-06-30).",
+    "first_origin": "2024-08-01",
+    "last_origin": "2025-05-31",
+    "name": "m3_selection",
+    "role": "selection"
+   },
+   {
+    "description": "Historical evaluation of the sealed choice on the M2 confirmation origins (targets 2025-07-01..2026-06-30). Already exposed in M2: not an untouched prospective test.",
+    "first_origin": "2025-06-30",
+    "last_origin": "2026-05-31",
+    "name": "m3_evaluation",
+    "role": "evaluation"
+   }
+  ],
+  "point_models": [
+   "atlas_linear_regression",
+   "same_weekday_median_5w"
+  ],
+  "primary_model": "atlas_linear_regression",
+  "quantile_levels": [
+   0.025,
+   0.1,
+   0.25,
+   0.5,
+   0.75,
+   0.9,
+   0.975
+  ],
+  "recommendation": "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json",
+  "residual_first_origin": "2024-02-01",
+  "residual_last_origin": "2026-06-29",
+  "schema_version": 1,
+  "schemes": [
+   {
+    "kind": "rolling",
+    "scheme_id": "rolling365",
+    "window_days": 365
+   },
+   {
+    "kind": "fixed",
+    "scheme_id": "fixed365",
+    "window_days": 365
+   }
+  ],
+  "selection": {
+   "criterion": "wis",
+   "first_horizon": 1,
+   "last_horizon": 30,
+   "max_unavailable_rate": 0.0,
+   "period": "m3_selection",
+   "point_model": "atlas_linear_regression"
+  },
+  "sensitivity": {
+   "latency_days": [
+    7
+   ],
+   "strata": true
+  },
+  "thresholds": [
+   {
+    "description": "75th percentile (linear interpolation) of the observed daily counts in the 180 days ending at each forecast's data cutoff: the legacy 'planning capacity' rule recomputed at every origin. A high-demand reference derived from incoming requests, not a measured service capacity.",
+    "kind": "historical_quantile",
+    "label": "trailing180_p75",
+    "min_observations": 150,
+    "quantile": 0.75,
+    "window_days": 180
+   },
+   {
+    "assumptions": "Illustrative round number set above the legacy demand percentile of 11,609 requests per day. It is not derived from staffing, budgets, closures, backlog or service-level targets (none exist in the repository) and does not represent the capacity of any NYC agency; it only demonstrates how a user-supplied capacity threshold is handled.",
+    "kind": "hypothetical",
+    "label": "hypothetical_capacity_12000",
+    "provenance": "HYPOTHETICAL",
+    "units": "requests_per_day",
+    "value": 12000.0
+   },
+   {
+    "assumptions": "Second illustrative round number, 1,000 requests per day above the first, chosen without reference to any operational data; it does not represent the capacity of any NYC agency and exists to show that probabilities fall as the threshold rises.",
+    "kind": "hypothetical",
+    "label": "hypothetical_capacity_13000",
+    "provenance": "HYPOTHETICAL",
+    "units": "requests_per_day",
+    "value": 13000.0
+   }
+  ]
+ },
+ "config_fingerprint": "5afd32068ebc63b5838cfea545326916f0c4dd835ed294a301acd89d8622244b",
+ "data": {
+  "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+  "first_date": "2023-01-01",
+  "last_date": "2026-06-30",
+  "manifest_sha256": "3a57e7627d5e4eb5ba73cf2127a936a3d58131a79d52d1c2b8a0a695ad75fc5f",
+  "n_days": 1277,
+  "n_missing_days": 0,
+  "series_fingerprint": "7bb663463ef85df960938a2f7cbf7b779fe3cd1102989f198eca39f556378146",
+  "snapshot_id": "legacy-v0",
+  "table": "daily_total",
+  "table_path": "01 Data/daily_total.csv",
+  "table_sha256": "16a338f4851f62380a706a611e54706f52a29f3ee9a5adcea4f276b9b904d65c"
+ },
+ "decided_pair": "empirical_relative@fixed365",
+ "environment": {
+  "atlas": "0.3.0",
+  "machine": "x86_64",
+  "numpy_blas_lapack": {
+   "blas": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   },
+   "lapack": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   }
+  },
+  "packages": {
+   "numpy": "2.5.4",
+   "pandas": "3.0.6",
+   "pydantic": "2.14.1"
+  },
+  "platform": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+  "python": "3.12.3",
+  "python_implementation": "CPython",
+  "thread_settings": {
+   "MKL_NUM_THREADS": "1",
+   "OMP_NUM_THREADS": "1",
+   "OPENBLAS_NUM_THREADS": "1"
+  }
+ },
+ "git": {
+  "available": true,
+  "commit": "ff44f5430aceaa09b8b8222f7498930a819ec313",
+  "dirty": false,
+  "dirty_paths": 0
+ },
+ "informational_not_fingerprinted": {
+  "created_at_utc": "2026-10-13T21:19:11+00:00"
+ },
+ "label": "FUTURE PROJECTION WITH INTERVALS: forecasts beyond the last observed day with prediction intervals and exceedance probabilities calibrated on past errors. No outcome has been observed; read the calibration status before using them.",
+ "models": [
+  {
+   "description": "Modernised regression atlas-m2-regression-v1: 18 non-collinear M1 features plus intercept, OLS on standardised columns (full rank required), recursive, clipped at 0.",
+   "family": "regression",
+   "feature_set": "atlas-m2-regression-v1",
+   "feature_set_fingerprint": "9e5d3e14cf7eb2aae0692c4ce6fe9d507a9374cf762fd6500c6bfd9e3299f6af",
+   "implementation_version": 1,
+   "model_id": "atlas_linear_regression",
+   "model_type": "atlas_linear_regression",
+   "params": {
+    "clip_at_zero": true,
+    "features": [
+     "is_iso_weekday_2",
+     "is_iso_weekday_3",
+     "is_iso_weekday_4",
+     "is_iso_weekday_5",
+     "is_iso_weekday_6",
+     "is_iso_weekday_7",
+     "year_sin_1",
+     "year_cos_1",
+     "year_sin_2",
+     "year_cos_2",
+     "trend_days",
+     "is_observed_holiday",
+     "is_day_before_holiday",
+     "is_day_after_holiday",
+     "lag_1",
+     "lag_7",
+     "same_weekday_mean_4w",
+     "rolling_mean_28"
+    ],
+    "fit_method": "standardized_ols",
+    "intercept": true,
+    "min_training_rows": 365,
+    "round_feedback": "none",
+    "training_horizon": 1
+   },
+   "procedure": "recursive",
+   "spec_fingerprint": "d71db4b2049760a1c703270c9322af5065a7dce55f706e6ea1bc13448202d0cc"
+  },
+  {
+   "description": "Median of the 5 most recent observed values on the target's weekday (on or before the origin).",
+   "family": "baseline",
+   "feature_set": null,
+   "feature_set_fingerprint": null,
+   "implementation_version": 1,
+   "model_id": "same_weekday_median_5w",
+   "model_type": "same_weekday_median",
+   "params": {
+    "weeks": 5
+   },
+   "procedure": "direct",
+   "spec_fingerprint": "3ba84e3905d5098d83c314877463cd15f0b5b8fca038da59ab1c48cc042a8a86"
+  }
+ ],
+ "origin": "2026-06-30",
+ "outputs": {
+  "projection_exceedance.csv": "6eea63e3c878b32991822e63f1e8ff6f7171cfcc17cef51f1aac62c01d039a39",
+  "projection_intervals.csv": "0e648e0a3430af9b00181f439f110c769e4bb13d8b48da617a48873af65efa8c",
+  "report.md": "e361024f88ca2ed0a951d50b7fbf7a86155edb06640d3c69ee2c3aa57f575258"
+ },
+ "record_type": "future_projection_intervals",
+ "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5",
+ "schema_version": 1,
+ "status_guidance": "The selected intervals FAILED the pre-registered calibration criteria on the historical evaluation period: these intervals and probabilities are not decision-grade.",
+ "status_source": {
+  "calibration_status_sha256": "41768af15f69a28faf80c882d67b85aa2a271883df9ec93a835b49fe2a94a715",
+  "result_fingerprint": "c4d2adbf128e9f5e136c3e19d6aaba281257f6721f8a2d1804ac22eb27f8dfaf",
+  "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5-m3_selection-m3_evaluation"
+ },
+ "thresholds": [
+  {
+   "description": "75th percentile (linear interpolation) of the observed daily counts in the 180 days ending at each forecast's data cutoff: the legacy 'planning capacity' rule recomputed at every origin. A high-demand reference derived from incoming requests, not a measured service capacity.",
+   "kind": "historical_quantile",
+   "label": "trailing180_p75",
+   "min_observations": 150,
+   "notice": "Historical demand percentile: a high-demand reference computed from past incoming requests, not a measured service capacity.",
+   "provenance": "DERIVED_FROM_HISTORY",
+   "quantile": 0.75,
+   "units": "requests_per_day",
+   "window_days": 180
+  },
+  {
+   "assumptions": "Illustrative round number set above the legacy demand percentile of 11,609 requests per day. It is not derived from staffing, budgets, closures, backlog or service-level targets (none exist in the repository) and does not represent the capacity of any NYC agency; it only demonstrates how a user-supplied capacity threshold is handled.",
+   "kind": "hypothetical",
+   "label": "hypothetical_capacity_12000",
+   "notice": "HYPOTHETICAL threshold: a user-supplied number, not a verified NYC agency service capacity.",
+   "provenance": "HYPOTHETICAL",
+   "units": "requests_per_day",
+   "value": 12000.0
+  },
+  {
+   "assumptions": "Second illustrative round number, 1,000 requests per day above the first, chosen without reference to any operational data; it does not represent the capacity of any NYC agency and exists to show that probabilities fall as the threshold rises.",
+   "kind": "hypothetical",
+   "label": "hypothetical_capacity_13000",
+   "notice": "HYPOTHETICAL threshold: a user-supplied number, not a verified NYC agency service capacity.",
+   "provenance": "HYPOTHETICAL",
+   "units": "requests_per_day",
+   "value": 13000.0
+  }
+ ]
+}

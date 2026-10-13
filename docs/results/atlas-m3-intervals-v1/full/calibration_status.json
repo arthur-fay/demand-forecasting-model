@@ -1,0 +1,230 @@
+{
+ "backtest_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+ "config_fingerprint": "5afd32068ebc63b5838cfea545326916f0c4dd835ed294a301acd89d8622244b",
+ "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+ "decided_pair": "empirical_relative@fixed365",
+ "decision_status": {
+  "by_model": {
+   "atlas_linear_regression": {
+    "exceedance": [
+     {
+      "brier": 0.20041471062282,
+      "brier_reference": 0.2553563070782477,
+      "brier_skill_score": 0.21515660640640522,
+      "calibration_gap": -0.0537164433168531,
+      "effective_sample_size": 10.969841534105582,
+      "event_frequency": 0.3863095238095238,
+      "mean_probability": 0.3325930804926707,
+      "n_evaluated": 10080,
+      "n_events": 3894,
+      "notice": "Historical demand percentile: a high-demand reference computed from past incoming requests, not a measured service capacity.",
+      "p_value_conservative": 0.03752872847362115,
+      "reasons": [
+       "mean probability 0.333 vs observed frequency 0.386 (gap above 0.05)",
+       "HAC effective sample size 11.0 < 30"
+      ],
+      "status": "failed_calibration",
+      "threshold_label": "trailing180_p75",
+      "threshold_provenance": "DERIVED_FROM_HISTORY"
+     },
+     {
+      "brier": 0.11071623790706922,
+      "brier_reference": 0.12167550775384785,
+      "brier_skill_score": 0.09006964547827867,
+      "calibration_gap": -0.01267889669529014,
+      "effective_sample_size": 12.791304632121465,
+      "event_frequency": 0.1326388888888889,
+      "mean_probability": 0.11995999219359875,
+      "n_evaluated": 10080,
+      "n_events": 1337,
+      "notice": "HYPOTHETICAL threshold: a user-supplied number, not a verified NYC agency service capacity.",
+      "p_value_conservative": 0.14396249152431928,
+      "reasons": [
+       "Brier improvement over the reference not significant (conservative p 0.144)",
+       "HAC effective sample size 12.8 < 30"
+      ],
+      "status": "insufficient_evidence",
+      "threshold_label": "hypothetical_capacity_12000",
+      "threshold_provenance": "HYPOTHETICAL"
+     },
+     {
+      "brier": 0.058210358518575395,
+      "brier_reference": 0.06172195041239027,
+      "brier_skill_score": 0.056893728573910174,
+      "calibration_gap": 0.007850312256049971,
+      "effective_sample_size": 16.180656839397628,
+      "event_frequency": 0.0625,
+      "mean_probability": 0.07035031225604997,
+      "n_evaluated": 10080,
+      "n_events": 630,
+      "notice": "HYPOTHETICAL threshold: a user-supplied number, not a verified NYC agency service capacity.",
+      "p_value_conservative": 0.13231418222832125,
+      "reasons": [
+       "Brier improvement over the reference not significant (conservative p 0.132)",
+       "HAC effective sample size 16.2 < 30"
+      ],
+      "status": "insufficient_evidence",
+      "threshold_label": "hypothetical_capacity_13000",
+      "threshold_provenance": "HYPOTHETICAL"
+     }
+    ],
+    "intervals": {
+     "levels": [
+      {
+       "coverage": 0.7990079365079366,
+       "coverage_ci_high": 0.945026337309707,
+       "coverage_ci_low": 0.6529895357061661,
+       "effective_sample_size": 8.139468165055796,
+       "evidence_sufficient": false,
+       "level": 0.8,
+       "p_value_conservative": 0.9893449663716897,
+       "rejected": false,
+       "scopes_outside_tolerance": [],
+       "test_computed": true,
+       "tolerance_pct": 5.0
+      },
+      {
+       "coverage": 0.9207341269841269,
+       "coverage_ci_high": 0.9982876188223793,
+       "coverage_ci_low": 0.8431806351458747,
+       "effective_sample_size": 9.040502087164988,
+       "evidence_sufficient": false,
+       "level": 0.95,
+       "p_value_conservative": 0.4584250962668194,
+       "rejected": false,
+       "scopes_outside_tolerance": [
+        "days_8_14",
+        "days_15_30"
+       ],
+       "test_computed": true,
+       "tolerance_pct": 3.0
+      }
+     ],
+     "reasons": [
+      "80 % coverage evidence: HAC effective sample size 8.1 < 30",
+      "95 % coverage outside +/-3 pp of 95 % in: days_8_14, days_15_30",
+      "95 % coverage evidence: HAC effective sample size 9.0 < 30"
+     ],
+     "status": "failed_calibration"
+    }
+   },
+   "same_weekday_median_5w": {
+    "exceedance": [
+     {
+      "brier": 0.23069726579255828,
+      "brier_reference": 0.2553563070782477,
+      "brier_skill_score": 0.09656719102745037,
+      "calibration_gap": 0.01943685488767455,
+      "effective_sample_size": 12.353315328721143,
+      "event_frequency": 0.3863095238095238,
+      "mean_probability": 0.4057463786971984,
+      "n_evaluated": 10080,
+      "n_events": 3894,
+      "notice": "Historical demand percentile: a high-demand reference computed from past incoming requests, not a measured service capacity.",
+      "p_value_conservative": 0.35509937039105965,
+      "reasons": [
+       "Brier improvement over the reference not significant (conservative p 0.355)",
+       "HAC effective sample size 12.4 < 30"
+      ],
+      "status": "insufficient_evidence",
+      "threshold_label": "trailing180_p75",
+      "threshold_provenance": "DERIVED_FROM_HISTORY"
+     },
+     {
+      "brier": 0.13201782941520243,
+      "brier_reference": 0.12167550775384785,
+      "brier_skill_score": -0.0849992069256642,
+      "calibration_gap": 0.04334856665799289,
+      "effective_sample_size": 15.173530284972369,
+      "event_frequency": 0.1326388888888889,
+      "mean_probability": 0.17598745554688178,
+      "n_evaluated": 10080,
+      "n_events": 1337,
+      "notice": "HYPOTHETICAL threshold: a user-supplied number, not a verified NYC agency service capacity.",
+      "p_value_conservative": 0.4934013497388636,
+      "reasons": [
+       "Brier score not better than the reference (skill -0.085)",
+       "HAC effective sample size 15.2 < 30"
+      ],
+      "status": "failed_calibration",
+      "threshold_label": "hypothetical_capacity_12000",
+      "threshold_provenance": "HYPOTHETICAL"
+     },
+     {
+      "brier": 0.0656613140443652,
+      "brier_reference": 0.06172195041239027,
+      "brier_skill_score": -0.06382435431243483,
+      "calibration_gap": 0.02883624989157775,
+      "effective_sample_size": 21.451514777542418,
+      "event_frequency": 0.0625,
+      "mean_probability": 0.09133624989157775,
+      "n_evaluated": 10080,
+      "n_events": 630,
+      "notice": "HYPOTHETICAL threshold: a user-supplied number, not a verified NYC agency service capacity.",
+      "p_value_conservative": 0.5170942375304238,
+      "reasons": [
+       "Brier score not better than the reference (skill -0.064)",
+       "HAC effective sample size 21.5 < 30"
+      ],
+      "status": "failed_calibration",
+      "threshold_label": "hypothetical_capacity_13000",
+      "threshold_provenance": "HYPOTHETICAL"
+     }
+    ],
+    "intervals": {
+     "levels": [
+      {
+       "coverage": 0.7925595238095238,
+       "coverage_ci_high": 0.946644390881413,
+       "coverage_ci_low": 0.6384746567376346,
+       "effective_sample_size": 7.236244297839765,
+       "evidence_sufficient": false,
+       "level": 0.8,
+       "p_value_conservative": 0.9243825473137603,
+       "rejected": false,
+       "scopes_outside_tolerance": [],
+       "test_computed": true,
+       "tolerance_pct": 5.0
+      },
+      {
+       "coverage": 0.9465277777777777,
+       "coverage_ci_high": 1.016832802139377,
+       "coverage_ci_low": 0.8762227534161784,
+       "effective_sample_size": 9.33374964196706,
+       "evidence_sufficient": false,
+       "level": 0.95,
+       "p_value_conservative": 0.9226656730006757,
+       "rejected": false,
+       "scopes_outside_tolerance": [],
+       "test_computed": true,
+       "tolerance_pct": 3.0
+      }
+     ],
+     "reasons": [
+      "80 % coverage evidence: HAC effective sample size 7.2 < 30",
+      "95 % coverage evidence: HAC effective sample size 9.3 < 30"
+     ],
+     "status": "insufficient_evidence"
+    }
+   }
+  },
+  "decision_grade": false,
+  "interval_status": "failed_calibration",
+  "note": "The evaluation period is M2's confirmation period: already used to confirm the point model, so this is a historical evaluation, not an untouched prospective test. Statuses of models other than the primary one are descriptive.",
+  "period": "m3_evaluation",
+  "primary_model": "atlas_linear_regression",
+  "selected_pair": "empirical_relative@fixed365",
+  "statement": "The selected intervals FAILED the pre-registered calibration criteria on the evaluation period. Decision-grade status is withheld; the intervals are reported as they are, not adjusted after the fact."
+ },
+ "experiment_id": "atlas-m3-intervals-v1",
+ "recommendation": {
+  "path": "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json",
+  "recommendation_sha256": "2fa912c3bd2b9fc1c3cfbce28da5135eb76baf9888933cdd3b063821ee419620",
+  "recommended_model": "atlas_linear_regression",
+  "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a",
+  "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5-development-confirmation-legacy_window"
+ },
+ "record_type": "calibration_status",
+ "result_fingerprint": "c4d2adbf128e9f5e136c3e19d6aaba281257f6721f8a2d1804ac22eb27f8dfaf",
+ "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5-m3_selection-m3_evaluation"
+}
