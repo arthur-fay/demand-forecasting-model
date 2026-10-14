@@ -10,6 +10,10 @@ direct forecasting and recursive forecasting.
 
 Milestone M2 adds forecasting models behind one typed interface, a rolling-origin
 backtesting engine, forecast-evaluation statistics and reproducible experiment records.
+
+Milestone M3 adds horizon-specific prediction intervals and threshold-exceedance
+probabilities calibrated only on residuals observed by each issue date, with a
+pre-registered selection, a dependence-aware evaluation and a decision-grade status.
 """
 
 import os
@@ -20,4 +24,4 @@ import os
 for _variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_variable, "1")
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

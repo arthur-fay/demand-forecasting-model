@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "experiment_id": "atlas-m3-intervals-v1",
+  "description": "ATLAS M3 pre-registered protocol: horizon-specific prediction intervals (80 % and 95 %) and threshold-exceedance probabilities for the M2 recursive 30-day forecasts on legacy-v0, calibrated only on residuals whose target date was observed by the issue date (latency 0 days, as in M2). Residuals come from the M2 engine re-run at every origin 2024-02-01..2026-06-29. Interval method and calibration scheme are selected on m3_selection (origins 2024-08-01..2025-05-31, scoring only M2 development-period targets) by mean WIS for the M2-recommended atlas_linear_regression, sealed, then evaluated on m3_evaluation (origins 2025-06-30..2026-05-31, the M2 confirmation period, already exposed in M2 and therefore a historical evaluation, not an untouched test). Candidates, baselines, thresholds, pooling rule and decision criteria were fixed before any M3 run on these data.",
+  "backtest_config": "configs/backtest/atlas-m2-rolling-origin-v1.json",
+  "backtest_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+  "recommendation": "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json",
+  "max_horizon": 30,
+  "point_models": ["atlas_linear_regression", "same_weekday_median_5w"],
+  "primary_model": "atlas_linear_regression",
+  "residual_first_origin": "2024-02-01",
+  "residual_last_origin": "2026-06-29",
+  "levels": [0.8, 0.95],
+  "quantile_levels": [0.025, 0.1, 0.25, 0.5, 0.75, 0.9, 0.975],
+  "calibration": {
+    "data_latency_days": 0,
+    "min_calibration_origins": 100,
+    "min_effective_calibration": 20,
+    "pooling": "horizon_then_bucket"
+  },
+  "schemes": [
+    {"scheme_id": "rolling365", "kind": "rolling", "window_days": 365},
+    {"scheme_id": "fixed365", "kind": "fixed", "window_days": 365}
+  ],
+  "methods": [
+    {"type": "empirical_quantile", "method_id": "empirical_additive", "score": "additive"},
+    {"type": "empirical_quantile", "method_id": "empirical_relative", "score": "relative"},
+    {"type": "split_conformal", "method_id": "conformal_absolute", "score": "absolute"},
+    {"type": "gaussian_one_step", "method_id": "gaussian_one_step"},
+    {"type": "climatology", "method_id": "climatology_180d", "window_days": 180, "min_observations": 150}
+  ],
+  "candidates": [
+    {"method": "empirical_additive", "scheme": "rolling365"},
+    {"method": "empirical_relative", "scheme": "rolling365"},
+    {"method": "conformal_absolute", "scheme": "rolling365"},
+    {"method": "empirical_additive", "scheme": "fixed365"},
+    {"method": "empirical_relative", "scheme": "fixed365"},
+    {"method": "conformal_absolute", "scheme": "fixed365"}
+  ],
+  "baselines": [
+    {"method": "gaussian_one_step", "scheme": "rolling365"},
+    {"method": "climatology_180d"}
+  ],
+  "periods": [
+    {"name": "m3_selection", "role": "selection", "first_origin": "2024-08-01", "last_origin": "2025-05-31", "description": "Interval-method selection. Starts six months after the first residual origin so that every horizon has at least 100 eligible calibration origins at the first issue; scores only M2 development-period targets (through 2025-06-30)."},
+    {"name": "m3_evaluation", "role": "evaluation", "first_origin": "2025-06-30", "last_origin": "2026-05-31", "description": "Historical evaluation of the sealed choice on the M2 confirmation origins (targets 2025-07-01..2026-06-30). Already exposed in M2: not an untouched prospective test."}
+  ],
+  "selection": {
+    "period": "m3_selection",
+    "point_model": "atlas_linear_regression",
+    "criterion": "wis",
+    "first_horizon": 1,
+    "last_horizon": 30,
+    "max_unavailable_rate": 0.0
+  },
+  "thresholds": [
+    {"kind": "historical_quantile", "label": "trailing180_p75", "window_days": 180, "quantile": 0.75, "min_observations": 150, "description": "75th percentile (linear interpolation) of the observed daily counts in the 180 days ending at each forecast's data cutoff: the legacy 'planning capacity' rule recomputed at every origin. A high-demand reference derived from incoming requests, not a measured service capacity."},
+    {"kind": "hypothetical", "label": "hypothetical_capacity_12000", "value": 12000, "units": "requests_per_day", "provenance": "HYPOTHETICAL", "assumptions": "Illustrative round number set above the legacy demand percentile of 11,609 requests per day. It is not derived from staffing, budgets, closures, backlog or service-level targets (none exist in the repository) and does not represent the capacity of any NYC agency; it only demonstrates how a user-supplied capacity threshold is handled."},
+    {"kind": "hypothetical", "label": "hypothetical_capacity_13000", "value": 13000, "units": "requests_per_day", "provenance": "HYPOTHETICAL", "assumptions": "Second illustrative round number, 1,000 requests per day above the first, chosen without reference to any operational data; it does not represent the capacity of any NYC agency and exists to show that probabilities fall as the threshold rises."}
+  ],
+  "decision_criteria": {
+    "coverage": [
+      {"level": 0.8, "tolerance_pct": 5.0},
+      {"level": 0.95, "tolerance_pct": 3.0}
+    ],
+    "alpha": 0.05,
+    "min_effective_sample_size": 30,
+    "exceedance_max_calibration_gap": 0.05,
+    "exceedance_reference": "climatology_180d"
+  },
+  "sensitivity": {
+    "latency_days": [7],
+    "strata": true
+  }
+}

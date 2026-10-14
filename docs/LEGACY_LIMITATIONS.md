@@ -75,6 +75,11 @@ be labelled `HYPOTHETICAL`.
   at horizons 14-30, more than twice the 514.3 one-step holdout MAE.
 - **[code]** (cell index 17) No forecast interval or probability is used anywhere. The risk
   tiers (95 / 100 / 110 % of the percentile) have no documented basis.
+- **[measured, M3]** M3 replaces the fixed tiers with prediction intervals and exceedance
+  probabilities ([UNCERTAINTY.md](UNCERTAINTY.md)). Over the evaluation year, demand
+  exceeded the trailing-180-day 75th percentile on 38.6 % of forecast days, not 25 %, and
+  the selected intervals failed their pre-registered calibration criteria: no risk
+  statement is decision-grade.
 - **[tested]** "Total gap 566" adds up positive daily excesses. Over the same 30 days,
   forecast demand (330,941) is below 30 times the percentile (348,270).
 - **[tested]** "13 days advance warning" is the number of days from the data cutoff

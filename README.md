@@ -20,11 +20,17 @@ An end-to-end analytics project that transforms historical operational request d
 > [Forecasting and backtesting (M2)](docs/BACKTESTING.md) for the protocol and the measured
 > results before quoting any accuracy figure.
 >
+> **M3 uncertainty:** horizon-specific prediction intervals and threshold-exceedance
+> probabilities, calibrated only on errors observed by each issue date and evaluated with a
+> pre-registered, dependence-aware protocol. See
+> [Prediction intervals and probabilistic risk (M3)](docs/UNCERTAINTY.md), including the
+> decision-grade status, before using any interval or probability.
+>
 > Quick start: `uv sync --locked && uv run atlas check && uv run atlas quality` ·
 > [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
 > [Data snapshot](docs/DATA_SNAPSHOT.md) · [Data quality (M1)](docs/DATA_QUALITY.md) ·
 > [Forecast features (M1)](docs/FEATURES.md) · [Backtesting (M2)](docs/BACKTESTING.md) ·
-> [Roadmap](docs/ROADMAP.md)
+> [Uncertainty (M3)](docs/UNCERTAINTY.md) · [Roadmap](docs/ROADMAP.md)
 
 ## Dashboard Preview
 

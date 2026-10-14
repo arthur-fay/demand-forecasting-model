@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "experiment_id": "atlas-m3-smoke",
+  "description": "Small, fast end-to-end check of the M3 machinery for CI. Every origin and target lies in early 2024 (M2 development era); the calibration minimum is lowered so that bucket pooling is exercised. The results are not evidence about interval calibration.",
+  "backtest_config": "configs/backtest/atlas-m3-smoke-backtest.json",
+  "backtest_config_fingerprint": "3c9819cbe4c089c962a7ab30d2752bc3970a0e89d9f3021718eca16fedecd2ed",
+  "recommendation": null,
+  "max_horizon": 30,
+  "point_models": ["atlas_linear_regression", "same_weekday_median_5w"],
+  "primary_model": "atlas_linear_regression",
+  "residual_first_origin": "2024-02-01",
+  "residual_last_origin": "2024-05-31",
+  "levels": [0.8, 0.95],
+  "quantile_levels": [0.025, 0.1, 0.25, 0.5, 0.75, 0.9, 0.975],
+  "calibration": {
+    "data_latency_days": 0,
+    "min_calibration_origins": 20,
+    "min_effective_calibration": 5,
+    "pooling": "horizon_then_bucket"
+  },
+  "schemes": [
+    {"scheme_id": "rolling60", "kind": "rolling", "window_days": 60},
+    {"scheme_id": "fixed60", "kind": "fixed", "window_days": 60}
+  ],
+  "methods": [
+    {"type": "empirical_quantile", "method_id": "empirical_additive", "score": "additive"},
+    {"type": "empirical_quantile", "method_id": "empirical_relative", "score": "relative"},
+    {"type": "split_conformal", "method_id": "conformal_absolute", "score": "absolute"},
+    {"type": "gaussian_one_step", "method_id": "gaussian_one_step"},
+    {"type": "climatology", "method_id": "climatology_180d", "window_days": 180, "min_observations": 150}
+  ],
+  "candidates": [
+    {"method": "empirical_additive", "scheme": "rolling60"},
+    {"method": "conformal_absolute", "scheme": "rolling60"},
+    {"method": "empirical_relative", "scheme": "fixed60"}
+  ],
+  "baselines": [
+    {"method": "gaussian_one_step", "scheme": "rolling60"},
+    {"method": "climatology_180d"}
+  ],
+  "periods": [
+    {"name": "smoke_selection", "role": "selection", "first_origin": "2024-03-15", "last_origin": "2024-03-31", "description": "Smoke selection."},
+    {"name": "smoke_evaluation", "role": "evaluation", "first_origin": "2024-05-01", "last_origin": "2024-05-31", "description": "Smoke evaluation (development era)."}
+  ],
+  "selection": {
+    "period": "smoke_selection",
+    "point_model": "atlas_linear_regression",
+    "criterion": "wis",
+    "first_horizon": 1,
+    "last_horizon": 30,
+    "max_unavailable_rate": 0.0
+  },
+  "thresholds": [
+    {"kind": "historical_quantile", "label": "trailing180_p75", "window_days": 180, "quantile": 0.75, "min_observations": 150, "description": "75th percentile of the observed daily counts in the 180 days ending at the data cutoff; a demand reference, not a capacity."},
+    {"kind": "hypothetical", "label": "hypothetical_capacity_12000", "value": 12000, "units": "requests_per_day", "provenance": "HYPOTHETICAL", "assumptions": "Illustrative round number for the smoke check only; not the capacity of any NYC agency."}
+  ],
+  "decision_criteria": {
+    "coverage": [
+      {"level": 0.8, "tolerance_pct": 5.0},
+      {"level": 0.95, "tolerance_pct": 3.0}
+    ],
+    "alpha": 0.05,
+    "min_effective_sample_size": 30,
+    "exceedance_max_calibration_gap": 0.05,
+    "exceedance_reference": "climatology_180d"
+  },
+  "sensitivity": {"latency_days": [7], "strata": true}
+}

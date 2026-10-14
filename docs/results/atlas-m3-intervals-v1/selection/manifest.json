@@ -1,0 +1,517 @@
+{
+ "backtest_config": {
+  "comparison_windows": [
+   {
+    "description": "The 90 target days of the legacy one-step holdout, scored by every model at every horizon from the descriptive legacy_window origins (one refit per origin).",
+    "first_target": "2026-04-02",
+    "kind": "legacy_holdout",
+    "label": "legacy_holdout_window",
+    "last_target": "2026-06-30",
+    "period": "legacy_window"
+   }
+  ],
+  "data_delay_days": 0,
+  "description": "ATLAS M2 pre-registered protocol. Rolling-origin evaluation of the recursive 30-day forecasting procedure on legacy-v0: daily origins, expanding windows, refit at every origin with data through that origin only. Development period (selection) 2024-02-01..2025-05-31; embargo 2025-06-01..2025-06-29; confirmation period 2025-06-30..2026-05-31 (later, disjoint targets; never used to choose). The descriptive legacy_window period re-scores the legacy holdout days 2026-04-02..2026-06-30 at every horizon. Model specifications, selection rule, primary tests and sensitivity analyses were fixed before any run of this configuration.",
+  "experiment_id": "atlas-m2-rolling-origin-v1",
+  "horizon_buckets": [
+   {
+    "first": 1,
+    "label": "day_1",
+    "last": 1
+   },
+   {
+    "first": 2,
+    "label": "days_2_7",
+    "last": 7
+   },
+   {
+    "first": 8,
+    "label": "days_8_14",
+    "last": 14
+   },
+   {
+    "first": 15,
+    "label": "days_15_30",
+    "last": 30
+   }
+  ],
+  "max_horizon": 30,
+  "min_history_days": 365,
+  "models": [
+   {
+    "model_id": "naive",
+    "type": "naive"
+   },
+   {
+    "model_id": "seasonal_naive",
+    "season_days": 7,
+    "type": "seasonal_naive"
+   },
+   {
+    "model_id": "same_weekday_mean_4w",
+    "type": "same_weekday_mean",
+    "weeks": 4
+   },
+   {
+    "model_id": "same_weekday_median_5w",
+    "type": "same_weekday_median",
+    "weeks": 5
+   },
+   {
+    "burn_in_days": 28,
+    "model_id": "seasonal_exponential_smoothing",
+    "season_days": 7,
+    "type": "seasonal_exponential_smoothing"
+   },
+   {
+    "min_training_rows": 365,
+    "model_id": "legacy_linear_regression",
+    "type": "legacy_linear_regression"
+   },
+   {
+    "feature_set": "atlas-m2-regression-v1",
+    "min_training_rows": 365,
+    "model_id": "atlas_linear_regression",
+    "type": "atlas_linear_regression"
+   }
+  ],
+  "observed_input_diagnostic": true,
+  "periods": [
+   {
+    "allow_incomplete_horizons": false,
+    "first_origin": "2024-02-01",
+    "last_origin": "2025-05-31",
+    "name": "development",
+    "origin_stride_days": 1,
+    "role": "selection"
+   },
+   {
+    "allow_incomplete_horizons": false,
+    "first_origin": "2025-06-30",
+    "last_origin": "2026-05-31",
+    "name": "confirmation",
+    "origin_stride_days": 1,
+    "role": "confirmation"
+   },
+   {
+    "allow_incomplete_horizons": true,
+    "first_origin": "2026-03-03",
+    "last_origin": "2026-06-29",
+    "name": "legacy_window",
+    "origin_stride_days": 1,
+    "role": "descriptive"
+   }
+  ],
+  "reference_model": "seasonal_naive",
+  "schema_version": 1,
+  "selection": {
+   "alpha": 0.05,
+   "candidates": [
+    "naive",
+    "seasonal_naive",
+    "same_weekday_mean_4w",
+    "same_weekday_median_5w",
+    "seasonal_exponential_smoothing",
+    "atlas_linear_regression"
+   ],
+   "first_horizon": 1,
+   "last_horizon": 30,
+   "max_failure_rate": 0.0,
+   "metric": "mae",
+   "period": "development",
+   "regression_margin_pct": 3.0
+  },
+  "sensitivity": {
+   "exclude_flagged_targets": true,
+   "holiday_stratum": true,
+   "origin_exclusions": [
+    {
+     "first_origin": "2024-12-02",
+     "label": "legacy_identification_boundary",
+     "last_origin": "2025-01-31",
+     "reason": "Origins whose legacy design is affected by the leap-day step: trend, year and day of year are exactly collinear until 2025-01-01 (2025 targets not estimable from December 2024 origins), and afterwards the step is identified from very few 2025 rows (high leverage)."
+    }
+   ]
+  },
+  "snapshot_id": "legacy-v0",
+  "target_table": "daily_total",
+  "training_window": {
+   "days": null,
+   "kind": "expanding"
+  }
+ },
+ "backtest_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+ "code": {
+  "code_sha256": "9c26f4f5f37c9dc643dda8079c777821bf31221b616da307311e6a21cc38e628",
+  "files": 41,
+  "uv_lock_sha256": "b68edb43057d6cef83760598b02f6eeb5f809979fc91ea008174fa5f490b354e"
+ },
+ "complete": true,
+ "config": {
+  "backtest_config": "configs/backtest/atlas-m2-rolling-origin-v1.json",
+  "backtest_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+  "baselines": [
+   {
+    "method": "gaussian_one_step",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "climatology_180d",
+    "scheme": null
+   }
+  ],
+  "calibration": {
+   "data_latency_days": 0,
+   "min_calibration_origins": 100,
+   "min_effective_calibration": 20.0,
+   "pooling": "horizon_then_bucket"
+  },
+  "candidates": [
+   {
+    "method": "empirical_additive",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "empirical_relative",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "conformal_absolute",
+    "scheme": "rolling365"
+   },
+   {
+    "method": "empirical_additive",
+    "scheme": "fixed365"
+   },
+   {
+    "method": "empirical_relative",
+    "scheme": "fixed365"
+   },
+   {
+    "method": "conformal_absolute",
+    "scheme": "fixed365"
+   }
+  ],
+  "decision_criteria": {
+   "alpha": 0.05,
+   "coverage": [
+    {
+     "level": 0.8,
+     "tolerance_pct": 5.0
+    },
+    {
+     "level": 0.95,
+     "tolerance_pct": 3.0
+    }
+   ],
+   "exceedance_max_calibration_gap": 0.05,
+   "exceedance_reference": "climatology_180d",
+   "min_effective_sample_size": 30.0
+  },
+  "description": "ATLAS M3 pre-registered protocol: horizon-specific prediction intervals (80 % and 95 %) and threshold-exceedance probabilities for the M2 recursive 30-day forecasts on legacy-v0, calibrated only on residuals whose target date was observed by the issue date (latency 0 days, as in M2). Residuals come from the M2 engine re-run at every origin 2024-02-01..2026-06-29. Interval method and calibration scheme are selected on m3_selection (origins 2024-08-01..2025-05-31, scoring only M2 development-period targets) by mean WIS for the M2-recommended atlas_linear_regression, sealed, then evaluated on m3_evaluation (origins 2025-06-30..2026-05-31, the M2 confirmation period, already exposed in M2 and therefore a historical evaluation, not an untouched test). Candidates, baselines, thresholds, pooling rule and decision criteria were fixed before any M3 run on these data.",
+  "experiment_id": "atlas-m3-intervals-v1",
+  "levels": [
+   0.8,
+   0.95
+  ],
+  "max_horizon": 30,
+  "methods": [
+   {
+    "method_id": "empirical_additive",
+    "score": "additive",
+    "type": "empirical_quantile"
+   },
+   {
+    "method_id": "empirical_relative",
+    "score": "relative",
+    "type": "empirical_quantile"
+   },
+   {
+    "method_id": "conformal_absolute",
+    "score": "absolute",
+    "type": "split_conformal"
+   },
+   {
+    "method_id": "gaussian_one_step",
+    "type": "gaussian_one_step"
+   },
+   {
+    "method_id": "climatology_180d",
+    "min_observations": 150,
+    "type": "climatology",
+    "window_days": 180
+   }
+  ],
+  "periods": [
+   {
+    "description": "Interval-method selection. Starts six months after the first residual origin so that every horizon has at least 100 eligible calibration origins at the first issue; scores only M2 development-period targets (through 2025-06-30).",
+    "first_origin": "2024-08-01",
+    "last_origin": "2025-05-31",
+    "name": "m3_selection",
+    "role": "selection"
+   },
+   {
+    "description": "Historical evaluation of the sealed choice on the M2 confirmation origins (targets 2025-07-01..2026-06-30). Already exposed in M2: not an untouched prospective test.",
+    "first_origin": "2025-06-30",
+    "last_origin": "2026-05-31",
+    "name": "m3_evaluation",
+    "role": "evaluation"
+   }
+  ],
+  "point_models": [
+   "atlas_linear_regression",
+   "same_weekday_median_5w"
+  ],
+  "primary_model": "atlas_linear_regression",
+  "quantile_levels": [
+   0.025,
+   0.1,
+   0.25,
+   0.5,
+   0.75,
+   0.9,
+   0.975
+  ],
+  "recommendation": "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json",
+  "residual_first_origin": "2024-02-01",
+  "residual_last_origin": "2026-06-29",
+  "schema_version": 1,
+  "schemes": [
+   {
+    "kind": "rolling",
+    "scheme_id": "rolling365",
+    "window_days": 365
+   },
+   {
+    "kind": "fixed",
+    "scheme_id": "fixed365",
+    "window_days": 365
+   }
+  ],
+  "selection": {
+   "criterion": "wis",
+   "first_horizon": 1,
+   "last_horizon": 30,
+   "max_unavailable_rate": 0.0,
+   "period": "m3_selection",
+   "point_model": "atlas_linear_regression"
+  },
+  "sensitivity": {
+   "latency_days": [
+    7
+   ],
+   "strata": true
+  },
+  "thresholds": [
+   {
+    "description": "75th percentile (linear interpolation) of the observed daily counts in the 180 days ending at each forecast's data cutoff: the legacy 'planning capacity' rule recomputed at every origin. A high-demand reference derived from incoming requests, not a measured service capacity.",
+    "kind": "historical_quantile",
+    "label": "trailing180_p75",
+    "min_observations": 150,
+    "quantile": 0.75,
+    "window_days": 180
+   },
+   {
+    "assumptions": "Illustrative round number set above the legacy demand percentile of 11,609 requests per day. It is not derived from staffing, budgets, closures, backlog or service-level targets (none exist in the repository) and does not represent the capacity of any NYC agency; it only demonstrates how a user-supplied capacity threshold is handled.",
+    "kind": "hypothetical",
+    "label": "hypothetical_capacity_12000",
+    "provenance": "HYPOTHETICAL",
+    "units": "requests_per_day",
+    "value": 12000.0
+   },
+   {
+    "assumptions": "Second illustrative round number, 1,000 requests per day above the first, chosen without reference to any operational data; it does not represent the capacity of any NYC agency and exists to show that probabilities fall as the threshold rises.",
+    "kind": "hypothetical",
+    "label": "hypothetical_capacity_13000",
+    "provenance": "HYPOTHETICAL",
+    "units": "requests_per_day",
+    "value": 13000.0
+   }
+  ]
+ },
+ "config_fingerprint": "5afd32068ebc63b5838cfea545326916f0c4dd835ed294a301acd89d8622244b",
+ "data": {
+  "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+  "first_date": "2023-01-01",
+  "last_date": "2026-06-30",
+  "manifest_sha256": "3a57e7627d5e4eb5ba73cf2127a936a3d58131a79d52d1c2b8a0a695ad75fc5f",
+  "n_days": 1277,
+  "n_missing_days": 0,
+  "series_fingerprint": "7bb663463ef85df960938a2f7cbf7b779fe3cd1102989f198eca39f556378146",
+  "snapshot_id": "legacy-v0",
+  "table": "daily_total",
+  "table_path": "01 Data/daily_total.csv",
+  "table_sha256": "16a338f4851f62380a706a611e54706f52a29f3ee9a5adcea4f276b9b904d65c"
+ },
+ "environment": {
+  "atlas": "0.3.0",
+  "machine": "x86_64",
+  "numpy_blas_lapack": {
+   "blas": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   },
+   "lapack": {
+    "name": "scipy-openblas",
+    "version": "0.3.34.106.0"
+   }
+  },
+  "packages": {
+   "numpy": "2.5.4",
+   "pandas": "3.0.6",
+   "pydantic": "2.14.1"
+  },
+  "platform": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+  "python": "3.12.3",
+  "python_implementation": "CPython",
+  "thread_settings": {
+   "MKL_NUM_THREADS": "1",
+   "OMP_NUM_THREADS": "1",
+   "OPENBLAS_NUM_THREADS": "1"
+  }
+ },
+ "experiment_id": "atlas-m3-intervals-v1",
+ "flagged_target_dates": [
+  "2023-02-28",
+  "2023-03-03",
+  "2023-03-13",
+  "2023-03-14",
+  "2023-03-16",
+  "2023-09-15",
+  "2023-09-29",
+  "2023-10-01",
+  "2023-10-02",
+  "2023-10-03",
+  "2023-10-04",
+  "2023-12-27",
+  "2023-12-28",
+  "2024-04-11",
+  "2024-04-12",
+  "2024-04-13",
+  "2024-04-14",
+  "2024-04-15",
+  "2024-07-13",
+  "2024-07-14",
+  "2024-09-15",
+  "2024-09-16",
+  "2025-01-04",
+  "2025-05-11",
+  "2025-06-23",
+  "2025-06-24",
+  "2025-10-16",
+  "2025-10-31",
+  "2025-12-14",
+  "2026-01-30",
+  "2026-01-31",
+  "2026-02-01",
+  "2026-02-02",
+  "2026-02-03",
+  "2026-02-04",
+  "2026-02-05",
+  "2026-02-06",
+  "2026-02-07",
+  "2026-02-08",
+  "2026-02-09",
+  "2026-02-10",
+  "2026-02-11",
+  "2026-02-12",
+  "2026-02-24"
+ ],
+ "git": {
+  "available": true,
+  "commit": "cfdf634f1b535e0f2e70252f9d1c469bd9bac3da",
+  "dirty": false,
+  "dirty_paths": 0
+ },
+ "informational_not_fingerprinted": {
+  "created_at_utc": "2026-10-13T21:10:25+00:00",
+  "runtime_seconds": 137.7
+ },
+ "label": "HISTORICAL PROBABILISTIC BACKTEST: prediction intervals and exceedance probabilities re-issued at past origins from the residuals observable at each origin, and scored against recorded actuals. Not prospective validation.",
+ "models": [
+  {
+   "description": "Modernised regression atlas-m2-regression-v1: 18 non-collinear M1 features plus intercept, OLS on standardised columns (full rank required), recursive, clipped at 0.",
+   "family": "regression",
+   "feature_set": "atlas-m2-regression-v1",
+   "feature_set_fingerprint": "9e5d3e14cf7eb2aae0692c4ce6fe9d507a9374cf762fd6500c6bfd9e3299f6af",
+   "implementation_version": 1,
+   "model_id": "atlas_linear_regression",
+   "model_type": "atlas_linear_regression",
+   "params": {
+    "clip_at_zero": true,
+    "features": [
+     "is_iso_weekday_2",
+     "is_iso_weekday_3",
+     "is_iso_weekday_4",
+     "is_iso_weekday_5",
+     "is_iso_weekday_6",
+     "is_iso_weekday_7",
+     "year_sin_1",
+     "year_cos_1",
+     "year_sin_2",
+     "year_cos_2",
+     "trend_days",
+     "is_observed_holiday",
+     "is_day_before_holiday",
+     "is_day_after_holiday",
+     "lag_1",
+     "lag_7",
+     "same_weekday_mean_4w",
+     "rolling_mean_28"
+    ],
+    "fit_method": "standardized_ols",
+    "intercept": true,
+    "min_training_rows": 365,
+    "round_feedback": "none",
+    "training_horizon": 1
+   },
+   "procedure": "recursive",
+   "spec_fingerprint": "d71db4b2049760a1c703270c9322af5065a7dce55f706e6ea1bc13448202d0cc"
+  },
+  {
+   "description": "Median of the 5 most recent observed values on the target's weekday (on or before the origin).",
+   "family": "baseline",
+   "feature_set": null,
+   "feature_set_fingerprint": null,
+   "implementation_version": 1,
+   "model_id": "same_weekday_median_5w",
+   "model_type": "same_weekday_median",
+   "params": {
+    "weeks": 5
+   },
+   "procedure": "direct",
+   "spec_fingerprint": "3ba84e3905d5098d83c314877463cd15f0b5b8fca038da59ab1c48cc042a8a86"
+  }
+ ],
+ "outputs": {
+  "backtest_config.json": "56730e2a6a62e063dc04d78aaedbf3d80f57a75b3695688fc9538e474c675bf2",
+  "config.json": "332d4aac2efccec6cd9d74ab626af3828e73a1c38054fb23b0c122cefe47a414",
+  "exceedance.csv": "a0fcbbd977ff7dc204877025d5a750e6ba35c3daa2e746e83b0ee9077ebc6a81",
+  "forecasts.csv": "7ac41466bb8f75259de001901dc5822945f8491bdcf822015fccdee48db301cb",
+  "intervals.csv": "548fd133508c7e15e5408cd04052d8000d20303cff4d752203ecd2d5508ddbfe",
+  "metrics.json": "e04c8e68d06211830a13483cd47ceacf58ce117044e491faf01a5565f2b9ebb6",
+  "report.md": "c6b4759aa1b16f5f1fbbfb0e49cdb1346f4fe1ac599adbb72a96b0f901d0fabc",
+  "selection.json": "402dea06c0c318781c790d016d8cdb7156b743212817b6c736d0cb13df7da6a7"
+ },
+ "periods_run": [
+  "m3_selection"
+ ],
+ "recommendation": {
+  "path": "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json",
+  "recommendation_sha256": "2fa912c3bd2b9fc1c3cfbce28da5135eb76baf9888933cdd3b063821ee419620",
+  "recommended_model": "atlas_linear_regression",
+  "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a",
+  "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5-development-confirmation-legacy_window"
+ },
+ "record_type": "historical_probabilistic_backtest",
+ "result_files": [
+  "forecasts.csv",
+  "intervals.csv",
+  "exceedance.csv",
+  "metrics.json"
+ ],
+ "result_fingerprint": "2e67348990ba27eb811f73eddbad5d27d746a21644a2cc6c788b9296e3437194",
+ "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5-m3_selection",
+ "schema_version": 1,
+ "sealed_selection": null
+}

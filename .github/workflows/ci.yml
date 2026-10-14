@@ -64,3 +64,8 @@ jobs:
         run: |
           uv run atlas backtest run --config configs/backtest/smoke.json --output-dir "$RUNNER_TEMP/m2-smoke"
           uv run atlas backtest verify "$RUNNER_TEMP/m2-smoke"
+
+      - name: Smoke uncertainty run and byte-identical verification (M3)
+        run: |
+          uv run atlas uncertainty run --config configs/uncertainty/smoke.json --output-dir "$RUNNER_TEMP/m3-smoke"
+          uv run atlas uncertainty verify "$RUNNER_TEMP/m3-smoke"
