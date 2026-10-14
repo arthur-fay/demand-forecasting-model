@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "experiment_id": "atlas-m4-smoke",
+  "description": "Small, fast end-to-end check of the M4 machinery for CI: a 10-day horizon, four scenarios, short sweeps and one frontier. Every number is HYPOTHETICAL and chosen only to exercise feasible and infeasible scenarios; the results are not evidence about any NYC agency.",
+  "snapshot_id": "legacy-v0",
+  "horizon_days": 10,
+  "currency": "usd",
+  "forecast": {
+    "kind": "m2_projection_run",
+    "run_dir": "docs/results/atlas-m2-rolling-origin-v1/projection",
+    "projections_sha256": "1fb2f1a0c1ae0dfa722e11ebd8b79906a9d5945e7d0f352c9c580b630ffacab3",
+    "m2_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+    "backtest_run_dir": "docs/results/atlas-m2-rolling-origin-v1/full",
+    "model_id": "atlas_linear_regression"
+  },
+  "uncertainty": {
+    "calibration_status": "docs/results/atlas-m3-intervals-v1/full/calibration_status.json",
+    "calibration_status_sha256": "41768af15f69a28faf80c882d67b85aa2a271883df9ec93a835b49fe2a94a715",
+    "projection_run_dir": "docs/results/atlas-m3-intervals-v1/projection",
+    "projection_intervals_sha256": "0e648e0a3430af9b00181f439f110c769e4bb13d8b48da617a48873af65efa8c",
+    "projection_exceedance_sha256": "6eea63e3c878b32991822e63f1e8ff6f7171cfcc17cef51f1aac62c01d039a39"
+  },
+  "service_units": [
+    {
+      "unit_id": "citywide",
+      "description": "Smoke-test unit: one hypothetical city-wide pool of staff serving every request type.",
+      "initial_backlog": {
+        "value": 2000,
+        "unit": "requests",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test value; no backlog is observed in the data."
+      },
+      "regular_hours_per_day": {
+        "value": 4300,
+        "unit": "staff_hours_per_day",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test value chosen to leave a daily shortfall."
+      },
+      "regular_productivity": {
+        "value": 2.4,
+        "unit": "requests_per_staff_hour",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test value; no productivity is measured in the data."
+      },
+      "overtime_productivity": {
+        "value": 2.2,
+        "unit": "requests_per_staff_hour",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test value, a little below regular productivity."
+      },
+      "overtime_max_hours_per_day": {
+        "value": 500,
+        "unit": "staff_hours_per_day",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test daily overtime limit."
+      },
+      "overtime_total_hours": {
+        "value": 3000,
+        "unit": "staff_hours",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test horizon overtime limit."
+      },
+      "surge_max_per_day": {
+        "value": 500,
+        "unit": "requests_per_day",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test external surge capacity."
+      },
+      "surge_total": null,
+      "surge_available_from_day": {
+        "value": 1,
+        "unit": "planning_day",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test: surge available from the first day."
+      },
+      "regular_wage": {
+        "value": 38,
+        "unit": "usd_per_staff_hour",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test wage, not an NYC pay rate."
+      },
+      "overtime_wage": {
+        "value": 57,
+        "unit": "usd_per_staff_hour",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test overtime wage (1.5 times regular)."
+      },
+      "surge_price": {
+        "value": 28,
+        "unit": "usd_per_request",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test price of one externally processed request."
+      },
+      "backlog_penalty": {
+        "value": 1.5,
+        "unit": "usd_per_request_day",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test notional weight on each request waiting overnight."
+      },
+      "terminal_penalty": {
+        "value": 0,
+        "unit": "usd_per_request",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test: no extra weight on the final backlog."
+      },
+      "terminal_backlog_max": {
+        "value": 3000,
+        "unit": "requests",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test target for the backlog left after the last day."
+      },
+      "backlog_trigger": {
+        "value": 3000,
+        "unit": "requests",
+        "provenance": "HYPOTHETICAL",
+        "assumption": "Smoke-test trigger of the backlog-trigger rule."
+      }
+    }
+  ],
+  "discretionary_budget": {
+    "value": 200000,
+    "unit": "usd",
+    "provenance": "HYPOTHETICAL",
+    "assumption": "Smoke-test cash for overtime and surge over the horizon."
+  },
+  "scenarios": [
+    {
+      "scenario_id": "normal",
+      "description": "Smoke-test base case: the M2 point forecast and the base parameters."
+    },
+    {
+      "scenario_id": "reduced_budget",
+      "description": "Smoke-test: a quarter of the discretionary budget (infeasible on purpose).",
+      "adjustments": {
+        "discretionary_budget_multiplier": {
+          "value": 0.25,
+          "unit": "ratio",
+          "provenance": "HYPOTHETICAL",
+          "assumption": "Smoke-test cut of the discretionary budget."
+        }
+      }
+    },
+    {
+      "scenario_id": "delayed_surge",
+      "description": "Smoke-test: surge capacity only from day 4.",
+      "adjustments": {
+        "surge_available_from_day": {
+          "value": 4,
+          "unit": "planning_day",
+          "provenance": "HYPOTHETICAL",
+          "assumption": "Smoke-test delay of the surge contract."
+        }
+      }
+    },
+    {
+      "scenario_id": "m3_marginal_q90_stress",
+      "description": "Smoke-test HYPOTHETICAL stress path: each day's marginal M3 90 % quantile.",
+      "demand_basis": {
+        "kind": "m3_marginal_quantile",
+        "quantile": 0.9,
+        "interpretation": "hypothetical_stress_not_a_probability"
+      }
+    }
+  ],
+  "sensitivity": {
+    "base_scenario": "normal",
+    "sweeps": [
+      {
+        "parameter": "demand_multiplier",
+        "unit": "ratio",
+        "values": [
+          0.95,
+          1.0,
+          1.05
+        ],
+        "provenance": "HYPOTHETICAL"
+      },
+      {
+        "parameter": "discretionary_budget_multiplier",
+        "unit": "ratio",
+        "values": [
+          0,
+          0.5,
+          1.0,
+          2.0
+        ],
+        "provenance": "HYPOTHETICAL"
+      },
+      {
+        "parameter": "regular_hours_multiplier",
+        "unit": "ratio",
+        "values": [
+          0.95,
+          1.0,
+          1.05
+        ],
+        "provenance": "HYPOTHETICAL"
+      },
+      {
+        "parameter": "productivity_multiplier",
+        "unit": "ratio",
+        "values": [
+          0.95,
+          1.0,
+          1.05
+        ],
+        "provenance": "HYPOTHETICAL"
+      },
+      {
+        "parameter": "cost_multiplier",
+        "unit": "ratio",
+        "values": [
+          0.9,
+          1.0,
+          1.1
+        ],
+        "provenance": "HYPOTHETICAL"
+      },
+      {
+        "parameter": "backlog_penalty",
+        "unit": "usd_per_request_day",
+        "values": [
+          0,
+          1.5,
+          3
+        ],
+        "provenance": "HYPOTHETICAL"
+      }
+    ]
+  },
+  "frontier": {
+    "scenarios": [
+      "normal"
+    ],
+    "points": 5
+  },
+  "shadow_prices": {
+    "scenarios": [
+      "normal"
+    ],
+    "finite_difference_steps": {
+      "requests": 1.0,
+      "staff_hours": 1.0,
+      "usd": 100.0
+    }
+  },
+  "solver": {
+    "method": "highs-ds",
+    "presolve": true,
+    "primal_feasibility_tolerance": 1e-09,
+    "dual_feasibility_tolerance": 1e-09,
+    "maxiter": 10000
+  }
+}

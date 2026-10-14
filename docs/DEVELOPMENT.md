@@ -38,8 +38,19 @@ Milestone **M3** adds uncertainty ([UNCERTAINTY.md](UNCERTAINTY.md)):
   score, pinball loss, WIS, Brier, reliability) and a decision-grade status that is withheld
   when the criteria or the evidence fall short.
 
-ATLAS does **not** provide optimisation, an API or a dashboard, and it does not fetch data
-from the network. See [ROADMAP.md](ROADMAP.md).
+Milestone **M4** adds a hypothetical decision simulation ([OPTIMIZATION.md](OPTIMIZATION.md)):
+
+- a linear programme (SciPy HiGHS dual simplex) of daily service, overtime, surge and
+  backlog under a discretionary budget and a terminal-backlog target, with every
+  operational parameter declared `HYPOTHETICAL` in exact units;
+- optimality certificates from primal and dual values, a matrix-free check of every plan,
+  diagnostics and labelled relaxed plans for infeasible scenarios, a uniqueness test;
+- fixed-capacity and backlog-trigger policies under the same assumptions, tradeoff
+  frontiers, sensitivity sweeps with proved monotonicity checked, shadow prices bracketed by
+  finite differences; the M3 calibration status on every result.
+
+ATLAS does **not** provide an API or a dashboard, and it does not fetch data from the
+network. M4 results are not validated recommendations. See [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
@@ -53,9 +64,12 @@ from the network. See [ROADMAP.md](ROADMAP.md).
 uv sync --locked          # creates .venv with the exact versions in uv.lock
 ```
 
-Runtime dependencies are deliberately small: `pandas` and `pydantic` (NumPy and the
-rest come with them). Development tools (`pytest`, `pytest-cov`, `hypothesis`, `ruff`,
-`mypy`, `pandas-stubs`) are in the `dev` dependency group, installed by default.
+Runtime dependencies are deliberately small: `pandas`, `pydantic` and, from M4, `scipy`
+for its bundled HiGHS linear-programming solver (NumPy and the rest come with them).
+Development tools (`pytest`, `pytest-cov`, `hypothesis`, `ruff`, `mypy`, `pandas-stubs`,
+`scipy-stubs`) are in the `dev` dependency group, installed by default. `optype`, a
+typing-only dependency of `scipy-stubs`, is constrained to a release older than two weeks
+when M4 was resolved (`tool.uv.constraint-dependencies`).
 
 ## Run the checks
 
@@ -75,6 +89,9 @@ uv run atlas forecast --config configs/backtest/smoke.json   # M2: labelled futu
 uv run atlas uncertainty run --config configs/uncertainty/smoke.json --output-dir /tmp/m3
 uv run atlas uncertainty verify /tmp/m3   # M3: re-run and require identical result files
 uv run atlas uncertainty inspect /tmp/m3  # M3: integrity and headline results, no recomputation
+uv run atlas optimize run --config configs/optimization/smoke.json --output-dir /tmp/m4
+uv run atlas optimize verify /tmp/m4      # M4: re-run and require identical result files
+uv run atlas optimize inspect /tmp/m4     # M4: integrity and headline results, no recomputation
 uv run python -m atlas --version      # module entry point
 ```
 
@@ -141,6 +158,26 @@ and the calibration window), `exceedance.csv` (one row per forecast and threshol
 `calibration_status.json` inside the complete run that wrote it, recomputes the residual
 backtest (which must reproduce that run's `forecasts.csv`) and labels every projection with
 the evaluation status.
+
+### Running the M4 decision simulation
+
+`configs/optimization/atlas-m4-optimization-v1.json` is the reference configuration. It reads
+only committed, hash-verified files (the M2 projection and recommending run, the M3 status
+and projection), so it runs offline in well under a minute:
+
+```bash
+uv run atlas optimize run --require-clean --output-dir runs/m4
+uv run atlas optimize verify runs/m4
+uv run atlas optimize inspect runs/m4
+```
+
+A run directory holds `manifest.json`, `config.json`, `scenarios.csv` (one row per scenario
+and plan: optimised, relaxed, without the target, policies, LP at equal cash / backlog),
+`plans.csv` (one row per scenario, plan and day), `duals.csv` (every row and bound with its
+shadow price and finite-difference bracket), `sensitivity.csv`, `frontier.csv`,
+`metrics.json` and `report.md`. Every CSV row carries the HYPOTHETICAL and not-validated
+labels and the M3 status. The curated reference copy is in
+`docs/results/atlas-m4-optimization-v1/`.
 
 ### Reproducibility across machines
 
@@ -217,8 +254,9 @@ run subsets with `--no-cov`, for example `uv run pytest -m integration --no-cov`
 
 GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus `atlas check`,
 `atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
-`atlas backtest verify`, and an M3 smoke run followed by `atlas uncertainty verify` on
-pushes to `main` and on pull requests. It installs uv from a hash-pinned requirements file
+`atlas backtest verify`, an M3 smoke run followed by `atlas uncertainty verify`, and the M4
+smoke and reference runs followed by `atlas optimize verify` and `inspect`, on pushes to
+`main` and on pull requests. It installs uv from a hash-pinned requirements file
 (`.github/ci-requirements.txt`).
 
 ## Repository layout
@@ -229,9 +267,10 @@ tests/                pytest suite
 snapshots/legacy-v0/  frozen manifest and known-exception register
 configs/backtest/     versioned M2 experiment configurations (pre-registered protocol)
 configs/uncertainty/  versioned M3 uncertainty configurations (pre-registered protocol)
+configs/optimization/ versioned M4 decision-simulation configurations (HYPOTHETICAL values)
 docs/                 this guide, architecture, data, limitations, roadmap, backtesting,
-                      uncertainty
-docs/results/         curated reference results of the M2 and M3 runs
+                      uncertainty, optimisation
+docs/results/         curated reference results of the M2, M3 and M4 runs
 runs/                 local run directories (git-ignored)
 01 Data/ ... 06 Exports/   original project artifacts, unchanged and hash-verified
 ```

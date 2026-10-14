@@ -22,6 +22,11 @@ from atlas.config import Settings, load_settings
 from atlas.errors import AtlasError
 from atlas.features import default_feature_set
 from atlas.issues import CheckReport, Severity
+from atlas.optimization_runner import (
+    inspect_optimization_command,
+    run_optimization_command,
+    verify_optimization_command,
+)
 from atlas.pipeline import Stage, run, run_quality
 from atlas.registry import spec_for
 from atlas.runner import (
@@ -58,7 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
             "ATLAS: verify, validate and reproduce the registered data snapshot (M0); "
             "assess data quality and describe forecast features (M1); rolling-origin "
             "backtests and labelled future projections (M2); prediction intervals and "
-            "exceedance probabilities (M3)."
+            "exceedance probabilities (M3); HYPOTHETICAL decision simulation and "
+            "optimisation (M4)."
         ),
     )
     parser.add_argument("--version", action="version", version=f"atlas {__version__}")
@@ -159,11 +165,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="recommendation.json of a confirmation run: project only the recommended model.",
     )
     _add_uncertainty_parser(commands)
+    _add_optimization_parser(commands)
     return parser
 
 
 DEFAULT_CONFIG = Path("configs/backtest/atlas-m2-rolling-origin-v1.json")
 DEFAULT_UNCERTAINTY_CONFIG = Path("configs/uncertainty/atlas-m3-intervals-v1.json")
+DEFAULT_OPTIMIZATION_CONFIG = Path("configs/optimization/atlas-m4-optimization-v1.json")
+
+
+def _add_optimization_parser(commands: Any) -> None:
+    optimize = commands.add_parser(
+        "optimize",
+        help="HYPOTHETICAL decision simulation: scenarios, LP plans, sensitivity (M4).",
+    )
+    sub = optimize.add_subparsers(dest="optimize_command", required=True)
+    run_parser = sub.add_parser(
+        "run",
+        help="Integrity, validation, verified M2/M3 inputs, then every scenario and analysis.",
+    )
+    run_parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=f"M4 configuration (default: {DEFAULT_OPTIMIZATION_CONFIG} in the repository).",
+    )
+    run_parser.add_argument(
+        "--output-dir", type=Path, default=None, help="Run directory (default: runs/<run id>)."
+    )
+    run_parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="Refuse to run if code, configs or tests have uncommitted changes (reference runs).",
+    )
+    verify = sub.add_parser(
+        "verify", help="Re-run a recorded M4 run; pass only if every result file is identical."
+    )
+    verify.add_argument("run_dir", type=Path, help="Directory of a recorded M4 run.")
+    inspect = sub.add_parser(
+        "inspect", help="Check an M4 run directory against its manifest and print its results."
+    )
+    inspect.add_argument("run_dir", type=Path, help="Directory of a recorded M4 run.")
 
 
 def _add_uncertainty_parser(commands: Any) -> None:
@@ -459,6 +501,30 @@ def _render_uncertainty_projection(facts: Any, stream: TextIO) -> None:
         stream.write(f"    {row['target_date']}  {_bound(row['prediction']):>9}  {bounds}\n")
 
 
+def _render_optimization(facts: Any, stream: TextIO) -> None:
+    if "scenarios" not in facts:
+        return
+    if "run_dir" in facts:
+        stream.write(f"  {facts['label']}\n  run directory {facts['run_dir']}\n")
+    if facts.get("complete") is False:
+        stream.write("  INCOMPLETE RUN: an independent check failed; see the errors above\n")
+    if facts.get("files_absent"):
+        stream.write(f"  not kept: {', '.join(facts['files_absent'])}\n")
+    stream.write(
+        f"  M3 calibration status {str(facts['m3_interval_status']).upper()}: not decision-grade"
+        f"\n  result fingerprint {facts['result_fingerprint']}\n"
+    )
+    stream.write(
+        "  scenario                    plan                      cash USD  request-days  terminal\n"
+    )
+    for row in facts["scenarios"]:
+        stream.write(
+            f"    {row['scenario_id']:26} {row['feasibility']:24} "
+            f"{_bound(row['discretionary_cost']):>9} {_bound(row['backlog_request_days']):>13} "
+            f"{_bound(row['terminal_backlog']):>9}\n"
+        )
+
+
 def _bound(value: Any) -> str:
     return "n/a" if value is None or value != value else f"{value:,.0f}"
 
@@ -472,6 +538,9 @@ _M2_RENDERERS = {
     "uncertainty_inspection": _render_uncertainty,
     "uncertainty_verification": _render_uncertainty_verification,
     "uncertainty_projection": _render_uncertainty_projection,
+    "optimization": _render_optimization,
+    "optimization_inspection": _render_optimization,
+    "optimization_verification": _render_uncertainty_verification,
 }
 
 
@@ -547,6 +616,21 @@ def _uncertainty(args: argparse.Namespace, settings: Settings) -> list[CheckRepo
     return uncertainty_projection_command(settings, args.status, output_dir=args.output_dir)
 
 
+def _optimize(args: argparse.Namespace, settings: Settings) -> list[CheckReport]:
+    if args.optimize_command == "run":
+        config = (
+            args.config
+            if args.config is not None
+            else settings.repo_root / DEFAULT_OPTIMIZATION_CONFIG
+        )
+        return run_optimization_command(
+            settings, config, output_dir=args.output_dir, require_clean=args.require_clean
+        )
+    if args.optimize_command == "verify":
+        return verify_optimization_command(settings, args.run_dir)
+    return inspect_optimization_command(args.run_dir)
+
+
 def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int:
     out = stdout if stdout is not None else sys.stdout
     parser = build_parser()
@@ -563,6 +647,8 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
             reports = _backtest(args, settings)
         elif args.command == "uncertainty":
             reports = _uncertainty(args, settings)
+        elif args.command == "optimize":
+            reports = _optimize(args, settings)
         elif args.command == "forecast":
             reports = projection_command(
                 settings,
