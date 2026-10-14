@@ -621,7 +621,10 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
     attempts = [unlimited, unlimited_plan, within, relaxed_optimum, relaxed]
     binding: dict[str, int] = {}
     if unlimited_plan.solved is not None:
-        binding = binding_constraints(problem, unlimited_plan.solved.plan)
+        # The unlimited-cash programme has no budget row: the budget cannot bind there.
+        binding = binding_constraints(
+            replace(problem, discretionary_budget=None), unlimited_plan.solved.plan
+        )
     reachable = least_unlimited is not None and least_unlimited <= tolerance(least_unlimited)
     if least_unlimited is None:  # pragma: no cover - soft targets are always feasible
         reasons.append("the least terminal-target violation could not be computed")
@@ -1518,20 +1521,6 @@ def format_binding(counts: Mapping[str, int]) -> tuple[str, ...]:
     return tuple(
         f"{name} ({counts[name]} days)" if name in DAILY_CONSTRAINTS else name
         for name in sorted(counts)
-    )
-
-
-def binding_summary(duals: Sequence[DualValue]) -> tuple[str, ...]:
-    """Binding constraint kinds with the number of days they bind (balance rows omitted)."""
-    counts: dict[str, int] = {}
-    for dual in duals:
-        if dual.binding and dual.constraint != "balance":
-            counts[dual.constraint] = counts.get(dual.constraint, 0) + 1
-    return tuple(
-        name if dual_day is None else f"{name} ({counts[name]} days)"
-        for name, dual_day in (
-            (name, next(d.day for d in duals if d.constraint == name)) for name in sorted(counts)
-        )
     )
 
 

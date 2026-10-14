@@ -488,6 +488,23 @@ def test_shadow_price_statuses_do_not_depend_on_the_scale_of_the_inputs() -> Non
     assert statuses[0] == statuses[1]
 
 
+def test_an_exceeded_budget_is_not_a_binding_budget() -> None:
+    # The unlimited-cash least-violation plan has no budget row: it may spend more than the
+    # budget, which must not be described as "discretionary budget spent".
+    problem = PlanningProblem(
+        date(2026, 7, 1),
+        (unit(demand=(30.0, 0.0), regular_hours=(0.0, 0.0), terminal_backlog_max=0.0),),
+        5.0,
+    )
+    diagnosis = diagnose(problem, SETTINGS)
+    assert "budget" not in diagnosis.binding_unlimited
+    assert "discretionary budget spent" not in diagnosis.reasons[0]
+    over = diagnosis.attempts[1].require().plan
+    counts = binding_constraints(problem, over)
+    assert counts.get("budget_exceeded") == 1
+    assert "budget" not in counts
+
+
 def test_penalty_objective_is_checked_against_the_plan() -> None:
     attempt = solve_problem(tied_problem(), SETTINGS, Objective.PENALTY)
     solved = attempt.require()
@@ -664,6 +681,22 @@ def test_reference_runs_need_a_committed_configuration(tmp_path: Path) -> None:
         _require_committed_config(root, inside)
     subprocess.run([*git, "add", "configs/m4.json"], check=True)  # noqa: S603
     _require_committed_config(root, inside)
+
+
+@pytest.mark.integration
+def test_report_scenario_table_shows_the_reported_plan_not_a_vertex(smoke: Any) -> None:
+    # The reference run's increased_costs optimum is not unique: the frozen report showed
+    # the solver's vertex (269,305 USD) next to a least-cash reported plan (268,996 USD).
+    _, outputs = smoke
+    payload = json.loads(outputs.files["metrics.json"])
+    scenario = payload["scenarios"][0]
+    assert "strict" not in scenario
+    vertex = scenario["strict_programme"]["evaluation"]
+    vertex["discretionary_cost"] = 987_654_321.0
+    reported = scenario["reported_plan"]["evaluation"]["discretionary_cost"]
+    report = render_optimization_report(payload)
+    assert "987,654,321" not in report
+    assert f"{reported:,.0f}" in report
 
 
 @pytest.mark.integration

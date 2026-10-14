@@ -66,8 +66,8 @@ def _difference(value: float | None, unit: str, fewer: str, more: str, digits: i
 
 
 def _reported(scenario: Mapping[str, Any]) -> Mapping[str, Any]:
-    key = "strict" if scenario["feasibility"] == "strict" else "relaxed"
-    return (scenario.get(key) or {}).get("evaluation") or {}
+    """The reported plan: the least-cash optimal strict plan, or the relaxed plan."""
+    return (scenario.get("reported_plan") or {}).get("evaluation") or {}
 
 
 def render_optimization_report(payload: Mapping[str, Any]) -> str:
@@ -314,9 +314,11 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
     lines = [
         "## Is the optimal plan unique?",
         "",
-        "An active-set test over all plans within solver accuracy of the optimal score. When "
-        "the plan is not unique, the daily schedule shown is one of several equally scored "
-        "HYPOTHETICAL plans and its day-by-day allocation is not determined by the model.",
+        "An active-set test over the exact optimal face (complementary slackness with the "
+        "certified duals; prices tied to within solver accuracy count as tied). When the "
+        "plan is not unique, the daily schedule shown is one of several equally scored "
+        "HYPOTHETICAL plans and its day-by-day allocation is not determined by the model; "
+        "the ranges are over all optimal plans.",
         "",
     ]
     rows = []
@@ -457,9 +459,15 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
             else "with the terminal target kept, no plan meets the HYPOTHETICAL target at "
             "any cash cap"
         )
+        dropped = (
+            f"without the target, extra cash beyond {_n(least.get('dropped'))} USD lowers the "
+            "penalty no further"
+            if least.get("dropped") is not None
+            else "without the target, no point could be computed"
+        )
         lines.append(
-            f"- `{s['scenario_id']}`: {kept} ({_n(least.get('dropped'))} USD without the "
-            "target), under this deterministic demand path and the HYPOTHETICAL prices; the "
+            f"- `{s['scenario_id']}`: {kept}; {dropped}; "
+            "under this deterministic demand path and the HYPOTHETICAL prices; the "
             f"curve is non-increasing: {_n(f['monotone_ok'])}, convex: {_n(f['convex_ok'])}; "
             f"the strict plan lies on it: {f['on_frontier_check']}. DIAGNOSTIC tradeoff "
             "points, not budgets."

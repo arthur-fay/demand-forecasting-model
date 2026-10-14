@@ -664,6 +664,17 @@ def _attempt_summary(attempt: Attempt | None) -> dict[str, Any] | None:
     }
 
 
+def _programme_summary(attempt: Attempt) -> dict[str, Any] | None:
+    summary = _attempt_summary(attempt)
+    if summary is None or attempt.solved is None:
+        return summary
+    return {
+        **summary,
+        "evaluation_note": "one optimal vertex returned by the solver; the reported plan is "
+        "reported_plan (least discretionary cash among the optimal plans)",
+    }
+
+
 def _comparisons(result: ScenarioResult) -> list[dict[str, Any]]:
     reported = result.reported.solved
     if reported is None:
@@ -748,7 +759,9 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             OPTIMIZED if result.strict.optimal else RELAXED_TERMINAL_TARGET
         ],
         "reported_plan": _attempt_summary(result.reported),
-        "strict": _attempt_summary(result.strict),
+        # The planning programme itself: its optimal value and certificate; its evaluation
+        # is one optimal vertex, not the reported plan when the optimum is not unique.
+        "strict_programme": _programme_summary(result.strict),
         "without_terminal_target": _attempt_summary(
             result.without_target_plan or result.without_target
         ),

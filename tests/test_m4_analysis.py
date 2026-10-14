@@ -29,7 +29,6 @@ from atlas.decision_analysis import (
     FiniteDifference,
     analyse_scenario,
     apply_sweep,
-    binding_summary,
     diagnose,
     evaluate_policy,
     finite_differences,
@@ -41,7 +40,7 @@ from atlas.decision_analysis import (
     solve_lexicographic,
     solve_problem,
 )
-from atlas.optimizer import DualValue, Objective, SolverSettings, SolveStatus, Terminal
+from atlas.optimizer import Objective, SolverSettings, SolveStatus, Terminal
 from atlas.planning import (
     Plan,
     PlanningProblem,
@@ -1078,31 +1077,6 @@ def test_analyse_scenario_infeasible_instance_reports_the_relaxed_plan() -> None
     assert result.problems == ()
     assert result.frontier is not None
     assert result.frontier.on_frontier_check == "not_applicable"
-
-
-def _dual(constraint: str, day: int | None, binding: bool, unit_id: str | None = "u") -> DualValue:
-    return DualValue(constraint, unit_id, day, 1.0, 0.0, binding, 0.0, "requests", "usd")
-
-
-def test_binding_summary_counts_binding_days_and_omits_balance() -> None:
-    duals = [
-        _dual("balance", 0, True),
-        _dual("balance", 1, True),
-        _dual("capacity", 0, True),
-        _dual("capacity", 1, True),
-        _dual("capacity", 2, False),
-        _dual("overtime_daily_limit", 1, True),
-        _dual("surge_daily_limit", 0, False),
-        _dual("budget", None, True, None),
-        _dual("terminal_backlog", None, False),
-    ]
-    assert binding_summary(duals) == (
-        "budget",
-        "capacity (2 days)",
-        "overtime_daily_limit (1 days)",
-    )
-    assert binding_summary([]) == ()
-    assert binding_summary([_dual("balance", 0, True)]) == ()
 
 
 def test_solve_problem_checks_agree_with_reference_lp_on_terminal_backlog_objective() -> None:

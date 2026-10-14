@@ -548,8 +548,9 @@ def binding_constraints(problem: PlanningProblem, plan: Plan) -> dict[str, int]:
     Daily constraints map to the number of days they bind; a daily limit of zero (for
     example surge before it becomes available) is not counted, because nothing can be
     bought anyway. ``terminal_backlog_violated`` marks a plan above its terminal target
-    (a relaxed plan). Independent of the LP and of its dual values, so it works for every
-    plan, relaxed and policy plans included.
+    (a relaxed plan) and ``budget_exceeded`` a plan above the budget (a diagnostic plan
+    computed without the budget row); neither is a binding limit. Independent of the LP and
+    of its dual values, so it works for every plan, relaxed and policy plans included.
     """
     _check_shapes(problem, plan)
     counts: dict[str, int] = {}
@@ -586,7 +587,9 @@ def binding_constraints(problem: PlanningProblem, plan: Plan) -> dict[str, int]:
     budget = problem.discretionary_budget
     if budget is not None:
         spent = evaluate_plan(problem, plan).discretionary_cost
-        if budget - spent <= tolerance(spent, budget):
+        if spent > budget + tolerance(spent, budget):
+            add("budget_exceeded")  # a plan for which the budget was not a constraint
+        elif budget - spent <= tolerance(spent, budget):
             add("budget")
     return counts
 
