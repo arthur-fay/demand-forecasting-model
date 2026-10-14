@@ -114,6 +114,9 @@ class ServiceUnit:
     Per-day sequences have one value per planning day. ``surge_max`` is zero on days when
     surge capacity is not available (for example before a delayed start). ``None`` for a
     total or for ``terminal_backlog_max`` means that limit is not imposed.
+    ``surge_capacity_when_available`` is the configured daily surge capacity, also when it
+    becomes available only after the horizon (``surge_max`` all zero); only the
+    infeasibility diagnosis reads it, to test a surge that starts earlier.
     """
 
     unit_id: str
@@ -132,6 +135,7 @@ class ServiceUnit:
     overtime_total_hours: float | None = None
     surge_total: float | None = None
     terminal_backlog_max: float | None = None
+    surge_capacity_when_available: float | None = None
 
     def __post_init__(self) -> None:
         if not _UNIT_ID.fullmatch(self.unit_id):
@@ -157,7 +161,12 @@ class ServiceUnit:
             "terminal_penalty",
         )
         _finite_nonnegative(f"{self.unit_id} parameters", [getattr(self, n) for n in scalars])
-        optional = ("overtime_total_hours", "surge_total", "terminal_backlog_max")
+        optional = (
+            "overtime_total_hours",
+            "surge_total",
+            "terminal_backlog_max",
+            "surge_capacity_when_available",
+        )
         _finite_nonnegative(
             f"{self.unit_id} limits",
             [v for v in (getattr(self, n) for n in optional) if v is not None],

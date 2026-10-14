@@ -507,9 +507,11 @@ def _render_optimization(facts: Any, stream: TextIO) -> None:
     if "run_dir" in facts:
         stream.write(f"  {facts['label']}\n  run directory {facts['run_dir']}\n")
     if facts.get("complete") is False:
-        stream.write("  INCOMPLETE RUN: an independent check failed; see the errors above\n")
+        stream.write(
+            "  INCOMPLETE RUN: the manifest marks the run incomplete; see the errors above\n"
+        )
     if facts.get("files_absent"):
-        stream.write(f"  not kept: {', '.join(facts['files_absent'])}\n")
+        stream.write(f"  missing: {', '.join(facts['files_absent'])}\n")
     grade = "decision-grade" if facts.get("m3_decision_grade") else "not decision-grade"
     stream.write(
         f"  M3 calibration status {str(facts['m3_interval_status']).upper()}: {grade}"
@@ -537,16 +539,27 @@ def _render_optimization_verification(facts: Any, stream: TextIO) -> None:
         f"  {facts['label']}\n  M3 calibration status "
         f"{str(facts['m3_interval_status']).upper()}: {grade}\n"
     )
-    same = all(v == "identical" for v in facts["files"].values()) and (
-        facts.get("recorded_result_fingerprint") == facts["result_fingerprint"]
-    )
+    same = all(v == "identical" for v in facts["files"].values())
     stream.write(
-        f"  recomputation {'identical' if same else 'DIFFERENT'}: "
+        f"  recomputed files {'identical to' if same else 'DIFFERENT from'} the recorded hashes: "
         + ", ".join(f"{k} {v}" for k, v in facts["files"].items())
-        + f"\n  result fingerprint {facts['result_fingerprint']}\n"
+        + f"\n  result fingerprint {facts['result_fingerprint']}"
+        + (
+            ""
+            if facts.get("recorded_result_fingerprint") == facts["result_fingerprint"]
+            else f" (the manifest records {facts.get('recorded_result_fingerprint')})"
+        )
+        + "\n"
     )
     if facts.get("altered_on_disk"):
         stream.write(f"  altered on disk: {', '.join(facts['altered_on_disk'])}\n")
+    if facts.get("manifest_entries_edited"):
+        stream.write(
+            "  manifest entry differs from the file on disk (which equals the "
+            f"recomputation): {', '.join(facts['manifest_entries_edited'])}\n"
+        )
+    if facts.get("files_absent"):
+        stream.write(f"  missing: {', '.join(facts['files_absent'])}\n")
     if facts.get("recomputed_errors"):
         stream.write(f"  failed checks in the recomputation: {facts['recomputed_errors']}\n")
     for name, (then, now) in facts["provenance_differences"].items():

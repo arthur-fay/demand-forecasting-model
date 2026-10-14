@@ -305,10 +305,11 @@ def test_reasons_name_only_limits_whose_relaxation_lowers_the_violation() -> Non
     diagnosis = diagnose(problem, SETTINGS)
     text = " ".join(diagnosis.reasons)
     assert "the least violation is 50.0 requests" in text
-    assert "the daily overtime limit of 10 staff hours (to 0.0 requests)" in text
-    assert "the daily surge limit of 5 requests (to 0.0 requests)" in text
-    assert "delay" not in text
-    assert "total" not in text
+    assert "the daily overtime limit of 10 staff hours (to 0.0 requests without it)" in text
+    assert "the daily surge limit of 5 requests (to 0.0 requests without it)" in text
+    assert "the surge delay" not in text
+    assert "overtime total of" not in text
+    assert "surge total of" not in text
     relaxed = diagnosis.limit_relaxations
     assert relaxed["u:overtime_daily_limit"] == pytest.approx(0.0, abs=1e-9)
 
@@ -734,7 +735,7 @@ def test_reference_runs_need_a_committed_configuration(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="not tracked"):
         _require_committed_config(root, inside)
     subprocess.run([*git, "add", "configs/m4.json"], check=True)  # noqa: S603
-    with pytest.raises(ConfigError, match="differs from the committed file"):
+    with pytest.raises(ConfigError, match="not in the commit at HEAD"):
         _require_committed_config(root, inside)  # staged, not committed
     subprocess.run([*git, "commit", "-q", "-m", "c"], check=True)  # noqa: S603
     _require_committed_config(root, inside)

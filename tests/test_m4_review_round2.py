@@ -321,7 +321,7 @@ def test_reasons_attribute_limits_to_their_own_unit() -> None:
     text = diagnosis.reasons[0]
     assert "a: the overtime total of 1 staff hours" in text
     assert "b:" not in text
-    assert "delay" not in text
+    assert "the surge delay" not in text
 
 
 def test_a_daily_limit_that_cannot_lower_the_violation_is_not_named() -> None:
@@ -336,7 +336,7 @@ def test_a_daily_limit_that_cannot_lower_the_violation_is_not_named() -> None:
     )
     diagnosis = diagnose(problem, SETTINGS)
     text = diagnosis.reasons[0]
-    assert "the overtime total of 10 staff hours (to 160.0 requests)" in text
+    assert "the overtime total of 10 staff hours (to 160.0 requests without it)" in text
     assert "daily overtime limit" not in text
     assert diagnosis.limit_relaxations["u:overtime_daily_limit"] == pytest.approx(170.0)
 
@@ -601,9 +601,9 @@ def test_verify_text_separates_recomputation_from_on_disk_changes(tmp_path: Path
     stream = io.StringIO()
     assert main(["optimize", "verify", str(run_dir)], stdout=stream) == 1
     text = stream.getvalue()
-    assert "recomputation identical" in text
+    assert "recomputed files identical to the recorded hashes" in text
     assert "altered on disk: report.md" in text
-    assert "results DIFFERENT" not in text
+    assert "DIFFERENT" not in text
 
 
 def test_duals_describe_the_reported_plan() -> None:

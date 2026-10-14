@@ -141,6 +141,7 @@ def render_optimization_report(payload: Mapping[str, Any]) -> str:
     lines += _dual_section(payload["scenarios"])
     lines += _frontier_section(payload["scenarios"])
     lines += _sensitivity_section(payload)
+    lines += _checks_section(payload.get("checks") or {})
     lines += ["## Limitations", ""]
     lines.append(
         "- Demand is an unvalidated point forecast (M2 future projection). Over horizons "
@@ -150,6 +151,22 @@ def render_optimization_report(payload: Mapping[str, Any]) -> str:
     lines += [f"- {text}" for text in LIMITATIONS]
     lines += ["", NOT_A_RECOMMENDATION, ""]
     return "\n".join(lines)
+
+
+def _checks_section(checks: Mapping[str, Any]) -> list[str]:
+    errors = checks.get("errors")
+    fallbacks = checks.get("stage_fallbacks")
+    return [
+        "## Run checks",
+        "",
+        f"- Failed checks (ERRORs): {_n(errors)}. Any failed certificate, plan check, "
+        "objective agreement, bracket or proved property is an ERROR and marks the run "
+        "incomplete.",
+        f"- Stage fallbacks: {_n(fallbacks)}. A lexicographic stage or optimal-face test "
+        "that needed a fallback is a WARNING; `stage_fallbacks` in `metrics.json` lists them "
+        "per scenario and sweep point.",
+        "",
+    ]
 
 
 def _model_section() -> list[str]:
@@ -178,8 +195,10 @@ def _model_section() -> list[str]:
         "`relaxed_terminal_target`: least target violation within the budget first, then "
         "the planning objective. When several plans share the optimal score, ties are broken "
         "by the least discretionary cash, then the least terminal backlog, then the least "
-        "request-days, so every reported total is determined; the ranges over all optimal "
-        "plans are shown in the uniqueness table.",
+        "request-days, so the reported cash, terminal backlog and request-days are "
+        "determined; whether the overtime/surge split and the daily schedule are too is "
+        "tested (`unique after tie-breaks` in the uniqueness table, with the ranges over "
+        "all optimal plans).",
         "",
     ]
 
@@ -341,7 +360,11 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         "staff hours in that distance. For an infeasible scenario the test is on its relaxed "
         "plan. When the plan is not unique, its day-by-day allocation in `plans.csv` is one "
         "of several equally scored HYPOTHETICAL plans; the ranges are over all optimal "
-        "plans.",
+        "plans, and `days with extra capacity not determined` counts the days whose "
+        "overtime plus surge (requests) differs between them. `unique after tie-breaks` "
+        "applies the same test to the reported plan within the tie-breaks (same score, "
+        "cash, terminal backlog and request-days): `no` means its overtime/surge split or "
+        "daily schedule is still one of several.",
         "",
     ]
     rows = []
@@ -360,6 +383,7 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
                 f"`{s['scenario_id']}`",
                 "strict" if s["feasibility"] == "strict" else "relaxed",
                 _n(face["unique"]),
+                _n((s.get("reported_plan_after_tie_breaks") or {}).get("unique")),
                 _n(face["undetermined_days"]),
                 span("discretionary_cash"),
                 span("backlog_request_days"),
@@ -373,7 +397,8 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
             "scenario",
             "plan tested",
             "unique",
-            "days not determined",
+            "unique after tie-breaks",
+            "days with extra capacity not determined",
             "discretionary cash (USD)",
             "request-days",
             "terminal backlog (requests)",
@@ -454,7 +479,9 @@ def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
             f"({'all brackets hold' if p['brackets_ok'] else 'A BRACKET FAILED'}); "
             f"{p['locally_unique']} locally unique, {p['breakpoint']} at a breakpoint, "
             f"{p['domain_boundary_or_infeasible_side']} at a domain boundary or with an "
-            f"infeasible side, {p.get('solver_failed', 0)} not computed (solver failure)."
+            f"infeasible side, {p.get('backward_unresolved', 0)} with a backward step too "
+            "small to resolve the slope (a right-hand side below the step), "
+            f"{p.get('solver_failed', 0)} not computed (solver failure)."
         )
     lines.append("")
     return lines

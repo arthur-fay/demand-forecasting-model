@@ -157,10 +157,11 @@ was left a millionth of a dollar unspent and so not reported as binding), and on
 prices the cap row, parallel to the objective, made HiGHS fail. Each later stage is now
 solved on the **exact optimal face** of the earlier one, built by complementary slackness
 from the certified duals (bounds with a nonzero reduced cost fixed, rows with a nonzero dual
-made equalities; values within the certificate's dual tolerance `1e-9 × max(1, max|c|)`
-count as zero). Each stage is checked to keep the earlier optimum; only if the solver fails
-on the face programme is the epsilon cap used; every programme summary in `metrics.json`
-records it as `lexicographic_epsilon_fallback` (none was needed on the reference run).
+made equalities; in this first amendment values within `1e-9 × max(1, max|c|)` counted
+as zero, per column and per row since R2). Each stage is checked to keep the earlier
+optimum. In this first amendment the epsilon cap was used only when the solver failed on the
+face programme, and recorded as `lexicographic_epsilon_fallback` in four programme summaries
+only; R2 (below) widened both the fallback and its record (`stage_fallback`).
 
 **Amended (R2).** The second review found that one large objective weight widened the tie
 tolerance of every other column, that a later stage was not checked to keep the earlier
@@ -213,8 +214,9 @@ values (never as plans for the stated constraints):
 The reported plan is then the **relaxed plan** `relaxed_terminal_target`: lexicographic —
 least violation within the budget first, then the planning objective among those plans
 (without the second stage the plan would be arbitrary, for example paid idle overtime),
-**amended (R):** then the least discretionary cash among those, with its own uniqueness
-test and binding constraints read from the plan.
+**amended (R):** then the least discretionary cash among those (**R2:** then the least
+terminal backlog and request-days), with its own uniqueness test and binding constraints
+read from the plan.
 
 **Amended (R).** HiGHS decides infeasibility at its tolerance (`1e-9`), the plan check at
 `1e-6 + 1e-9 × magnitude`. When the relaxed plan passes the plan check with nothing ignored,
@@ -222,9 +224,9 @@ the diagnosis says **BORDERLINE** (the scenario lies on the feasibility boundary
 of leaving the reasons empty. The infeasible verdict itself is confirmed independently: the
 certified soft-target programme within the budget must need a violation above `1e-10`
 requests, otherwise the verdict is an ERROR. Violations and spends below one unit are printed
-with three significant digits, never as `0`. The reasons name only the limits that bind in
-the least-violation plan (no fixed text about delayed surge or totals), and say
-"DIAGNOSTIC, not a budget request".
+with three significant digits, never as `0`. The reasons say "DIAGNOSTIC, not a budget
+request". Which limits they name is amended below: this first amendment named the limits
+binding in the least-violation plan, which depends on the vertex HiGHS returns.
 
 **Amended (R2).** Limits that bind in "the" least-violation plan depend on which of many such
 plans HiGHS returns, and a binding limit need not be a cause. When no amount of cash reaches
@@ -236,6 +238,25 @@ the surge total, per unit. Each relaxation is its own certified programme
 lowers it alone, the reasons say that the limits and the regular capacity bind together.
 Below 1 USD of shortfall the least spend is printed to nine significant digits instead of
 whole USD (the shortfall keeps three), so the spend no longer appears to be below the budget.
+
+**Amended (R3).** The third review found the wording and tolerances of these reasons loose:
+- **"Relaxed" means removed.** A daily limit is lifted above all the work of the horizon,
+  a total is dropped, and a delayed surge becomes available from the first day. The reason
+  now says so, and gives the violation that would remain "without it". The metrics key is
+  `least_violation_unlimited_cash_with_one_limit_removed_requests`.
+- **A surge configured to start after the horizon** is now tested as well, through its
+  configured daily capacity. Before, it was never tested, and the reason could say that no
+  limit lowers the violation.
+- **One tolerance for "out of reach".** Whether the target is out of reach at any cash
+  uses the plan check's tolerance, summed over the units with a target, so a scenario is
+  no longer both "out of reach at any cash" and BORDERLINE. A removal counts as lowering
+  the violation if it reaches that tolerance, or if it lowers the violation by more than
+  `10 ×` the checking tolerance (half the violation, if that is smaller).
+- **A failed removal is an ERROR.** A removal programme that is not optimal, or that the
+  solver refuses (for example, a lifted limit beyond the input magnitude bound), is now an
+  ERROR. The reason names it as not computed; it is no longer silently left out.
+- **Limits below one unit and the analytic bound.** Limits below one unit keep three
+  significant digits. The analytic-bound reason gives the excess over the target.
 
 ## 6. Policies and like-for-like comparisons
 
@@ -257,14 +278,16 @@ score.
 
 ## 7. Uniqueness, shadow prices, frontier, sensitivity
 
-- **Is the optimal plan unique?** From the reported vertex, the constraints active there
-  (bounds and tight rows) determine it. M4 maximises the total distance from those active
-  constraints over all optimal plans; zero distance means no other optimal plan exists.
+- **Is the optimal plan unique?** From the vertex the solver returned (amended (R2), below),
+  the constraints active there (bounds and tight rows) determine it. M4 maximises the total
+  distance from those active constraints over all optimal plans; zero distance means no
+  other optimal plan exists (in practice at most `0.001`, amended (R2), below).
   **Amended (R):** the optimal plans are the exact optimal face built by complementary
   slackness (see "Lexicographic stages", section 4), not the plans within `ε = 1e-9 ×
   Σ|c_j x_j|` of the optimum re-tested at `ε / 100`: that test missed a genuine alternative
   optimum when a near-flat direction also existed, and its near-parallel row made HiGHS fail
-  on near-ties. Prices tied to within the dual tolerance count as tied. Every face programme
+  on near-ties. Prices tied to within the dual tolerance count as tied (per column and row
+  since R2, section 4). Every face programme
   is certified and its plan checked and confirmed to score the optimum. Ranges over the
   optimal face of cash, request-days, terminal backlog, overtime and surge are reported, and,
   for a non-unique optimum, the range of extra capacity on each day (`plans.csv`). The
@@ -276,7 +299,14 @@ score.
   constraints) from it: the test is exact up to that threshold, not to zero. If a face plan
   does not score the optimum (the zero tests loosened the face), the face is rebuilt from
   exact zeros and the rebuild is recorded (`face_rebuilt`); a failed face programme is
-  recorded as an ERROR instead of aborting the run.
+  recorded as an ERROR instead of aborting the run. **Amended (R3):** the tie-breaks pin cash,
+  terminal backlog and request-days, but the overtime/surge split and the daily schedule can
+  stay open (for example when overtime and surge cost the same per request). The reported
+  plan itself therefore gets the same test on the face of its last tie-break stage. It is
+  reported as `unique_after_tie_breaks` in `scenarios.csv`, as
+  `reported_plan_after_tie_breaks` in `metrics.json`, and as "unique after tie-breaks" in
+  the report. The report's count of undetermined days is named for what it counts: days
+  whose extra capacity (overtime plus surge, in requests) is not determined.
 - **Shadow prices** are derivatives of the optimal penalised score with respect to one
   right-hand side: per request of demand on day `t` (balance), per request of free regular
   capacity on day `t` (capacity), per USD of budget, per request of terminal target, per
@@ -284,8 +314,9 @@ score.
   (USD-equivalent), so they are **not wages, prices or values of staff**; no staff-hour
   conversion is reported (adding a staff hour would also add its committed cost). The
   optimal value is convex in every right-hand side, so `backward secant ≤ dual ≤ forward
-  secant` must hold for any step: every dual of the scenarios listed under `shadow_prices`
-  is bracketed with step `0.001` (`locally_unique` when both slopes agree, `breakpoint`
+  secant` must hold for any step: every dual of the strictly feasible scenarios listed
+  under `shadow_prices` (an infeasible scenario has no strict duals) is bracketed with step
+  `0.001` (`locally_unique` when both slopes agree, `breakpoint`
   otherwise: the solver's value is then one subgradient among several), at a domain boundary
   only from above, with an infeasible side as `±inf`. A practical step (1 request, 1 staff
   hour, 100 USD) is reported separately as an average effect, split into its cash and
@@ -304,6 +335,11 @@ score.
   before and after the step, each checked to keep its optimum; the slack and `binding` columns
   of `duals.csv` describe the reported plan (the duals are optimal for every optimal plan, so
   complementary slackness holds there too), and a zero limit is never `binding`.
+  **Amended (R3):** a failed practical-step re-solve also gives `solver_failed` (only the
+  local slopes counted before). A backward step cut to a tiny right-hand side, whose noise
+  allowance exceeds the slope tolerance, cannot resolve a slope. Such a secant is now marked
+  `backward_unresolved` and left out of the bracket and convexity tests; before, the widened
+  allowance made any two slopes "agree" (`locally_unique`).
 - **Tradeoff frontier** (epsilon constraint): for caps on discretionary cash from 0 to the
   least cash that achieves the least possible penalty, the least notional penalty `w·Σb +
   w_T·b[T]` (then the least cash achieving it), with and without the terminal target, budget
@@ -544,3 +580,24 @@ be a tracked file under `configs/`. **Amended (R2):** the file is matched litera
 named like a glob no longer matches a tracked one) and its content must equal the blob
 committed at `HEAD` (`git status` misses ignored files and trusts `skip-worktree`). A
 malformed manifest or `metrics.json` is a usage error (exit 2) in `verify` and `inspect`.
+
+**Amended (R3).** The third review closed further gaps:
+- **The code that ran.** The commit and code hash describe the repository root, but the
+  imported `atlas` package could come from elsewhere: another checkout on `PYTHONPATH`, an
+  editable install of another tree, or `--repo-root` pointing elsewhere. The manifest now
+  records whether the running package is `<repo-root>/src/atlas`. `--require-clean`
+  refuses a run when it is not, and `verify` makes that an ERROR.
+- **Manifest copies.** The manifest's copies of the label, `validated_recommendation`, the
+  configuration fingerprint, the inputs (with the M3 status) and the per-scenario demand
+  and feasibility must equal the fingerprinted `metrics.json`. An ERROR otherwise, in both
+  commands.
+- **Missing or edited files.** A recorded result file that is missing is an ERROR (an M4 run
+  always writes all eight). `verify` distinguishes a file altered on disk from a manifest
+  entry edited while the file still equals the recomputation.
+- **Malformed files.** Nested malformed values, undecodable bytes and recorded output
+  names that are not plain file names are usage errors, not internal errors.
+- **The `--require-clean` blob check.** It now compares the raw bytes with the committed
+  blob (`core.autocrlf` no longer refuses an identical file), and resolves the path from the
+  given repository root, which may be a subdirectory of a larger repository.
+- **Fallbacks after the run.** `inspect` shows the run's stage fallbacks as a WARNING, and
+  the report has a "Run checks" section with the counts of failed checks and fallbacks.

@@ -418,6 +418,9 @@ def scenario_frame(
                     if plan is None
                     else SELECTION.get(plan_id.split("_as_")[0], "policy rule"),
                     "unique_optimal_plan": None if face is None else face.unique,
+                    "unique_after_tie_breaks": None
+                    if face is None or result.tie_broken_face is None
+                    else result.tie_broken_face.unique,
                     "solver_status": None if attempt is None else str(attempt.status),
                     "demand_basis": scenario.demand_basis,
                     "quantile": scenario.quantile,
@@ -703,7 +706,8 @@ def _programme_summary(attempt: Attempt) -> dict[str, Any] | None:
     return {
         **summary,
         "evaluation_note": "one optimal vertex returned by the solver; the reported plan is "
-        "reported_plan (least discretionary cash among the optimal plans)",
+        "reported_plan (among the optimal plans: least discretionary cash, then least "
+        "terminal backlog, then least request-days)",
     }
 
 
@@ -818,6 +822,7 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
         "diagnosis": None if result.diagnosis is None else result.diagnosis.to_dict(),
         "relaxed": None if result.diagnosis is None else _attempt_summary(result.diagnosis.relaxed),
         "optimal_face": _face_summary(result.reported_face),
+        "reported_plan_after_tie_breaks": _face_summary(result.tie_broken_face),
         "binding_constraints": []
         if reported is None
         else list(format_binding(binding_constraints(result.problem, reported.plan))),
@@ -833,6 +838,7 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             "domain_boundary_or_infeasible_side": sum(
                 1 for i in fd if i.status in ("domain_boundary_below", "infeasible_side")
             ),
+            "backward_unresolved": sum(1 for i in fd if i.status == "backward_unresolved"),
             "headline": [
                 {
                     "constraint": i.dual.constraint,
@@ -1053,12 +1059,19 @@ def _run_id(config: OptimizationConfig, data: SnapshotData) -> str:
     return f"{config.experiment_id}-{config.fingerprint()[:8]}-{data.fingerprint[:8]}"
 
 
+def _obj(value: Any) -> Mapping[str, Any]:
+    """``value`` if it is an object, else an empty one (a malformed file never crashes)."""
+    return value if isinstance(value, Mapping) else {}
+
+
 def headline(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Compact facts for the text renderer (one row per scenario)."""
     rows = []
-    for scenario in payload.get("scenarios", []):
-        evaluation = (scenario.get("reported_plan") or {}).get("evaluation") or {}
-        diagnosis = scenario.get("diagnosis") or {}
+    scenarios = payload.get("scenarios", [])
+    for scenario in scenarios if isinstance(scenarios, list) else []:
+        scenario = _obj(scenario)
+        evaluation = _obj(_obj(scenario.get("reported_plan")).get("evaluation"))
+        diagnosis = _obj(scenario.get("diagnosis"))
         rows.append(
             {
                 "scenario_id": scenario.get("scenario_id"),
@@ -1071,7 +1084,7 @@ def headline(payload: Mapping[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
-    status = (payload.get("inputs") or {}).get("uncertainty_status") or {}
+    status = _obj(_obj(payload.get("inputs")).get("uncertainty_status"))
     return {
         "label": payload.get("label"),
         "m3_interval_status": status.get("interval_status"),
@@ -1112,7 +1125,10 @@ def _manifest(
         "structural_assumptions": list(STRUCTURAL_ASSUMPTIONS),
         "validated_recommendation": False,
         "solver": outputs.payload["solver"],
-        "code": code_fingerprint(settings.repo_root),
+        "code": {
+            **code_fingerprint(settings.repo_root),
+            "running_package_is_repository_src": running_package_is_repository(settings.repo_root),
+        },
         "git": dict(git),
         "environment": environment_info(),
         "result_files": list(RESULT_FILES),
@@ -1138,6 +1154,20 @@ def _solver_failure(stage: str, exc: OptimizationError) -> CheckReport:
             ),
         ),
     )
+
+
+def running_package_is_repository(repo_root: Path) -> bool:
+    """Whether the imported ``atlas`` package is ``<repo_root>/src/atlas``.
+
+    The code hash and the git commit describe the repository root; they identify the code
+    that ran only if that is where the package was imported from (not another checkout on
+    ``PYTHONPATH``, an editable install of a different tree, or ``--repo-root`` pointing
+    elsewhere).
+    """
+    import atlas
+
+    running = Path(atlas.__file__).resolve().parent
+    return running == (repo_root / "src" / "atlas").resolve()
 
 
 def _git(root: Path, *args: str) -> str | None:
@@ -1178,13 +1208,40 @@ def _require_committed_config(repo_root: Path, config_path: Path) -> None:
         raise ConfigError(
             f"refusing a reference run: the configuration {config_path} is not tracked by git"
         )
-    committed = _git(root, "rev-parse", f"HEAD:{relative}")
-    working = _git(root, "hash-object", "--", relative)
-    if committed is None or working is None or committed != working:
+    # "HEAD:./path" is relative to the repository root given here, also when that root is
+    # a subdirectory of a larger git repository.
+    committed = _git(root, "rev-parse", f"HEAD:./{relative}")
+    if committed is None:
+        raise ConfigError(
+            f"refusing a reference run: the configuration {config_path} is not in the "
+            "commit at HEAD"
+        )
+    # The raw bytes must equal the committed blob, or the file must hash to it after git's
+    # own filters (core.autocrlf). Either way skip-worktree and ignored copies cannot pass.
+    if (
+        _git_blob(root, f"HEAD:./{relative}") != path.read_bytes()
+        and _git(root, "hash-object", "--", relative) != committed
+    ):
         raise ConfigError(
             f"refusing a reference run: the configuration {config_path} differs from the "
             "committed file"
         )
+
+
+def _git_blob(root: Path, spec: str) -> bytes | None:
+    executable = shutil.which("git")
+    if executable is None:
+        return None
+    try:
+        completed = subprocess.run(  # noqa: S603
+            [executable, "-C", str(root), "cat-file", "blob", spec],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return completed.stdout if completed.returncode == 0 else None
 
 
 def run_optimization_command(
@@ -1206,6 +1263,13 @@ def run_optimization_command(
         )
     if require_clean:
         _require_committed_config(settings.repo_root, config_path)
+        if not running_package_is_repository(settings.repo_root):
+            raise ConfigError(
+                "refusing a reference run: the atlas package that runs is not "
+                f"{settings.repo_root / 'src' / 'atlas'}, so the recorded commit and code hash "
+                "would not identify the code that ran (check --repo-root, ATLAS_REPO_ROOT and "
+                "PYTHONPATH)"
+            )
     started = time.perf_counter()
     reports, data = load_series(settings, "optimization")
     if data is None:
@@ -1253,11 +1317,93 @@ def _check_manifest_shape(manifest: Any, run_dir: Path) -> None:
             f"{run_dir}/manifest.json does not record a SHA-256 for every result file "
             f"({', '.join(RESULT_FILES)})"
         )
+    for name, digest in outputs.items():
+        if (
+            not isinstance(name, str)
+            or not isinstance(digest, str)
+            or name in ("", ".", "..")
+            or "/" in name
+            or "\\" in name
+            or len(name.encode("utf-8", "replace")) > 255
+        ):
+            raise ConfigError(
+                f"{run_dir}/manifest.json: recorded output {name!r} is not a plain file name"
+            )
+
+
+#: Manifest fields that copy fingerprinted content (metrics.json): they must agree with it.
+_MANIFEST_COPIES: Final = (
+    "record_type",
+    "label",
+    "validated_recommendation",
+    "config_fingerprint",
+    "experiment_id",
+    "inputs",
+    "structural_assumptions",
+)
+
+
+def _manifest_copy_issues(manifest: Mapping[str, Any], metrics: Mapping[str, Any]) -> list[Issue]:
+    """ERRORs for manifest labels and provenance that disagree with ``metrics.json``.
+
+    The manifest is not fingerprinted, so a hand-edited ``validated_recommendation`` or M3
+    status would otherwise pass ``verify`` and ``inspect``.
+    """
+    issues = [
+        Issue(
+            "manifest_field_differs",
+            Severity.ERROR,
+            "manifest.json",
+            f"The manifest's {key!r} differs from the fingerprinted metrics.json.",
+        )
+        for key in _MANIFEST_COPIES
+        if manifest.get(key) != metrics.get(key)
+    ]
+    recorded = _obj(manifest.get("scenarios"))
+    scenarios = metrics.get("scenarios")
+    computed = {
+        s.get("scenario_id"): {
+            "demand_sha256": s.get("demand_sha256"),
+            "demand_basis": s.get("demand_basis"),
+            "adjustments": s.get("adjustments"),
+            "feasibility": s.get("feasibility"),
+        }
+        for s in (scenarios if isinstance(scenarios, list) else [])
+        if isinstance(s, Mapping)
+    }
+    if dict(recorded) != computed:
+        issues.append(
+            Issue(
+                "manifest_field_differs",
+                Severity.ERROR,
+                "manifest.json",
+                "The manifest's 'scenarios' (demand, adjustments, feasibility) differ from the "
+                "fingerprinted metrics.json.",
+            )
+        )
+    return issues
+
+
+def _missing_issues(absent: Sequence[str]) -> list[Issue]:
+    """An M4 run always writes every result file, so a recorded file that is gone is an
+    ERROR (unlike M2/M3, which may omit optional outputs)."""
+    return [
+        Issue("file_missing", Severity.ERROR, name, f"{name} is recorded but missing.")
+        for name in absent
+    ]
+
+
+def _read_run_json(path: Path, what: str) -> Any:
+    """:func:`_read_json`, with undecodable bytes a usage error too."""
+    try:
+        return _read_json(path, what)
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"{path}: the {what} is not valid UTF-8 ({exc.reason})") from exc
 
 
 def verify_optimization_command(settings: Settings, run_dir: Path) -> list[CheckReport]:
     """``atlas optimize verify``: re-run a recorded run and compare every result file."""
-    manifest = _read_json(run_dir / "manifest.json", "run manifest")
+    manifest = _read_run_json(run_dir / "manifest.json", "run manifest")
     if manifest.get("record_type") != RECORD_TYPE_DECISION_SIMULATION:
         raise ConfigError(f"{run_dir} is not a {RECORD_TYPE_DECISION_SIMULATION} run")
     _check_manifest_shape(manifest, run_dir)
@@ -1297,15 +1443,53 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
                 f"{manifest.get('result_fingerprint')}.",
             )
         )
-    altered = [
-        name
-        for name, expected in sorted(recorded.items())
-        if (run_dir / name).is_file() and sha256_file(run_dir / name) != expected
-    ]
+    # A file whose bytes on disk differ from the recorded hash was altered on disk, unless
+    # the disk copy equals the recomputation: then the manifest entry was edited.
+    altered: list[str] = []
+    edited: list[str] = []
+    for name, expected in sorted(recorded.items()):
+        if not (run_dir / name).is_file():
+            continue
+        on_disk = sha256_file(run_dir / name)
+        if on_disk != expected:
+            (edited if on_disk == outputs.outputs.get(name) else altered).append(name)
     issues += [
         Issue("file_altered", Severity.ERROR, name, f"{name} no longer matches manifest.json.")
         for name in altered
     ]
+    issues += [
+        Issue(
+            "manifest_entry_differs",
+            Severity.ERROR,
+            name,
+            f"{name} on disk equals the recomputation, but manifest.json records another hash.",
+        )
+        for name in edited
+    ]
+    absent = sorted(name for name in recorded if not (run_dir / name).is_file())
+    issues += _missing_issues(absent)
+    issues += _manifest_copy_issues(manifest, json.loads(outputs.files["metrics.json"]))
+    if not running_package_is_repository(settings.repo_root):
+        issues.append(
+            Issue(
+                "running_package_not_repository",
+                Severity.ERROR,
+                "code",
+                "The atlas package that runs is not "
+                f"{settings.repo_root / 'src' / 'atlas'}: the recomputation does not test the "
+                "code of this repository (check --repo-root, ATLAS_REPO_ROOT and PYTHONPATH).",
+            )
+        )
+    if _obj(manifest.get("code")).get("running_package_is_repository_src") is False:
+        issues.append(
+            Issue(
+                "recorded_package_not_repository",
+                Severity.WARNING,
+                "manifest.json",
+                "The run was made with an atlas package outside its repository root: its "
+                "recorded commit and code hash do not identify the code that ran.",
+            )
+        )
     # Reproducing a failed run byte for byte does not make it pass: its failed checks are
     # failures of the recomputation too.
     recomputed_errors = [i for i in outputs.issues if i.severity is Severity.ERROR]
@@ -1342,11 +1526,17 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
                 "recorded_result_fingerprint": manifest.get("result_fingerprint"),
                 "result_fingerprint": outputs.result_fingerprint,
                 "identical": not altered
+                and not edited
+                and not absent
                 and all(files[name] == "identical" for name in files)
                 and manifest.get("result_fingerprint") == outputs.result_fingerprint,
+                "fingerprint_identical": manifest.get("result_fingerprint")
+                == outputs.result_fingerprint,
                 "recomputed_errors": len(recomputed_errors),
                 "files": files,
                 "altered_on_disk": altered,
+                "manifest_entries_edited": edited,
+                "files_absent": absent,
                 "provenance_differences": {k: v for k, v in differences.items() if v[0] != v[1]},
                 "label": LABEL,
                 "m3_interval_status": inputs.status.interval_status,
@@ -1359,7 +1549,7 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
 
 def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
     """``atlas optimize inspect``: integrity of a run directory and its headline results."""
-    manifest = _read_json(run_dir / "manifest.json", "run manifest")
+    manifest = _read_run_json(run_dir / "manifest.json", "run manifest")
     if manifest.get("record_type") != RECORD_TYPE_DECISION_SIMULATION:
         raise ConfigError(f"{run_dir} is not a {RECORD_TYPE_DECISION_SIMULATION} run")
     _check_manifest_shape(manifest, run_dir)
@@ -1374,13 +1564,14 @@ def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
         Issue("file_altered", Severity.ERROR, name, f"{name} no longer matches manifest.json.")
         for name in altered
     ]
+    issues += _missing_issues([name for name in absent if name != "metrics.json"])
     if manifest.get("complete") is not True:
         issues.append(
             Issue(
                 "run_incomplete",
                 Severity.ERROR,
                 "manifest.json",
-                "The run is marked incomplete: an independent check failed.",
+                "The manifest marks the run incomplete.",
             )
         )
     if result_fingerprint(recorded, RESULT_FILES) != manifest.get("result_fingerprint"):
@@ -1397,12 +1588,13 @@ def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
             Issue("metrics_missing", Severity.ERROR, "metrics.json", "metrics.json is absent.")
         )
         return [CheckReport(name="optimization_inspection", issues=tuple(issues))]
-    payload = _read_json(run_dir / "metrics.json", "metrics")
+    payload = _read_run_json(run_dir / "metrics.json", "metrics")
     scenarios = payload.get("scenarios")
     if not isinstance(scenarios, list) or not all(isinstance(x, dict) for x in scenarios):
         raise ConfigError(f"{run_dir}/metrics.json: 'scenarios' is not a list of objects")
     if not isinstance(payload.get("inputs", {}), dict):
         raise ConfigError(f"{run_dir}/metrics.json: 'inputs' is not an object")
+    issues += _manifest_copy_issues(manifest, payload)
     # metrics.json is covered by the result fingerprint; the manifest flag is not.
     checks = payload.get("checks") if isinstance(payload, dict) else None
     errors = checks.get("errors") if isinstance(checks, dict) else None
@@ -1413,6 +1605,18 @@ def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
                 Severity.ERROR,
                 "metrics.json",
                 f"metrics.json records {errors!r} failed check(s).",
+            )
+        )
+    fallbacks = checks.get("stage_fallbacks") if isinstance(checks, dict) else None
+    if isinstance(fallbacks, int) and fallbacks > 0:
+        issues.append(
+            Issue(
+                "stage_fallback",
+                Severity.WARNING,
+                "metrics.json",
+                f"metrics.json records {fallbacks} stage fallback(s): those plans keep their "
+                "earlier optimum only to within the epsilon cap, or come from a smaller face "
+                "(per scenario and sweep point in 'stage_fallbacks').",
             )
         )
     if (errors == 0) is not (manifest.get("complete") is True):

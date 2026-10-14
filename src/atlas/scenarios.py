@@ -134,6 +134,7 @@ def build_unit(
         terminal_backlog_max=(
             None if config.terminal_backlog_max is None else config.terminal_backlog_max.value
         ),
+        surge_capacity_when_available=surge,
     )
 
 

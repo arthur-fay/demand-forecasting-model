@@ -612,9 +612,9 @@ class Diagnosis:
     relaxed: Attempt
     attempts: tuple[Attempt, ...] = ()
     relaxed_optimum: Attempt | None = None
-    #: Least violation with unlimited cash when one configured limit is relaxed alone
-    #: (``"unit:limit"`` -> requests), computed only when no amount of cash reaches the
-    #: target; see :func:`limit_relaxations`.
+    #: Least violation with unlimited cash when one configured limit is removed alone
+    #: (``"unit:limit"`` -> requests; ``None`` if that programme failed), computed only
+    #: when no amount of cash reaches the target; see :func:`limit_relaxations`.
     limit_relaxations: Mapping[str, float | None] = field(default_factory=dict)
     #: The relaxed plan meets every constraint to within the checking tolerance: the strict
     #: model is infeasible only at the solver's (tighter) tolerance.
@@ -635,7 +635,7 @@ class Diagnosis:
             "analytic_terminal_backlog_lower_bound_requests": dict(self.terminal_lower_bound),
             "analytic_bound_exact": self.lower_bound_exact,
             "reasons": list(self.reasons),
-            "least_violation_unlimited_cash_with_one_limit_relaxed_requests": dict(
+            "least_violation_unlimited_cash_with_one_limit_removed_requests": dict(
                 sorted(self.limit_relaxations.items())
             ),
             "relaxed_plan": RELAXED_TERMINAL_TARGET if self.relaxed.optimal else None,
@@ -668,7 +668,7 @@ def confirm_infeasible(least_violation: float | None) -> list[str]:
 
 @dataclass(frozen=True)
 class LimitRelaxation:
-    """One configured limit relaxed alone, and the least violation (unlimited cash) then."""
+    """One configured limit removed alone, and the least violation (unlimited cash) then."""
 
     unit_id: str
     limit: str
@@ -676,17 +676,38 @@ class LimitRelaxation:
     least_violation: float | None
     attempt: Attempt
 
-    def lowers(self, least_violation: float) -> bool:
-        return self.least_violation is not None and (
-            self.least_violation < least_violation - 10 * tolerance(least_violation)
+    def lowers(self, least_violation: float, reach: float = 0.0) -> bool:
+        """Whether removing this limit lowers ``least_violation`` by more than solver noise.
+
+        ``reach`` is the violation the plan check tolerates (:func:`reach_tolerance`): a
+        relaxation that gets within it reaches the target. Otherwise the drop must exceed
+        ``10 * tolerance`` (or half the violation, for a violation just above ``reach``).
+        """
+        if self.least_violation is None:
+            return False
+        if self.least_violation <= reach:
+            return least_violation > reach
+        return self.least_violation < least_violation - min(
+            10 * tolerance(least_violation), least_violation / 2
         )
+
+
+def reach_tolerance(problem: PlanningProblem) -> float:
+    """The terminal-target violation the plan check tolerates, summed over the units with a
+    target (:func:`check_plan` allows each unit ``tolerance(final, target)``)."""
+    return math.fsum(
+        tolerance(unit.terminal_backlog_max)
+        for unit in problem.units
+        if unit.terminal_backlog_max is not None
+    )
 
 
 def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
     """``(limit, description, unit with that limit removed)`` for every configured limit.
 
     A daily limit is removed by raising it above all the work of the horizon; a delayed
-    surge becomes available from the first day at its configured daily capacity.
+    surge becomes available from the first day at its configured daily capacity, also when
+    it is configured to start after the horizon (``surge_capacity_when_available``).
     """
     work = math.fsum(unit.demand) + unit.initial_backlog + 1.0
     variants: list[tuple[str, str, ServiceUnit]] = []
@@ -695,7 +716,8 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
         variants.append(
             (
                 "overtime_daily_limit",
-                f"the daily overtime limit of {max(unit.overtime_max_hours):,.0f} staff hours",
+                f"the daily overtime limit of {_amount(max(unit.overtime_max_hours), 0)} "
+                "staff hours",
                 replace(unit, overtime_max_hours=(hours,) * unit.horizon),
             )
         )
@@ -703,32 +725,43 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
         variants.append(
             (
                 "surge_daily_limit",
-                f"the daily surge limit of {max(unit.surge_max):,.0f} requests",
+                f"the daily surge limit of {_amount(max(unit.surge_max), 0)} requests",
                 replace(
                     unit, surge_max=tuple(work if limit > 0 else 0.0 for limit in unit.surge_max)
                 ),
             )
         )
-    delay = surge_delay_days(unit)
-    if delay:
-        daily = max(unit.surge_max)
+        delay = surge_delay_days(unit)
+        if delay:
+            daily = max(unit.surge_max)
+            variants.append(
+                (
+                    "surge_delay",
+                    f"the surge delay of {delay} days",
+                    replace(
+                        unit,
+                        surge_max=tuple(
+                            daily if day < delay else limit
+                            for day, limit in enumerate(unit.surge_max)
+                        ),
+                    ),
+                )
+            )
+    elif unit.surge_capacity_when_available:
+        daily = unit.surge_capacity_when_available
         variants.append(
             (
                 "surge_delay",
-                f"the surge delay of {delay} days",
-                replace(
-                    unit,
-                    surge_max=tuple(
-                        daily if day < delay else limit for day, limit in enumerate(unit.surge_max)
-                    ),
-                ),
+                f"the surge start after the horizon (surge of {_amount(daily, 0)} requests a "
+                "day is never available)",
+                replace(unit, surge_max=(daily,) * unit.horizon),
             )
         )
     if unit.overtime_total_hours is not None:
         variants.append(
             (
                 "overtime_total_limit",
-                f"the overtime total of {unit.overtime_total_hours:,.0f} staff hours",
+                f"the overtime total of {_amount(unit.overtime_total_hours, 0)} staff hours",
                 replace(unit, overtime_total_hours=None),
             )
         )
@@ -736,7 +769,7 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
         variants.append(
             (
                 "surge_total_limit",
-                f"the surge total of {unit.surge_total:,.0f} requests",
+                f"the surge total of {_amount(unit.surge_total, 0)} requests",
                 replace(unit, surge_total=None),
             )
         )
@@ -746,24 +779,44 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
 def limit_relaxations(
     problem: PlanningProblem, settings: SolverSettings
 ) -> tuple[LimitRelaxation, ...]:
-    """The least violation with unlimited cash when each configured limit is relaxed alone.
+    """The least violation with unlimited cash when each configured limit is removed alone.
 
     This names the limits that keep the target out of reach without depending on which
     least-violation plan the solver returns (that plan is rarely unique): a limit is named
-    only if relaxing it alone lowers the least violation.
+    only if removing it alone lowers the least violation. The soft-target programme is
+    always feasible, so a relaxation that is not optimal (or that the solver refuses) is a
+    problem, never a silent "does not lower it".
     """
     results = []
     for k, unit in enumerate(problem.units):
         for limit, description, relaxed_unit in _relaxed_limits(unit):
             units = list(problem.units)
             units[k] = relaxed_unit
-            attempt = solve_problem(
-                replace(problem, units=tuple(units)),
-                settings,
-                Objective.TERMINAL_VIOLATION,
-                terminal=Terminal.SOFT,
-                budget_row=False,
-            )
+            try:
+                attempt = solve_problem(
+                    replace(problem, units=tuple(units)),
+                    settings,
+                    Objective.TERMINAL_VIOLATION,
+                    terminal=Terminal.SOFT,
+                    budget_row=False,
+                )
+            except OptimizationError as error:
+                # Not optimal; the problem (an ERROR) says why.
+                attempt = Attempt(
+                    Objective.TERMINAL_VIOLATION,
+                    SolveStatus.INFEASIBLE,
+                    f"solver error: {error}",
+                    0,
+                    problems=(f"limit relaxation {unit.unit_id}:{limit} failed: {error}",),
+                )
+            if not attempt.optimal and not attempt.problems:
+                attempt = replace(
+                    attempt,
+                    problems=(
+                        f"limit relaxation {unit.unit_id}:{limit} is {attempt.status} although "
+                        "the soft-target programme is always feasible",
+                    ),
+                )
             results.append(
                 LimitRelaxation(unit.unit_id, limit, description, attempt.value, attempt)
             )
@@ -771,20 +824,35 @@ def limit_relaxations(
 
 
 def _limits_text(
-    problem: PlanningProblem, relaxations: Sequence[LimitRelaxation], least: float
+    problem: PlanningProblem,
+    relaxations: Sequence[LimitRelaxation],
+    least: float,
+    reach: float,
 ) -> str:
+    def prefix(r: LimitRelaxation) -> str:
+        return f"{r.unit_id}: " if len(problem.units) > 1 else ""
+
     named = [
-        (f"{r.unit_id}: " if len(problem.units) > 1 else "")
-        + f"{r.description} (to {_amount(r.least_violation or 0.0, 1)} requests)"
+        prefix(r) + f"{r.description} (to {_amount(r.least_violation or 0.0, 1)} requests "
+        "without it)"
         for r in relaxations
-        if r.lowers(least)
+        if r.lowers(least, reach)
     ]
-    if not named:
-        return (
-            "no configured limit lowers it when relaxed alone (the limits and the regular "
+    failed = [prefix(r) + r.description for r in relaxations if r.least_violation is None]
+    if named:
+        text = (
+            "removed one at a time (a daily limit lifted above all the work of the horizon, "
+            "a total dropped, a delayed surge available from the first day), these limits "
+            "would lower it: " + "; ".join(named)
+        )
+    else:
+        text = (
+            "no configured limit lowers it when removed alone (the limits and the regular "
             "capacity bind together)"
         )
-    return "relaxed one at a time, these limits would lower it: " + "; ".join(named)
+    if failed:
+        text += "; not computed (solver failure): " + "; ".join(failed)
+    return text
 
 
 def _amount(value: float, decimals: int) -> str:
@@ -820,7 +888,10 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
     shortfall: float | None = None
     attempts = [unlimited, *stages]
     relaxations: tuple[LimitRelaxation, ...] = ()
-    reachable = least_unlimited is not None and least_unlimited <= tolerance(least_unlimited)
+    # The same tolerance as the plan check, so a scenario is never both "out of reach at
+    # any cash" and BORDERLINE (its relaxed plan passing the check).
+    reach = reach_tolerance(problem)
+    reachable = least_unlimited is not None and least_unlimited <= reach
     if least_unlimited is None:  # pragma: no cover - soft targets are always feasible
         reasons.append("the least terminal-target violation could not be computed")
     elif not reachable:
@@ -829,7 +900,8 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
         reasons.append(
             "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of "
             f"discretionary cash: the least violation is {_amount(least_unlimited, 1)} "
-            f"requests; {_limits_text(problem, relaxations, least_unlimited)} (DIAGNOSTIC)"
+            f"requests; {_limits_text(problem, relaxations, least_unlimited, reach)} "
+            "(DIAGNOSTIC)"
         )
     else:
         cash = solve_problem(
@@ -864,8 +936,8 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
         if exact and target is not None and bound > target + tolerance(bound, target):
             reasons.append(
                 f"{unit_id}: even serving at maximum capacity every day leaves "
-                f"{_amount(bound, 1)} requests at the end of the horizon "
-                f"(target {_amount(target, 0)})"
+                f"{_amount(bound, 1)} requests at the end of the horizon, "
+                f"{_amount(bound - target, 1)} above the target of {_amount(target, 0)}"
             )
     borderline = relaxed.solved is not None and check_plan(problem, relaxed.solved.plan).feasible
     if borderline:
@@ -1124,9 +1196,14 @@ class FiniteDifference:
     after the step). Slopes are compared with a tolerance that includes the rounding noise
     of two optimal values divided by each step actually taken (``noise`` is that allowance
     for the forward against the backward local secant). Every re-solve is certified;
-    ``problems`` lists the failures, and a slope the solver could not compute gives the
-    status ``solver_failed``. ``stage_fallback`` records a fallback of the least-cash
-    stage of the split (see :func:`minimise_on_face`).
+    ``problems`` lists the failures, and a slope the solver could not compute (local or
+    practical) gives the status ``solver_failed``. When the backward step is so small
+    (``min(step, rhs)`` for a tiny right-hand side) that the rounding noise divided by it
+    exceeds the slope tolerance, the backward secant cannot resolve the slope: it is kept
+    but marked ``backward_unresolved`` and left out of the bracket and convexity tests,
+    instead of widening the agreement test until any two slopes agree.
+    ``stage_fallback`` records a fallback of the least-cash stage of the split (see
+    :func:`minimise_on_face`).
     """
 
     dual: DualValue
@@ -1144,10 +1221,16 @@ class FiniteDifference:
     noise: float = 0.0
     problems: tuple[str, ...] = ()
     stage_fallback: str | None = None
+    backward_unresolved: bool = False
 
     @property
     def locally_unique(self) -> bool:
-        if self.backward is None or math.isinf(self.backward) or math.isinf(self.forward):
+        if (
+            self.backward is None
+            or self.backward_unresolved
+            or math.isinf(self.backward)
+            or math.isinf(self.forward)
+        ):
             return False
         return (
             abs(self.forward - self.backward)
@@ -1156,11 +1239,22 @@ class FiniteDifference:
 
     @property
     def status(self) -> str:
-        slopes = [self.forward, *([] if self.backward is None else [self.backward])]
+        slopes = [
+            v
+            for v in (
+                self.forward,
+                self.backward,
+                self.practical_forward,
+                self.practical_backward,
+            )
+            if v is not None
+        ]
         if any(math.isnan(v) for v in slopes):
             return "solver_failed"
         if self.backward is None:
             return "domain_boundary_below"
+        if self.backward_unresolved:
+            return "backward_unresolved"
         if math.isinf(self.backward) or math.isinf(self.forward):
             return "infeasible_side"
         return "locally_unique" if self.locally_unique else "breakpoint"
@@ -1319,21 +1413,32 @@ def finite_differences(
         nb = value_noise / down if down > 0 else 0.0
         pnb = value_noise / p_down if p_down > 0 else 0.0
         slope = _slope_tol(dual.marginal, forward, *([] if backward is None else [backward]))
+        # A backward step cut short by a tiny right-hand side, so small that its noise
+        # allowance exceeds the slope tolerance, cannot resolve a slope; such a secant is
+        # kept but not tested.
+        unresolved = backward is not None and math.isfinite(backward) and down < step and nb > slope
+        b_test = None if unresolved else backward
+        pb_test = (
+            None
+            if p_backward is not None
+            and math.isfinite(p_backward)
+            and p_down < practical
+            and pnb > _slope_tol(p_forward, p_backward)
+            else p_backward
+        )
         bracket = dual.marginal <= forward + slope + nf and (
-            backward is None or dual.marginal >= backward - slope - nb
+            b_test is None or dual.marginal >= b_test - slope - nb
         )
         convex = (
-            (backward is None or backward <= forward + _slope_tol(forward, backward) + nf + nb)
+            (b_test is None or b_test <= forward + _slope_tol(forward, b_test) + nf + nb)
             and (
-                p_backward is None
-                or p_backward <= p_forward + _slope_tol(p_forward, p_backward) + pnf + pnb
+                pb_test is None or pb_test <= p_forward + _slope_tol(p_forward, pb_test) + pnf + pnb
             )
             and (
-                backward is None
-                or p_backward is None
+                b_test is None
+                or pb_test is None
                 or (
-                    p_backward <= backward + slope + pnb + nb
-                    and forward <= p_forward + slope + nf + pnf
+                    pb_test <= b_test + slope + pnb + nb and forward <= p_forward + slope + nf + pnf
                 )
             )
         )
@@ -1369,6 +1474,7 @@ def finite_differences(
                 noise=nf + nb,
                 problems=tuple(problems),
                 stage_fallback=fallback,
+                backward_unresolved=bool(unresolved),
             )
         )
     return tuple(results)
@@ -1953,6 +2059,7 @@ class ScenarioResult:
     unchanged and still exclude cheaper equally scored plans. ``duals`` carry the slack and
     binding state of the reported plan (the duals are optimal for every optimal plan).
     ``fallbacks`` lists every stage fallback used (see :attr:`Attempt.stage_fallback`).
+    ``tie_broken_face`` tests the reported plan after the tie-breaks.
     """
 
     scenario_id: str
@@ -1972,6 +2079,10 @@ class ScenarioResult:
     relaxed_face: OptimalFace | None = None
     target_changes_plan: bool | None = None
     fallbacks: tuple[str, ...] = ()
+    #: Uniqueness test of the reported plan itself, on the optimal face of its last
+    #: tie-break stage: whether another plan has the same score, cash, terminal backlog and
+    #: request-days (its overtime/surge split or daily schedule would then differ).
+    tie_broken_face: OptimalFace | None = None
 
     @property
     def feasibility(self) -> str:
@@ -2077,6 +2188,15 @@ def analyse_scenario(
             problems.append(
                 f"the strict optimum scores worse than feasible policy {outcome.policy}"
             )
+    last = strict_plan.solved if strict.solved is not None else None
+    if strict.solved is None and diagnosis is not None:
+        last = diagnosis.relaxed.solved
+    tie_broken_face = None
+    if last is not None:
+        tie_broken_face = optimal_face(problem, settings, last, daily=False)
+        problems.extend(tie_broken_face.problems)
+        if tie_broken_face.rebuilt:
+            fallbacks.append("face_rebuilt")
     curve = None
     if frontier_points is not None:
         curve = frontier(problem, settings, frontier_points, strict_plan.solved)
@@ -2101,4 +2221,5 @@ def analyse_scenario(
         relaxed_face=relaxed_face,
         target_changes_plan=changes_plan,
         fallbacks=tuple(fallbacks),
+        tie_broken_face=tie_broken_face,
     )
