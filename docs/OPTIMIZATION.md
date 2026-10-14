@@ -157,8 +157,8 @@ solved on the **exact optimal face** of the earlier one, built by complementary 
 from the certified duals (bounds with a nonzero reduced cost fixed, rows with a nonzero dual
 made equalities; values within the certificate's dual tolerance `1e-9 × max(1, max|c|)`
 count as zero). Each stage is checked to keep the earlier optimum; only if the solver fails
-on the face programme is the epsilon cap used, and `metrics.json` records
-`lexicographic_epsilon_fallback` for every programme (zero fallbacks on the reference run).
+on the face programme is the epsilon cap used; every programme summary in `metrics.json`
+records it as `lexicographic_epsilon_fallback` (none was needed on the reference run).
 
 ## 5. Infeasibility, relaxed plans and diagnostics
 
