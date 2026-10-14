@@ -22,6 +22,7 @@ from atlas.cli import main
 from atlas.config import load_settings
 from atlas.errors import ConfigError
 from atlas.experiment import load_config
+from atlas.models import ModelFamily
 from atlas.runner import load_series
 from atlas.uncertainty_config import (
     central_bounds,
@@ -38,6 +39,7 @@ from atlas.uncertainty_runner import (
 )
 from tests.conftest import REPO_ROOT
 from tests.m3_helpers import BASE_CONFIG, config_dict, make_config
+from tests.numeric import assert_matches_reference
 
 PROTOCOL = REPO_ROOT / "configs" / "uncertainty" / "atlas-m3-intervals-v1.json"
 SMOKE = REPO_ROOT / "configs" / "uncertainty" / "smoke.json"
@@ -220,8 +222,8 @@ def test_ties_to_the_m2_protocol() -> None:
 # --- Integration with M2 ----------------------------------------------------------------------
 
 
-@pytest.mark.integration
-def test_residual_backtest_reproduces_the_m2_spot_check() -> None:
+def compare_with_spot_check(spot_path: Path) -> None:
+    """Recompute three M2 spot-check origins with the M3 residual plan and compare."""
     settings = load_settings(repo_root=REPO_ROOT)
     context = load_context(settings, PROTOCOL)
     _, data = load_series(settings, "test")
@@ -237,17 +239,55 @@ def test_residual_backtest_reproduces_the_m2_spot_check() -> None:
         training_window=template.training_window,
         data_delay_days=template.data_delay_days,
     )
-    result = run_backtest(data.series, plan, point_models(context))
-    spot = pd.read_csv(SPOT_CHECK, parse_dates=["origin"], float_precision="round_trip")
-    for model_id in context.config.point_models:
+    models = point_models(context)
+    result = run_backtest(data.series, plan, models)
+    spot = pd.read_csv(spot_path, parse_dates=["origin"], float_precision="round_trip")
+    for model in models:
+        model_id = model.spec.model_id
         for origin in origins:
             mine = result.records[
                 (result.records["model_id"] == model_id)
                 & (result.records["origin"] == pd.Timestamp(origin))
-            ]
+            ].sort_values("horizon")
             theirs = spot[(spot["model_id"] == model_id) & (spot["origin"] == pd.Timestamp(origin))]
             theirs = theirs.drop_duplicates("horizon").sort_values("horizon")
-            assert mine["prediction"].tolist() == theirs["prediction"].tolist()
+            assert mine["horizon"].tolist() == theirs["horizon"].tolist()
+            assert mine["status"].tolist() == theirs["status"].tolist()
+            # The reference was computed on another CPU: least squares may differ in the
+            # last bits there (tests/numeric.py); the baselines must match exactly.
+            assert_matches_reference(
+                mine["prediction"],
+                theirs["prediction"],
+                uses_blas=model.spec.family is ModelFamily.REGRESSION,
+                what=f"{model_id} at {origin}",
+            )
+
+
+@pytest.mark.integration
+def test_residual_backtest_reproduces_the_m2_spot_check() -> None:
+    compare_with_spot_check(SPOT_CHECK)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("model_id", "error"),
+    [
+        ("atlas_linear_regression", 0.1),  # a tenth of a request: rejected despite the tolerance
+        ("atlas_linear_regression", -25.0),
+        ("same_weekday_median_5w", 1.0),  # no BLAS: any difference is rejected
+    ],
+)
+def test_spot_check_rejects_a_materially_different_reference(
+    tmp_path: Path, model_id: str, error: float
+) -> None:
+    spot = pd.read_csv(SPOT_CHECK, float_precision="round_trip")
+    hit = (spot["model_id"] == model_id) & (spot["origin"] == "2025-05-31") & (spot["horizon"] == 9)
+    assert hit.any()
+    spot.loc[hit, "prediction"] = spot.loc[hit, "prediction"] + error
+    edited = tmp_path / "spot_check.csv"
+    spot.to_csv(edited, index=False, float_format="%.17g")
+    with pytest.raises(AssertionError, match=model_id):
+        compare_with_spot_check(edited)
 
 
 @pytest.mark.integration
@@ -485,9 +525,11 @@ def test_projection_uses_the_m2_point_forecasts_and_labels_the_status(
         (intervals["model_id"] == "atlas_linear_regression")
         & (intervals["pair_id"] == facts["decided_pair"])
     ]
-    # Same code path as `atlas forecast`. A fresh process reproduces the committed projection
-    # bit for bit; inside a long test process BLAS may differ in the last bit (M2, section 8).
-    assert primary["prediction"].to_numpy() == pytest.approx(m2["prediction"].to_numpy(), rel=1e-12)
+    # Same code path as `atlas forecast`. The committed projection was computed on another
+    # machine, so BLAS may differ in the last bits (tests/numeric.py).
+    assert_matches_reference(
+        primary["prediction"], m2["prediction"], uses_blas=True, what="projection"
+    )
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["calibration_status"] == facts["calibration_status"]
     report = (directory / "report.md").read_text(encoding="utf-8")

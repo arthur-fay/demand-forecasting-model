@@ -46,7 +46,9 @@ on data through that origin only, for two point models:
 A residual is `r = actual - prediction` for one model, origin and horizon whose actual was
 observed (record status `ok`), so `y = prediction + r`. (M2's error metrics use the
 opposite sign, `prediction - actual`.) A test checks that the re-run reproduces the
-committed M2 spot check exactly.
+committed M2 spot check: exactly for the baseline, and to 1e-9 relative for the regression,
+whose least squares run through OpenBLAS kernels that differ across CPUs (see
+[DEVELOPMENT.md](DEVELOPMENT.md), "Reproducibility across machines").
 
 ## 3. Eligibility and leakage barriers
 
