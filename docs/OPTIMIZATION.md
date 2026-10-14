@@ -170,7 +170,8 @@ optimum in every path, and that most fallbacks were recorded nowhere. Now:
 - **Per-column and per-row zero tests.** A reduced cost counts as zero when it is within
   `1e-9 × max(1, |c_j| + Σ_i |a_ij y_i|)`, the scale of its own column in the
   stationarity check; a row dual when it is within `1e-9 ×` the largest such column scale
-  divided by the row's coefficient, over the columns the row touches.
+  divided by the row's coefficient, over the columns the row touches (since R3 only the
+  columns the face leaves free, below).
 - **The face contains the earlier optimum `x*`.** Every row and bound is widened to `x*`'s
   own activity (tight rows are pinned there), so an optimum that is feasible only to within
   the solver's tolerance stays on its face. The widening is at most that tolerance, and the
@@ -197,6 +198,42 @@ optimum in every path, and that most fallbacks were recorded nowhere. Now:
   depend on the vertex HiGHS returns. Its day-by-day schedule, and the split between
   overtime and surge, can still differ between tied plans; the uniqueness test (section 7)
   says when.
+
+**Amended (R3).** The third review found that the round-2 tie-break stages, exact caps and
+per-point face tests made the analysis fail at large scale, from about `1e5`-`1e6` requests
+a day (and in one benchmark control instance at `3.4e4`). HiGHS's presolve called
+programmes that contain a known feasible plan infeasible, and the simplex could not clean
+up the unscaled solution (status 15); the result was false ERRORs or an aborted run. It
+also found that one large column could still widen a row's zero test. Three independent
+fixes were benchmarked on every reproduction and on 69 realistic control instances; the
+one adopted works as follows:
+- **Exact scaling.** When a right-hand side or finite bound exceeds `2**21` (above it the
+  absolute tolerance `1e-9` spans fewer than two units in the last place), every
+  right-hand side and finite bound is divided by a power of two `K`. That is exact in
+  floating point. The solution is mapped back (`x = K x'`); the duals are unchanged.
+  The scaled solution must pass the certificate on the original programme; if it does
+  not, or HiGHS fails on it, the programme is solved unscaled. Every programme of the
+  reference run has `K = 1`.
+- **Presolve's infeasible verdicts are confirmed** by a re-solve without presolve, and a
+  certified optimum overturns them (`retried`). Before, only statuses 9, 10 and 15 were
+  re-solved.
+- **No fallback aborts the run.** A stage whose every fallback failed is `solver_failed`:
+  an ERROR on that scenario, with the other results still written.
+- **Caps are loosened on any failure.** The policy and frontier caps are loosened whenever
+  any stage of the exact chain is not optimal, not only the first one (this replaces the
+  "only then" above).
+- **A row's zero test uses only the columns the face leaves free.** Columns fixed at a
+  bound by a nonzero reduced cost, or pinned by an earlier face, are left out: their bound
+  multipliers absorb any change of the row dual, so their scale (a large capacity dual,
+  say) says nothing about it.
+- **The kept-optimum check also bounds the loss through counted-as-zero duals.** The loss,
+  against the earlier optimum, through every dual the face counted as zero (rows and
+  bounds) must stay within `10 ×` the checking tolerance of the score terms that change.
+  This is stricter than the tie rule for genuine near-ties within `1e-9`, which then get a
+  recorded face rebuild.
+- **The face is rebuilt** from exact zeros whenever any face programme fails.
+
+The reference run is unchanged byte for byte.
 
 ## 5. Infeasibility, relaxed plans and diagnostics
 
@@ -299,7 +336,8 @@ score.
   constraints) from it: the test is exact up to that threshold, not to zero. If a face plan
   does not score the optimum (the zero tests loosened the face), the face is rebuilt from
   exact zeros and the rebuild is recorded (`face_rebuilt`); a failed face programme is
-  recorded as an ERROR instead of aborting the run. **Amended (R3):** the tie-breaks pin cash,
+  recorded as an ERROR instead of aborting the run (R3: any failed face programme triggers
+  the rebuild). **Amended (R3):** the tie-breaks pin cash,
   terminal backlog and request-days, but the overtime/surge split and the daily schedule can
   stay open (for example when overtime and surge cost the same per request). The reported
   plan itself therefore gets the same test on the face of its last tie-break stage. It is
@@ -350,7 +388,11 @@ score.
   backlog, then request-days), so the values in `frontier.csv` do not depend on the vertex.
   Each point gets the uniqueness test. `unique_after_tie_breaks` is false where other plans
   tie on all four values with a different daily schedule, and the ranges of the overtime and
-  surge totals over those plans are reported.
+  surge totals over those plans are reported. **Amended (R3):** a cap whose least penalty
+  is certified, but whose tie-break stage failed after every fallback, is a `solver_failed`
+  point: it has its least penalty, no totals, and an ERROR. So is a cap the solver gave no
+  verdict on. Neither is called infeasible. `on_frontier_check` is `not_computed` (with an
+  ERROR) when the point at the strict plan's cash could not be computed.
 - **Sensitivity sweeps**, one parameter at a time, with the properties proved for the model
   checked on the results (**amended (R2):** the values of each point are those of its
   tie-broken plan):

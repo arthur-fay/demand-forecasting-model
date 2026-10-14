@@ -354,9 +354,10 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         "## Is the optimal plan unique?",
         "",
         "An active-set test from the optimal vertex the solver returned, over the optimal "
-        "face built by complementary slackness from the certified duals (a reduced cost or "
-        "dual within 1e-9 of its own scale counts as zero, so prices tied that closely count "
-        "as tied). `yes` means no other optimal plan differs by more than 0.001 requests or "
+        "face built by complementary slackness from the certified duals (a reduced cost "
+        "within 1e-9 of its column's scale, or a row dual within 1e-9 of the scale of the "
+        "free columns it couples, counts as zero, so prices tied that closely count as "
+        "tied). `yes` means no other optimal plan differs by more than 0.001 requests or "
         "staff hours in that distance. For an infeasible scenario the test is on its relaxed "
         "plan. When the plan is not unique, its day-by-day allocation in `plans.csv` is one "
         "of several equally scored HYPOTHETICAL plans; the ranges are over all optimal "
