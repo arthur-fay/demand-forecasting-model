@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
+import subprocess
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -40,12 +42,13 @@ from atlas.decision_analysis import (
     ScenarioResult,
     SweepPoint,
     analyse_scenario,
+    format_binding,
     pareto_relation,
     run_sweep,
-    solve_problem,
     terminal_violation,
 )
 from atlas.decision_inputs import (
+    MARGINAL_QUANTILE_PATH,
     M2Projection,
     M3Status,
     QuantilePath,
@@ -77,15 +80,13 @@ from atlas.optimization_config import (
 )
 from atlas.optimization_report import render_optimization_report
 from atlas.optimizer import (
-    Objective,
     OptimizationError,
     SolverSettings,
-    Terminal,
     solver_versions,
 )
-from atlas.planning import UNITS, Plan, PlanCheck, PlanEvaluation
+from atlas.planning import UNITS, Plan, PlanCheck, PlanEvaluation, binding_constraints
 from atlas.runner import RUNS_DIRNAME, SnapshotData, _check_output_dir, _read_json, load_series
-from atlas.scenarios import Scenario, build_scenarios
+from atlas.scenarios import Scenario, build_scenarios, capacity_near_percentile
 from atlas.snapshot import sha256_file
 
 RECORD_TYPE_DECISION_SIMULATION: Final = "hypothetical_decision_simulation"
@@ -128,6 +129,16 @@ LABEL_COLUMNS: Final = (
 )
 OPTIMIZED: Final = "optimized"
 WITHOUT_TARGET: Final = "optimized_without_terminal_target"
+#: How each reported plan is chosen (a policy plan follows its rule).
+SELECTION: Final = {
+    OPTIMIZED: "least cash among the optimal plans",
+    RELAXED_TERMINAL_TARGET: (
+        "least target violation within the budget, then optimal score, then least cash"
+    ),
+    WITHOUT_TARGET: "least cash among the optimal plans without the target",
+    "lp_same_cash": "least request-days at the policy's cash, then optimal score",
+    "lp_same_backlog": "least cash at the policy's request-days and terminal backlog",
+}
 
 
 @dataclass(frozen=True)
@@ -138,6 +149,9 @@ class DecisionInputs:
     demand_percentile: float
     data: SnapshotData
     percentile_sha256: str
+    #: SHA-256 of projection_intervals.csv, checked against its pin even when no scenario
+    #: uses a marginal quantile path (a pin is never recorded unchecked).
+    intervals_sha256: str | None = None
 
     def provenance(self) -> dict[str, Any]:
         return {
@@ -161,18 +175,23 @@ def _check_pins(config: OptimizationConfig, inputs: DecisionInputs) -> None:
         "forecast.m2_config_fingerprint": inputs.projection.provenance.get("config_fingerprint"),
         "uncertainty.calibration_status_sha256": inputs.status.provenance.get("sha256"),
         "uncertainty.projection_exceedance_sha256": inputs.percentile_sha256,
+        "uncertainty.projection_intervals_sha256": inputs.intervals_sha256,
     }
     pinned = {
         "forecast.projections_sha256": forecast.projections_sha256,
         "forecast.m2_config_fingerprint": forecast.m2_config_fingerprint,
         "uncertainty.calibration_status_sha256": uncertainty.calibration_status_sha256,
         "uncertainty.projection_exceedance_sha256": uncertainty.projection_exceedance_sha256,
+        "uncertainty.projection_intervals_sha256": uncertainty.projection_intervals_sha256,
     }
     for path in inputs.quantiles.values():
-        found["uncertainty.projection_intervals_sha256"] = path.provenance.get(
+        # The stress path must come from the pinned file too.
+        found["uncertainty.projection_intervals_sha256 (stress path)"] = path.provenance.get(
             "projection_intervals_sha256"
         )
-        pinned["uncertainty.projection_intervals_sha256"] = uncertainty.projection_intervals_sha256
+        pinned["uncertainty.projection_intervals_sha256 (stress path)"] = (
+            uncertainty.projection_intervals_sha256
+        )
     wrong = sorted(name for name in pinned if found.get(name) != pinned[name])
     if wrong:
         raise ConfigError(
@@ -209,9 +228,17 @@ def load_inputs(
                 root, config.uncertainty.projection_run_dir, status, projection, basis.quantile
             )
     percentile = load_demand_percentile(root, config.uncertainty.projection_run_dir, status)
-    exceedance = root / config.uncertainty.projection_run_dir / "projection_exceedance.csv"
+    run_dir = root / config.uncertainty.projection_run_dir
+    exceedance = run_dir / "projection_exceedance.csv"
+    intervals = run_dir / "projection_intervals.csv"
     inputs = DecisionInputs(
-        projection, status, quantiles, percentile, data, sha256_file(exceedance)
+        projection,
+        status,
+        quantiles,
+        percentile,
+        data,
+        sha256_file(exceedance),
+        sha256_file(intervals) if intervals.is_file() else None,
     )
     _check_pins(config, inputs)
     return inputs
@@ -275,11 +302,10 @@ def _plan_rows(
     rows: list[
         tuple[str, str, Attempt | None, Plan | None, PlanEvaluation | None, PlanCheck | None]
     ] = []
-    strict = result.strict.solved
+    reported = result.reported
+    strict = reported.solved if result.strict.optimal else None
     if strict is not None:
-        rows.append(
-            (OPTIMIZED, "strict", result.strict, strict.plan, strict.evaluation, strict.check)
-        )
+        rows.append((OPTIMIZED, "strict", reported, strict.plan, strict.evaluation, strict.check))
     else:
         rows.append((OPTIMIZED, "infeasible", result.strict, None, None, None))
         relaxed = result.diagnosis.relaxed.solved if result.diagnosis else None
@@ -294,13 +320,27 @@ def _plan_rows(
                     relaxed.check,
                 )
             )
-    free = result.without_target.solved
-    if free is not None:
+    free_attempt = result.without_target_plan or result.without_target
+    free = free_attempt.solved
+    if strict is not None and result.target_changes_score is False:
+        # Dropping the target does not change the optimal score: the target forces
+        # nothing, and the reported plan is optimal for both programmes.
+        rows.append(
+            (
+                WITHOUT_TARGET,
+                "same_optimal_score_target_forces_nothing",
+                reported,
+                strict.plan,
+                strict.evaluation,
+                strict.check,
+            )
+        )
+    elif free is not None:
         rows.append(
             (
                 WITHOUT_TARGET,
                 "terminal_target_dropped",
-                result.without_target,
+                free_attempt,
                 free.plan,
                 free.evaluation,
                 free.check,
@@ -350,19 +390,25 @@ def scenario_frame(
                 else pareto_relation(reference, evaluation)
             )
             budget = result.problem.discretionary_budget
+            face = result.reported_face if plan_id in (OPTIMIZED, RELAXED_TERMINAL_TARGET) else None
             rows.append(
                 {
                     **_labels(status),
                     "scenario_id": scenario.scenario_id,
                     "plan": plan_id,
                     "feasibility": feasibility,
+                    "plan_selection": SELECTION.get(plan_id.split("_as_")[0], "policy rule"),
+                    "unique_optimal_plan": None if face is None else face.unique,
                     "solver_status": None if attempt is None else str(attempt.status),
                     "demand_basis": scenario.demand_basis,
                     "quantile": scenario.quantile,
                     "demand_total": scenario.demand_total,
                     "regular_capacity_mean": scenario.regular_capacity_mean(),
-                    "capacity_to_forecast_mean_ratio": scenario.regular_capacity_mean()
+                    "capacity_to_point_forecast_mean_ratio": scenario.regular_capacity_mean()
                     / forecast_mean,
+                    "capacity_to_scenario_demand_mean_ratio": scenario.regular_capacity_mean()
+                    / (scenario.demand_total / result.problem.horizon),
+                    "demand_interpretation": _interpretation(scenario.demand_basis),
                     "discretionary_budget": budget,
                     "terminal_backlog_max": result.problem.units[0].terminal_backlog_max,
                     "terminal_violation": violation,
@@ -376,9 +422,11 @@ def scenario_frame(
     return pd.DataFrame(rows)
 
 
-def plans_frame(results: Sequence[ScenarioResult], status: M3Status) -> pd.DataFrame:
+def plans_frame(
+    results: Sequence[ScenarioResult], scenarios: Sequence[Scenario], status: M3Status
+) -> pd.DataFrame:
     rows = []
-    for result in results:
+    for result, scenario in zip(results, scenarios, strict=True):
         problem = result.problem
         reported_id = OPTIMIZED if result.strict.optimal else RELAXED_TERMINAL_TARGET
         plans: list[tuple[str, Plan]] = []
@@ -386,8 +434,9 @@ def plans_frame(results: Sequence[ScenarioResult], status: M3Status) -> pd.DataF
             plans.append((reported_id, result.reported.solved.plan))
         plans += [(outcome.policy, outcome.plan) for outcome in result.policies]
         ranges = {}
-        if result.face is not None:
-            ranges = {(u, d): (low, high) for u, d, low, high in result.face.daily_extra_capacity}
+        face = result.reported_face
+        if face is not None:
+            ranges = {(u, d): (low, high) for u, d, low, high in face.daily_extra_capacity}
         for plan_id, plan in plans:
             for unit, decisions in zip(problem.units, plan.units, strict=True):
                 previous = unit.initial_backlog
@@ -398,13 +447,15 @@ def plans_frame(results: Sequence[ScenarioResult], status: M3Status) -> pd.DataF
                     )
                     low, high = (
                         ranges.get((unit.unit_id, day), (extra, extra))
-                        if plan_id == OPTIMIZED
+                        if plan_id == reported_id and face is not None
                         else (None, None)
                     )
                     rows.append(
                         {
                             **_labels(status),
                             "scenario_id": result.scenario_id,
+                            "demand_basis": scenario.demand_basis,
+                            "demand_interpretation": _interpretation(scenario.demand_basis),
                             "plan": plan_id,
                             "unit_id": unit.unit_id,
                             "day": day + 1,
@@ -473,6 +524,11 @@ def duals_frame(results: Sequence[ScenarioResult], status: M3Status) -> pd.DataF
                     "rhs_units": dual.rhs_units,
                     "slack": dual.slack,
                     "binding": dual.binding,
+                    # A daily limit of zero (surge before it becomes available) is tight
+                    # because nothing can be bought, not because the resource is used up.
+                    "limit_is_zero_unavailable": dual.constraint
+                    in ("overtime_daily_limit", "surge_daily_limit")
+                    and dual.rhs == 0,
                     "solver_dual_subgradient": dual.marginal,
                     "dual_units": dual.marginal_units,
                     **_fd_fields(differences.get(dual.key())),
@@ -481,27 +537,47 @@ def duals_frame(results: Sequence[ScenarioResult], status: M3Status) -> pd.DataF
     return pd.DataFrame(rows)
 
 
+def _mean_demand(point: SweepPoint) -> float:
+    unit = point.problem.units[0]
+    return math.fsum(unit.demand) / unit.horizon
+
+
+def _interpretation(basis: str) -> str:
+    """How a row's demand must be read (copied onto every scenario and plan row)."""
+    if basis == MARGINAL_QUANTILE_PATH:
+        return "hypothetical_stress_not_a_probability"
+    return "unvalidated_point_forecast"
+
+
+def _range(face: Any, quantity: str) -> tuple[float | None, float | None]:
+    if face is None:
+        return None, None
+    for item in face.ranges:
+        if item.quantity == quantity:
+            return item.low, item.high
+    return None, None  # pragma: no cover - every face reports these quantities
+
+
 def sensitivity_frame(
     sweeps: Sequence[tuple[tuple[SweepPoint, ...], tuple[MonotonicityCheck, ...]]],
     base: Scenario,
     status: M3Status,
-    settings: SolverSettings,
     forecast_mean: float,
+    demand_percentile: float,
 ) -> pd.DataFrame:
     rows = []
     for points, _ in sweeps:
         for point in points:
-            solved = point.attempt.solved
+            solved = point.reported.solved
             unit = point.problem.units[0]
             capacity = (
                 math.fsum(unit.regular_capacity(d) for d in range(unit.horizon)) / unit.horizon
             )
-            violation = None
-            if solved is None:
-                soft = solve_problem(
-                    point.problem, settings, Objective.TERMINAL_VIOLATION, terminal=Terminal.SOFT
-                )
-                violation = soft.value
+            ranges: dict[str, Any] = {}
+            for quantity in ("discretionary_cash", "backlog_request_days", "terminal_backlog"):
+                low, high = _range(point.face, quantity)
+                ranges[f"{quantity}_min_over_optimal_plans"] = low
+                ranges[f"{quantity}_max_over_optimal_plans"] = high
             rows.append(
                 {
                     **_labels(status),
@@ -509,14 +585,22 @@ def sensitivity_frame(
                     "parameter": point.parameter,
                     "value": point.value,
                     "solver_status": str(point.attempt.status),
-                    "least_terminal_violation_within_budget": violation,
+                    "plan_selection": "least cash among the optimal plans" if solved else None,
+                    "unique_optimal_plan": None if point.face is None else point.face.unique,
+                    "least_terminal_violation_within_budget": point.least_violation,
                     "regular_capacity_mean": capacity,
-                    "capacity_to_forecast_mean_ratio": capacity / forecast_mean,
+                    "capacity_to_point_forecast_mean_ratio": capacity / forecast_mean,
+                    "capacity_to_scenario_demand_mean_ratio": capacity / _mean_demand(point),
+                    "capacity_within_1pct_of_legacy_demand_percentile": capacity_near_percentile(
+                        point.problem, demand_percentile
+                    ),
                     "discretionary_budget": point.problem.discretionary_budget,
+                    "optimal_score": point.attempt.value,
                     "binding_constraints": "; ".join(point.binding) if solved else None,
-                    "budget_dual": point.budget_dual,
-                    "terminal_dual": point.terminal_dual,
+                    "budget_dual_usd_equivalent_per_usd": point.budget_dual,
+                    "terminal_dual_usd_equivalent_per_request": point.terminal_dual,
                     **_evaluation_fields(None if solved is None else solved.evaluation),
+                    **ranges,
                 }
             )
     return pd.DataFrame(rows)
@@ -555,21 +639,26 @@ def frontier_frame(results: Sequence[ScenarioResult], status: M3Status) -> pd.Da
 # --- Metrics -----------------------------------------------------------------------------
 
 
-def _attempt_summary(attempt: Attempt) -> dict[str, Any]:
+def _attempt_summary(attempt: Attempt | None) -> dict[str, Any] | None:
+    if attempt is None:
+        return None
     solved = attempt.solved
     if solved is None:
         return {"status": str(attempt.status), "message": attempt.message}
     return {
         "status": str(attempt.status),
+        "objective": str(attempt.objective),
         "objective_value": solved.objective_value,
         "objective_recomputed_from_plan": solved.recomputed_value,
         "certificate": solved.certificate.to_dict(),
         "independent_check_passed": solved.check.feasible,
+        "constraints_not_checked": list(solved.ignored),
         "max_balance_residual": solved.check.max_balance_residual,
         "values_snapped_to_bounds": solved.cleaning.values_adjusted,
         "largest_snap": solved.cleaning.max_adjustment,
         "highs_status": solved.result.highs_status,
         "retried_without_presolve": solved.result.retried,
+        "lexicographic_epsilon_fallback": attempt.epsilon_fallback,
         "iterations": solved.result.iterations,
         "evaluation": solved.evaluation.to_dict(),
     }
@@ -585,6 +674,7 @@ def _comparisons(result: ScenarioResult) -> list[dict[str, Any]]:
         theirs = outcome.evaluation
         entry: dict[str, Any] = {
             "policy": outcome.policy,
+            "reported_plan": result.feasibility,
             "policy_constraints_violated": outcome.check.constraints_violated(),
             "comparable_on_score": result.strict.optimal and outcome.check.feasible,
             "relation_of_reported_plan": pareto_relation(mine, theirs),
@@ -592,48 +682,83 @@ def _comparisons(result: ScenarioResult) -> list[dict[str, Any]]:
             "request_days_difference": mine.backlog_request_days - theirs.backlog_request_days,
             "terminal_backlog_difference": mine.terminal_backlog - theirs.terminal_backlog,
         }
-        same_cash = outcome.same_cash.solved
-        same_backlog = outcome.same_backlog.solved
-        if same_cash is not None:
-            entry["lp_request_days_at_policy_cash"] = same_cash.evaluation.backlog_request_days
-            entry["request_days_difference_at_same_cash"] = (
-                same_cash.evaluation.backlog_request_days - theirs.backlog_request_days
-            )
-        if same_backlog is not None:
-            entry["lp_cash_at_policy_backlog"] = same_backlog.evaluation.discretionary_cost
-            entry["cash_difference_at_same_backlog"] = (
-                same_backlog.evaluation.discretionary_cost - theirs.discretionary_cost
-            )
+        least_days = outcome.least_request_days_at_policy_cash
+        least_cash = outcome.least_cash_at_policy_backlog
+        if least_days is not None:
+            entry["lp_request_days_at_policy_cash"] = least_days
+            entry["request_days_difference_at_same_cash"] = least_days - theirs.backlog_request_days
+        if least_cash is not None:
+            entry["lp_cash_at_policy_backlog"] = least_cash
+            entry["cash_difference_at_same_backlog"] = least_cash - theirs.discretionary_cost
         rows.append(entry)
     return rows
 
 
+def _sweep_summary(
+    point: SweepPoint, forecast_mean: float, demand_percentile: float
+) -> dict[str, Any]:
+    solved = point.reported.solved
+    evaluation = None if solved is None else solved.evaluation
+    unit = point.problem.units[0]
+    capacity = math.fsum(unit.regular_capacity(d) for d in range(unit.horizon)) / unit.horizon
+    return {
+        "parameter": point.parameter,
+        "value": point.value,
+        "status": str(point.attempt.status),
+        "optimal_score": point.attempt.value,
+        "discretionary_cost": None if evaluation is None else evaluation.discretionary_cost,
+        "backlog_request_days": None if evaluation is None else evaluation.backlog_request_days,
+        "terminal_backlog": None if evaluation is None else evaluation.terminal_backlog,
+        "unique_optimal_plan": None if point.face is None else point.face.unique,
+        "least_terminal_violation_within_budget": point.least_violation,
+        "capacity_to_point_forecast_mean_ratio": capacity / forecast_mean,
+        "capacity_to_scenario_demand_mean_ratio": capacity / _mean_demand(point),
+        "capacity_within_1pct_of_legacy_demand_percentile": capacity_near_percentile(
+            point.problem, demand_percentile
+        ),
+    }
+
+
+def _face_summary(face: Any) -> dict[str, Any] | None:
+    if face is None:
+        return None
+    return {
+        "unique": face.unique,
+        "method": "complementary_slackness_with_certified_duals",
+        "dual_threshold": face.dual_threshold,
+        "bounds_fixed": face.bounds_fixed,
+        "rows_tight": face.rows_tight,
+        "max_active_distance": face.max_active_distance,
+        "undetermined_days": face.undetermined_days(),
+        "ranges": [
+            {"quantity": r.quantity, "units": r.units, "low": r.low, "high": r.high}
+            for r in face.ranges
+        ],
+    }
+
+
 def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, Any]:
-    face = result.face
     fd = result.finite_differences
+    reported = result.reported.solved
     return {
         **scenario.to_dict(),
         "feasibility": result.feasibility,
+        "optimal_score": result.strict.value,
+        "reported_plan_selection": SELECTION[
+            OPTIMIZED if result.strict.optimal else RELAXED_TERMINAL_TARGET
+        ],
+        "reported_plan": _attempt_summary(result.reported),
         "strict": _attempt_summary(result.strict),
-        "without_terminal_target": _attempt_summary(result.without_target),
+        "without_terminal_target": _attempt_summary(
+            result.without_target_plan or result.without_target
+        ),
+        "terminal_target_changes_optimal_score": result.target_changes_score,
         "diagnosis": None if result.diagnosis is None else result.diagnosis.to_dict(),
         "relaxed": None if result.diagnosis is None else _attempt_summary(result.diagnosis.relaxed),
-        "optimal_face": None
-        if face is None
-        else {
-            "unique": face.unique,
-            "epsilon_usd_equivalent": face.epsilon,
-            "max_active_distance": face.max_active_distance,
-            "distance_with_epsilon_over_100": face.distance_small_epsilon,
-            "undetermined_days": face.undetermined_days(),
-            "ranges": [
-                {"quantity": r.quantity, "units": r.units, "low": r.low, "high": r.high}
-                for r in face.ranges
-            ],
-        },
-        "binding_constraints": sorted(
-            {d.constraint for d in result.duals if d.binding and d.constraint != "balance"}
-        ),
+        "optimal_face": _face_summary(result.reported_face),
+        "binding_constraints": []
+        if reported is None
+        else list(format_binding(binding_constraints(result.problem, reported.plan))),
         "shadow_prices": {
             "computed": bool(fd),
             "n": len(fd),
@@ -717,9 +842,11 @@ def m4_outputs(settings: Settings, config: OptimizationConfig, inputs: DecisionI
     status = inputs.status
     frames = {
         "scenarios.csv": scenario_frame(results, scenarios, status, forecast_mean),
-        "plans.csv": plans_frame(results, status),
+        "plans.csv": plans_frame(results, scenarios, status),
         "duals.csv": duals_frame(results, status),
-        "sensitivity.csv": sensitivity_frame(sweeps, base, status, solver, forecast_mean)
+        "sensitivity.csv": sensitivity_frame(
+            sweeps, base, status, forecast_mean, inputs.demand_percentile
+        )
         if base is not None
         else pd.DataFrame(),
         "frontier.csv": frontier_frame(results, status),
@@ -751,6 +878,17 @@ def m4_outputs(settings: Settings, config: OptimizationConfig, inputs: DecisionI
                     f"terminal-target violation within the budget) is reported. {reasons}",
                 )
             )
+    for swept_points, _ in sweeps:
+        for swept in swept_points:
+            for problem in swept.problems:
+                issues.append(
+                    Issue(
+                        "check_failed",
+                        Severity.ERROR,
+                        f"sensitivity:{swept.parameter}={swept.value:g}",
+                        problem,
+                    )
+                )
     monotonicity = []
     for _, checks in sweeps:
         for check in checks:
@@ -801,6 +939,11 @@ def m4_outputs(settings: Settings, config: OptimizationConfig, inputs: DecisionI
         "sensitivity": {
             "base_scenario": None if base is None else base.scenario_id,
             "monotonicity": monotonicity,
+            "points": [
+                _sweep_summary(swept, forecast_mean, inputs.demand_percentile)
+                for swept_points, _ in sweeps
+                for swept in swept_points
+            ],
         },
         "checks": {
             "errors": sum(1 for i in issues if i.severity is Severity.ERROR),
@@ -832,12 +975,7 @@ def headline(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Compact facts for the text renderer (one row per scenario)."""
     rows = []
     for scenario in payload.get("scenarios", []):
-        reported = (
-            scenario.get("strict")
-            if scenario.get("feasibility") == "strict"
-            else scenario.get("relaxed")
-        )
-        evaluation = (reported or {}).get("evaluation") or {}
+        evaluation = (scenario.get("reported_plan") or {}).get("evaluation") or {}
         rows.append(
             {
                 "scenario_id": scenario.get("scenario_id"),
@@ -851,6 +989,7 @@ def headline(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "label": payload.get("label"),
         "m3_interval_status": status.get("interval_status"),
+        "m3_decision_grade": bool(status.get("decision_grade")),
         "scenarios": rows,
     }
 
@@ -915,6 +1054,40 @@ def _solver_failure(stage: str, exc: OptimizationError) -> CheckReport:
     )
 
 
+def _require_committed_config(repo_root: Path, config_path: Path) -> None:
+    """A reference run's configuration must be a committed file under ``configs/``.
+
+    ``git status`` only covers the repository, so a configuration elsewhere (or an ignored
+    one) would be recorded with a clean commit although it is not part of it.
+    """
+    root = repo_root.resolve()
+    path = config_path.resolve()
+    if not path.is_relative_to(root / "configs"):
+        raise ConfigError(
+            f"refusing a reference run: the configuration {config_path} is not under "
+            f"{root / 'configs'}"
+        )
+    executable = shutil.which("git")
+    tracked = False
+    if executable is not None:
+        try:
+            # Absolute executable, fixed argument list, no shell.
+            completed = subprocess.run(  # noqa: S603
+                [executable, "-C", str(root), "ls-files", "--error-unmatch", "--", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            tracked = completed.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            tracked = False
+    if not tracked:
+        raise ConfigError(
+            f"refusing a reference run: the configuration {config_path} is not tracked by git"
+        )
+
+
 def run_optimization_command(
     settings: Settings,
     config_path: Path,
@@ -932,6 +1105,8 @@ def run_optimization_command(
             "refusing a reference run: the code, configuration or tests have uncommitted "
             "changes (or git is unavailable)"
         )
+    if require_clean:
+        _require_committed_config(settings.repo_root, config_path)
     started = time.perf_counter()
     reports, data = load_series(settings, "optimization")
     if data is None:
@@ -964,11 +1139,26 @@ def run_optimization_command(
     return reports
 
 
+def _check_manifest_shape(manifest: Any, run_dir: Path) -> None:
+    """A malformed manifest is a usage error (exit 2), never an internal error."""
+    if not isinstance(manifest.get("config"), dict):
+        raise ConfigError(f"{run_dir}/manifest.json has no recorded configuration")
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, dict) or any(
+        not isinstance(outputs.get(name), str) for name in RESULT_FILES
+    ):
+        raise ConfigError(
+            f"{run_dir}/manifest.json does not record a SHA-256 for every result file "
+            f"({', '.join(RESULT_FILES)})"
+        )
+
+
 def verify_optimization_command(settings: Settings, run_dir: Path) -> list[CheckReport]:
     """``atlas optimize verify``: re-run a recorded run and compare every result file."""
     manifest = _read_json(run_dir / "manifest.json", "run manifest")
     if manifest.get("record_type") != RECORD_TYPE_DECISION_SIMULATION:
         raise ConfigError(f"{run_dir} is not a {RECORD_TYPE_DECISION_SIMULATION} run")
+    _check_manifest_shape(manifest, run_dir)
     config = parse_optimization_config(manifest["config"])
     if config.fingerprint() != manifest.get("config_fingerprint"):
         raise ConfigError("the recorded configuration does not match its recorded fingerprint")
@@ -1014,6 +1204,23 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
         Issue("file_altered", Severity.ERROR, name, f"{name} no longer matches manifest.json.")
         for name in altered
     ]
+    # Reproducing a failed run byte for byte does not make it pass: its failed checks are
+    # failures of the recomputation too.
+    recomputed_errors = [i for i in outputs.issues if i.severity is Severity.ERROR]
+    issues += [
+        Issue("recomputed_check_failed", Severity.ERROR, i.subject, i.message)
+        for i in recomputed_errors
+    ]
+    if manifest.get("complete") is not (not recomputed_errors):
+        issues.append(
+            Issue(
+                "complete_flag_inconsistent",
+                Severity.ERROR,
+                "manifest.json",
+                f"The manifest records complete={manifest.get('complete')!r}, but the "
+                f"recomputation has {len(recomputed_errors)} failed check(s).",
+            )
+        )
     recorded_solver = manifest.get("solver") or {}
     now_solver = solver_versions()
     now_code = code_fingerprint(settings.repo_root)
@@ -1032,10 +1239,16 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
                 "run_dir": str(run_dir),
                 "recorded_result_fingerprint": manifest.get("result_fingerprint"),
                 "result_fingerprint": outputs.result_fingerprint,
-                "identical": not issues,
+                "identical": not altered
+                and all(files[name] == "identical" for name in files)
+                and manifest.get("result_fingerprint") == outputs.result_fingerprint,
+                "recomputed_errors": len(recomputed_errors),
                 "files": files,
                 "altered_on_disk": altered,
                 "provenance_differences": {k: v for k, v in differences.items() if v[0] != v[1]},
+                "label": LABEL,
+                "m3_interval_status": inputs.status.interval_status,
+                "m3_decision_grade": inputs.status.decision_grade,
             },
         )
     )
@@ -1047,7 +1260,8 @@ def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
     manifest = _read_json(run_dir / "manifest.json", "run manifest")
     if manifest.get("record_type") != RECORD_TYPE_DECISION_SIMULATION:
         raise ConfigError(f"{run_dir} is not a {RECORD_TYPE_DECISION_SIMULATION} run")
-    recorded = manifest.get("outputs", {})
+    _check_manifest_shape(manifest, run_dir)
+    recorded = manifest["outputs"]
     altered = [
         name
         for name, expected in sorted(recorded.items())
@@ -1082,6 +1296,28 @@ def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
         )
         return [CheckReport(name="optimization_inspection", issues=tuple(issues))]
     payload = _read_json(run_dir / "metrics.json", "metrics")
+    # metrics.json is covered by the result fingerprint; the manifest flag is not.
+    checks = payload.get("checks") if isinstance(payload, dict) else None
+    errors = checks.get("errors") if isinstance(checks, dict) else None
+    if errors != 0:
+        issues.append(
+            Issue(
+                "checks_failed",
+                Severity.ERROR,
+                "metrics.json",
+                f"metrics.json records {errors!r} failed check(s).",
+            )
+        )
+    if (errors == 0) is not (manifest.get("complete") is True):
+        issues.append(
+            Issue(
+                "complete_flag_inconsistent",
+                Severity.ERROR,
+                "manifest.json",
+                f"The manifest records complete={manifest.get('complete')!r}, but metrics.json "
+                f"records {errors!r} failed check(s).",
+            )
+        )
     return [
         CheckReport(
             name="optimization_inspection",

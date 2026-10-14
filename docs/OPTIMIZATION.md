@@ -17,8 +17,10 @@ infeasibility, maps tradeoffs and reports sensitivity and certified shadow price
 
 Sections 1-8 describe the method and were committed, with the code, the tests and the
 configuration `configs/optimization/atlas-m4-optimization-v1.json`, **before the first run
-of that configuration**. The results (section 9) and the review (section 10) were added
-afterwards.
+of that configuration** (commit `af10ddd`). The independent review (section 10) ran the
+reference configuration on that frozen code; the changes to the method it led to are marked
+**Amended (R)** below, each with its reason in section 10. The configuration file was not
+changed. The results (section 9) come from the amended code.
 
 ```bash
 uv run atlas optimize run --require-clean --output-dir runs/m4     # reference configuration
@@ -34,7 +36,7 @@ uv run atlas optimize run --config configs/optimization/smoke.json --output-dir 
 | Never a validated recommendation | Record type `hypothetical_decision_simulation`; every CSV row carries `validated_recommendation = false`, `parameter_provenance = HYPOTHETICAL`, `point_forecast_validated = false` and the M3 interval status; the report and the CLI print the label. Even with a decision-grade M3 status the flag stays false (tested). |
 | Every operational parameter `HYPOTHETICAL` | Each is a quantity `{value, unit, provenance, assumption}`; the provenance must be `HYPOTHETICAL`, the unit must be the exact expected unit, the assumption at least 20 characters. M4 has no evidence register, so no parameter can be marked verified. |
 | M3 status preserved | The `calibration_status.json` of the complete M3 run is loaded through M3's own provenance check; its status (`failed_calibration`) is in the manifest, `metrics.json`, every CSV row, the report and a CLI warning. |
-| A demand percentile is never a capacity | Capacity comes only from staff hours × productivity, overtime and surge. A regular capacity within 1 % of the trailing 180-day 75th percentile of demand (11,608.75, the legacy "planning capacity") is rejected. |
+| A demand percentile is never a capacity | Capacity comes only from staff hours × productivity, overtime and surge. A scenario whose regular capacity is within 1 % of the trailing 180-day 75th percentile of demand (11,608.75, the legacy "planning capacity") is rejected. **Amended (R):** a sensitivity sweep may pass through such a capacity as one swept HYPOTHETICAL value; that point is flagged `capacity_within_1pct_of_legacy_demand_percentile` (`near percentile` in the report), never presented as the percentile. |
 | No chance constraints | The model is deterministic. M3 quantiles may be used only as an explicitly labelled stress path (`interpretation: hypothetical_stress_not_a_probability`); no probability of meeting any target is computed or stated. |
 | Equivalent assumptions | Policies and the LP face the same problem and are scored by one evaluator; a policy that violates a constraint is not compared on score; like-for-like comparisons at equal cash and at equal backlog are computed. |
 | No improvement claimed unless computed | Every comparative sentence in the report is generated from a computed difference whose sign selects the wording; a test lints the report for promotional or probabilistic wording. |
@@ -66,7 +68,7 @@ exist). Days `t = 1..T`, `Δt = 1` day.
 | `b0` | initial backlog | requests |
 | `H[t]`, `p` | regular staff hours, regular productivity | staff hours/day, requests/staff hour |
 | `q`, `O_max`, `O_total` | overtime productivity, daily and horizon overtime limits | requests/staff hour, staff hours/day, staff hours |
-| `S_max[t]` | surge capacity (0 before the surge start day) | requests/day |
+| `S_max[t]`, `S_total` | surge capacity (0 before the surge start day), optional horizon surge limit | requests/day, requests |
 | `c_reg`, `c_ot`, `c_s` | regular wage, overtime wage, surge price | USD/staff hour, USD/staff hour, USD/request |
 | `D` | discretionary budget (overtime + surge cash over the horizon) | USD |
 | `target` | terminal-backlog target | requests |
@@ -79,7 +81,8 @@ Decision variables, all `>= 0`: requests served `x[t]`, overtime hours `o[t]`, s
 b[t] - b[t-1] + x[t] = d[t]          (b[0] = b0)            backlog balance        requests
 x[t] - q*o[t] - s[t] <= p*H[t]                              capacity               requests/day
 o[t] <= O_max,  s[t] <= S_max[t]                            daily limits (bounds)
-sum_t o[t] <= O_total                                       overtime total         staff hours
+sum_t o[t] <= O_total                    (if set)           overtime total         staff hours
+sum_t s[t] <= S_total                    (if set)           surge total            requests
 sum_t (c_ot*o[t] + c_s*s[t]) <= D                           discretionary budget   USD
 b[T] <= target                                              terminal target        requests
 
@@ -115,7 +118,9 @@ replaced by a default) is an error. The outcome is classified on the HiGHS model
 from the solver message, not only on SciPy's integer code (SciPy reports a HiGHS *model error*
 with its "infeasible" code): 7 optimal, 8 infeasible; 9, 10 and 15 (inconclusive) are re-solved
 once without presolve; anything else is an error. Inputs with non-finite values or magnitudes
-of `1e9` or more are rejected.
+of `1e9` or more are rejected. **Amended (R):** right-hand sides of derived analysis rows
+(policy caps on request-days, frontier caps, optimal-face rows), which sum inputs over the
+horizon, are bounded at `1e15` instead.
 
 Nothing the solver returns is trusted:
 
@@ -123,9 +128,10 @@ Nothing the solver returns is trusted:
    row and bound, dual signs (`<=` rows and upper bounds `<= 0`, lower bounds `>= 0`),
    stationarity `c - A_ub'y_ub - A_eq'y_eq - y_lo - y_up = 0` and a zero duality gap
    `c'x = b_ub'y_ub + b_eq'y_eq + lower'y_lo + upper'y_up`. Tolerances: rows and bounds
-   `1e-7 + 1e-9 × magnitude`, dual quantities `1e-9 × magnitude` (about 100 times the noise
-   observed on realistic instances). Together these prove optimality without the solver's
-   status.
+   `1e-7 + 1e-9 × magnitude`, dual quantities `1e-9 × magnitude`. Together these prove
+   optimality without the solver's status. **Amended (R):** a non-finite primal or dual value
+   fails the certificate (a NaN used to slip through Python's `max`); the margin observed on
+   the reference run is in section 9 (the earlier "about 100 times the noise" was wrong).
 2. **Independent plan check** in plain loops, without the LP matrices: non-negativity, the
    balance recursion, available work, capacity, daily limits, totals, terminal target and
    budget, each with tolerance `1e-6 + 1e-9 × magnitude` in its own unit.
@@ -133,7 +139,26 @@ Nothing the solver returns is trusted:
 4. Values within tolerance outside a bound (round-off) are snapped onto it and counted;
    anything further out is reported by the check. Signed zeros are normalised before writing.
 
-A failure of any check is an ERROR: the run is marked incomplete.
+A failure of any check is an ERROR: the run is marked incomplete. **Amended (R):** this now
+covers every programme M4 solves, including sweep points, the soft-target re-solves of
+infeasible sweep points, the first stages of the policy comparisons, the optimal-face
+programmes and every finite-difference re-solve (each certified). A reproduced failure
+fails `optimize verify` too, and `optimize inspect` reads the failed-check count from the
+fingerprinted `metrics.json`, not only the manifest flag.
+
+**Lexicographic stages (amended (R)).** Several results are lexicographic (the reported
+plan, the relaxed plan, the policy comparisons, the frontier points): a later objective is
+minimised among the optimal plans of an earlier one. The frozen code capped the earlier
+objective at its optimum plus `1e-6 + 1e-9 ×` its value; every later stage used that slack
+completely, so the reported plans sat that far from the earlier optimum (a binding budget
+was left a millionth of a dollar unspent and so not reported as binding), and on near-tied
+prices the cap row, parallel to the objective, made HiGHS fail. Each later stage is now
+solved on the **exact optimal face** of the earlier one, built by complementary slackness
+from the certified duals (bounds with a nonzero reduced cost fixed, rows with a nonzero dual
+made equalities; values within the certificate's dual tolerance `1e-9 × max(1, max|c|)`
+count as zero). Each stage is checked to keep the earlier optimum; only if the solver fails
+on the face programme is the epsilon cap used, and `metrics.json` records
+`lexicographic_epsilon_fallback` for every programme (zero fallbacks on the reference run).
 
 ## 5. Infeasibility, relaxed plans and diagnostics
 
@@ -150,14 +175,26 @@ values (never as plans for the stated constraints):
 
 The reported plan is then the **relaxed plan** `relaxed_terminal_target`: lexicographic —
 least violation within the budget first, then the planning objective among those plans
-(without the second stage the plan would be arbitrary, for example paid idle overtime).
+(without the second stage the plan would be arbitrary, for example paid idle overtime),
+**amended (R):** then the least discretionary cash among those, with its own uniqueness
+test and binding constraints read from the plan.
+
+**Amended (R).** HiGHS decides infeasibility at its tolerance (`1e-9`), the plan check at
+`1e-6 + 1e-9 × magnitude`. When the relaxed plan passes the plan check with nothing ignored,
+the diagnosis says **BORDERLINE** (the scenario lies on the feasibility boundary) instead
+of leaving the reasons empty. The infeasible verdict itself is confirmed independently: the
+certified soft-target programme within the budget must need a violation above `1e-10`
+requests, otherwise the verdict is an ERROR. Violations and spends below one unit are printed
+with three significant digits, never as `0`. The reasons name only the limits that bind in
+the least-violation plan (no fixed text about delayed surge or totals), and say
+"DIAGNOSTIC, not a budget request".
 
 ## 6. Policies and like-for-like comparisons
 
 | Plan | Definition |
 |---|---|
-| `optimized` | the strict LP (or `relaxed_terminal_target` when infeasible) |
-| `optimized_without_terminal_target` | the LP without the HYPOTHETICAL target: shows what the target forces |
+| `optimized` | the strict LP (or `relaxed_terminal_target` when infeasible). **Amended (R):** the least-cash plan among the optimal plans, so cash, penalty and the comparisons do not depend on the vertex HiGHS returns |
+| `optimized_without_terminal_target` | the LP without the HYPOTHETICAL target: shows what the target forces. **Amended (R):** compared on the optimal score; when the target does not change it, the row shows the reported plan and says `same_optimal_score_target_forces_nothing` |
 | `fixed_capacity` | regular staff only: `x[t] = min(b[t-1] + d[t], p·H[t])`, no overtime or surge |
 | `backlog_trigger` | when the backlog would exceed a HYPOTHETICAL trigger, buy the cheaper extra capacity (USD per request; overtime on a tie) up to the daily limits, the remaining totals and the remaining budget; myopic |
 | `lp_same_cash_as_<policy>` | least request-days with at most the policy's discretionary cash (target dropped) |
@@ -174,13 +211,17 @@ score.
 
 - **Is the optimal plan unique?** From the reported vertex, the constraints active there
   (bounds and tight rows) determine it. M4 maximises the total distance from those active
-  constraints over all plans scoring within `ε = 1e-9 × Σ|c_j x_j|` of the optimum; zero
-  distance means no other optimal plan exists. Near-optimal plans move at most `ε / rate`, so
-  a positive distance is re-tested with `ε / 100`: a genuine alternative optimum does not
-  shrink with `ε`. Ranges over the optimal face of cash, request-days, terminal backlog,
-  overtime and surge are reported, and, for a non-unique optimum, the range of extra capacity
-  on each day (`plans.csv`). A non-unique plan is labelled "one of several equally scored
-  HYPOTHETICAL plans".
+  constraints over all optimal plans; zero distance means no other optimal plan exists.
+  **Amended (R):** the optimal plans are the exact optimal face built by complementary
+  slackness (see "Lexicographic stages", section 4), not the plans within `ε = 1e-9 ×
+  Σ|c_j x_j|` of the optimum re-tested at `ε / 100`: that test missed a genuine alternative
+  optimum when a near-flat direction also existed, and its near-parallel row made HiGHS fail
+  on near-ties. Prices tied to within the dual tolerance count as tied. Every face programme
+  is certified and its plan checked and confirmed to score the optimum. Ranges over the
+  optimal face of cash, request-days, terminal backlog, overtime and surge are reported, and,
+  for a non-unique optimum, the range of extra capacity on each day (`plans.csv`). The
+  relaxed plan and every sweep point get the same test. A non-unique plan is labelled "one of
+  several equally scored HYPOTHETICAL plans".
 - **Shadow prices** are derivatives of the optimal penalised score with respect to one
   right-hand side: per request of demand on day `t` (balance), per request of free regular
   capacity on day `t` (capacity), per USD of budget, per request of terminal target, per
@@ -188,12 +229,19 @@ score.
   (USD-equivalent), so they are **not wages, prices or values of staff**; no staff-hour
   conversion is reported (adding a staff hour would also add its committed cost). The
   optimal value is convex in every right-hand side, so `backward secant ≤ dual ≤ forward
-  secant` must hold for any step: every dual is bracketed with step `0.001` (`locally_unique`
-  when both slopes agree, `breakpoint` otherwise: the solver's value is then one subgradient
-  among several), at a domain boundary only from above, with an infeasible side as `±inf`.
-  A practical step (1 request, 1 staff hour, 100 USD) is reported separately as an average
-  effect, split into its cash and notional-penalty parts. Balance duals must be `>= 0` (the
-  optimal score never falls when demand rises).
+  secant` must hold for any step: every dual of the scenarios listed under `shadow_prices`
+  is bracketed with step `0.001` (`locally_unique` when both slopes agree, `breakpoint`
+  otherwise: the solver's value is then one subgradient among several), at a domain boundary
+  only from above, with an infeasible side as `±inf`. A practical step (1 request, 1 staff
+  hour, 100 USD) is reported separately as an average effect, split into its cash and
+  notional-penalty parts. Balance duals must be `>= 0` (the optimal score never falls when
+  demand rises). **Amended (R):** the local step is the larger of `0.001` and `1e-7 ×` the
+  right-hand side, and slopes are compared with a tolerance that includes the rounding noise
+  of two optimal values (`2 × 64 ulp × Σ|c_j x_j|` divided by the step), so the statuses do
+  not change when every quantity is scaled (an absolute step gave false breakpoints and
+  bracket ERRORs at ×100-×300); every re-solve is certified; the cash/penalty split compares
+  the least-cash optimal plans before and after the step; a daily limit of zero (surge not
+  yet available) is flagged `limit_is_zero_unavailable` in `duals.csv`.
 - **Tradeoff frontier** (epsilon constraint): for caps on discretionary cash from 0 to the
   least cash that achieves the least possible penalty, the least notional penalty `w·Σb +
   w_T·b[T]` (then the least cash achieving it), with and without the terminal target, budget
@@ -282,5 +330,9 @@ uv run atlas optimize verify runs/m4                       # byte-identical resu
 
 Runs are deterministic on one machine (no randomness, no time limit, serial dual simplex) and
 work offline: every input is a committed, hash-verified file. `verify` reports the SciPy and
-HiGHS versions recorded and current; with a different solver build the vertex chosen among
-alternative optima, and so the plan bytes, may differ even when the optimal score does not.
+HiGHS versions recorded and current; with a different solver build the plan chosen among
+alternative least-cash optima, and so the plan bytes, may differ even when the optimal score
+does not. `verify` fails when the recomputation has a failed check (even if it reproduces
+the recorded bytes) or when the manifest's `complete` flag disagrees with it; `inspect`
+fails when the fingerprinted `metrics.json` records a failed check; `--require-clean`
+also requires the configuration to be a tracked file under `configs/`.

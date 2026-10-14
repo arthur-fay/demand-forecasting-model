@@ -604,15 +604,40 @@ def test_pinned_hashes_must_be_lowercase_sha256(section: str, key: str) -> None:
 def test_discretionary_budget_may_be_null() -> None:
     payload = smoke_dict()
     payload["discretionary_budget"] = None
+    payload["scenarios"] = [
+        s
+        for s in payload["scenarios"]
+        if "discretionary_budget_multiplier" not in s.get("adjustments", {})
+    ]
+    payload["sensitivity"]["sweeps"] = [
+        s
+        for s in payload["sensitivity"]["sweeps"]
+        if s["parameter"] != "discretionary_budget_multiplier"
+    ]
     assert parse_optimization_config(payload).discretionary_budget is None
 
 
+def test_null_budget_cannot_be_scaled_by_a_scenario_or_a_sweep() -> None:
+    # A multiplier of nothing would be reported as an applied adjustment.
+    payload = smoke_dict()
+    payload["discretionary_budget"] = None
+    rejected(payload, "discretionary_budget is null")
+    payload["scenarios"] = [
+        s
+        for s in payload["scenarios"]
+        if "discretionary_budget_multiplier" not in s.get("adjustments", {})
+    ]
+    rejected(payload, r"budget sweep True")
+
+
 def test_smoke_hypothetical_parameters_are_counted_by_hand() -> None:
-    # 16 unit quantities minus surge_total (null) = 15, the budget = 1, and one adjustment
-    # each in reduced_budget and delayed_surge = 2: 18 rows.
+    # 16 unit quantities minus surge_total (null) = 15, the budget = 1, one adjustment each
+    # in reduced_budget and delayed_surge = 2, and the six sensitivity grids: 24 rows.
     config = parse_optimization_config(smoke_dict())
     rows = config.hypothetical_parameters()
-    assert len(rows) == 18
+    assert len(rows) == 24
+    grids = [r for r in rows if r["scope"] == "sensitivity:normal"]
+    assert len(grids) == 6
     scopes = {(r["scope"], r["parameter"]) for r in rows}
     assert ("budget", "discretionary_budget") in scopes
     assert ("scenario:reduced_budget", "discretionary_budget_multiplier") in scopes
@@ -635,6 +660,11 @@ def test_reference_configuration_loads_and_every_parameter_is_labelled() -> None
         assert row["unit"], row
         assert isinstance(row["assumption"], str), row
         assert len(row["assumption"]) >= 20, row
+        if row["scope"].startswith("sensitivity:"):
+            grid = [float(v) for v in row["value"].split(", ")]
+            assert grid, row
+            assert all(math.isfinite(v) and v >= 0 for v in grid), row
+            continue
         assert math.isfinite(row["value"]), row
         assert row["value"] >= 0, row
     unit_rows = {r["parameter"] for r in rows if r["scope"] == "unit:citywide"}
@@ -1078,8 +1108,11 @@ def test_budget_multiplier_and_a_missing_budget() -> None:
     adjusted = scenario("cut", discretionary_budget_multiplier=quantity(0.25, "ratio"))
     config = synthetic_config(3, [adjusted])
     assert build(config)["cut"].problem.discretionary_budget == pytest.approx(50_000.0)
-    unlimited = synthetic_config(3, [adjusted], budget=None)
-    assert build(unlimited)["cut"].problem.discretionary_budget is None
+    # Without a budget the multiplier would be a silent no-op reported as applied.
+    with pytest.raises(ConfigError, match="discretionary_budget is null"):
+        synthetic_config(3, [adjusted], budget=None)
+    unlimited = synthetic_config(3, [scenario("base")], budget=None)
+    assert build(unlimited)["base"].problem.discretionary_budget is None
 
 
 def test_unit_parameters_are_copied_without_adjustment() -> None:

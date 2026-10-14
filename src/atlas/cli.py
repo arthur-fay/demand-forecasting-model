@@ -510,8 +510,9 @@ def _render_optimization(facts: Any, stream: TextIO) -> None:
         stream.write("  INCOMPLETE RUN: an independent check failed; see the errors above\n")
     if facts.get("files_absent"):
         stream.write(f"  not kept: {', '.join(facts['files_absent'])}\n")
+    grade = "decision-grade" if facts.get("m3_decision_grade") else "not decision-grade"
     stream.write(
-        f"  M3 calibration status {str(facts['m3_interval_status']).upper()}: not decision-grade"
+        f"  M3 calibration status {str(facts['m3_interval_status']).upper()}: {grade}"
         f"\n  result fingerprint {facts['result_fingerprint']}\n"
     )
     stream.write(
@@ -523,6 +524,17 @@ def _render_optimization(facts: Any, stream: TextIO) -> None:
             f"{_bound(row['discretionary_cost']):>9} {_bound(row['backlog_request_days']):>13} "
             f"{_bound(row['terminal_backlog']):>9}\n"
         )
+
+
+def _render_optimization_verification(facts: Any, stream: TextIO) -> None:
+    if "identical" not in facts:
+        return
+    grade = "decision-grade" if facts.get("m3_decision_grade") else "not decision-grade"
+    stream.write(
+        f"  {facts['label']}\n  M3 calibration status "
+        f"{str(facts['m3_interval_status']).upper()}: {grade}\n"
+    )
+    _render_uncertainty_verification(facts, stream)
 
 
 def _bound(value: Any) -> str:
@@ -540,7 +552,7 @@ _M2_RENDERERS = {
     "uncertainty_projection": _render_uncertainty_projection,
     "optimization": _render_optimization,
     "optimization_inspection": _render_optimization,
-    "optimization_verification": _render_uncertainty_verification,
+    "optimization_verification": _render_optimization_verification,
 }
 
 

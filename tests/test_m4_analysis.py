@@ -254,7 +254,9 @@ def test_diagnose_budget_too_small_gives_hand_minimum_spend_shortfall_and_violat
     # Maximum capacity 5 + 4 + 3 = 12 >= 10 every day: the analytic bound is 0, exact.
     assert diagnosis.terminal_lower_bound == {"u": pytest.approx(0.0)}
     assert diagnosis.lower_bound_exact is True
-    assert any("budget is too small" in reason for reason in diagnosis.reasons)
+    reason = " ".join(diagnosis.reasons)
+    assert "no plan spending less than 24 USD" in reason
+    assert "DIAGNOSTIC, not a budget request" in reason
     assert not any("cannot be reached" in reason for reason in diagnosis.reasons)
 
 
@@ -391,27 +393,29 @@ def test_solve_lexicographic_second_stage_removes_idle_paid_overtime() -> None:
     stage1, stage2 = solve_lexicographic(problem, SETTINGS, Objective.TERMINAL_BACKLOG)
     assert stage1.value == pytest.approx(0.0, abs=ABS)
     second = stage2.require()
-    assert second.evaluation.terminal_backlog <= lex_cap(stage1.value or 0.0) + ABS
+    assert second.evaluation.terminal_backlog == pytest.approx(stage1.value or 0.0, abs=1e-9)
     assert second.evaluation.overtime_hours == pytest.approx(0.0, abs=ABS)
     assert second.evaluation.idle_paid_capacity == pytest.approx(0.0, abs=ABS)
     assert second.evaluation.penalised_score == pytest.approx(0.0, abs=ABS)
-    cap = [row for row in second.lp.ub_rows if row.constraint == "cap_terminal_backlog"]
-    assert len(cap) == 1
+    # The second stage runs on the optimal face of the first (no epsilon cap row).
+    assert not stage2.epsilon_fallback
+    assert not [row for row in second.lp.ub_rows if row.constraint.startswith("cap_")]
     assert stage1.problems == ()
     assert stage2.problems == ()
 
 
-def test_solve_lexicographic_keeps_first_objective_within_lex_cap() -> None:
+def test_solve_lexicographic_keeps_first_objective_exactly() -> None:
     # T=1, d=10, no regular capacity, 10 overtime hours at 1 USD: least terminal backlog
-    # 0 needs all 10 hours; the second stage (least cash) cannot drop any of them.
+    # 0 needs all 10 hours; the second stage (least cash) cannot drop any of them (with an
+    # epsilon cap it could drop lex_cap(0) = 1e-6 of them).
     problem = make_problem(make_unit(demand=[10], overtime_max=[10], overtime_wage=1.0))
     stage1, stage2 = solve_lexicographic(
         problem, SETTINGS, Objective.TERMINAL_BACKLOG, Objective.DISCRETIONARY_CASH
     )
     assert stage1.value == pytest.approx(0.0, abs=ABS)
-    # Cash >= 10 - lex_cap(0) = 10 - 1e-6.
-    assert stage2.value == pytest.approx(10.0, abs=10 * LEX_EPS_ABS)
-    assert stage2.require().evaluation.terminal_backlog <= lex_cap(0.0) + 1e-9
+    assert stage2.value == pytest.approx(10.0, abs=1e-9)
+    assert stage2.require().evaluation.terminal_backlog == pytest.approx(0.0, abs=1e-9)
+    assert lex_cap(0.0) == pytest.approx(LEX_EPS_ABS)
 
 
 def test_solve_lexicographic_returns_the_infeasible_first_stage_twice() -> None:
@@ -1034,7 +1038,14 @@ def test_analyse_scenario_healthy_instance_has_no_problems() -> None:
     )
     assert result.problems == ()
     assert result.feasibility == STRICT
-    assert result.reported is result.strict
+    # The reported plan is the least-cash plan among the optimal ones (a second stage).
+    assert result.reported is result.strict_plan
+    reported = result.reported.require()
+    optimum = result.strict.require().objective_value
+    assert reported.evaluation.penalised_score == pytest.approx(optimum, abs=1e-4)
+    assert reported.evaluation.discretionary_cost <= (
+        result.strict.require().evaluation.discretionary_cost + 1e-4
+    )
     assert result.diagnosis is None
     assert result.face is not None
     assert result.duals

@@ -540,3 +540,58 @@ def _check_shapes(problem: PlanningProblem, plan: Plan) -> None:
                 f"plan of {decisions.unit_id} has {len(decisions.served)} days, "
                 f"the problem {problem.horizon}"
             )
+
+
+def binding_constraints(problem: PlanningProblem, plan: Plan) -> dict[str, int]:
+    """Constraints that are tight in ``plan`` (slack within tolerance), from the plan itself.
+
+    Daily constraints map to the number of days they bind; a daily limit of zero (for
+    example surge before it becomes available) is not counted, because nothing can be
+    bought anyway. ``terminal_backlog_violated`` marks a plan above its terminal target
+    (a relaxed plan). Independent of the LP and of its dual values, so it works for every
+    plan, relaxed and policy plans included.
+    """
+    _check_shapes(problem, plan)
+    counts: dict[str, int] = {}
+
+    def add(name: str) -> None:
+        counts[name] = counts.get(name, 0) + 1
+
+    for unit, decisions in zip(problem.units, plan.units, strict=True):
+        for day in range(problem.horizon):
+            hours = decisions.overtime_hours[day]
+            surge = decisions.surge[day]
+            capacity = unit.regular_capacity(day) + unit.overtime_productivity * hours + surge
+            if capacity - decisions.served[day] <= tolerance(capacity):
+                add("capacity")
+            limit = unit.overtime_max_hours[day]
+            if limit > 0 and limit - hours <= tolerance(limit):
+                add("overtime_daily_limit")
+            limit = unit.surge_max[day]
+            if limit > 0 and limit - surge <= tolerance(limit):
+                add("surge_daily_limit")
+        total = unit.overtime_total_hours
+        if total is not None and total - math.fsum(decisions.overtime_hours) <= tolerance(total):
+            add("overtime_total_limit")
+        total = unit.surge_total
+        if total is not None and total - math.fsum(decisions.surge) <= tolerance(total):
+            add("surge_total_limit")
+        target = unit.terminal_backlog_max
+        if target is not None:
+            final = decisions.backlog[-1]
+            if final > target + tolerance(final, target):
+                add("terminal_backlog_violated")
+            elif target - final <= tolerance(final, target):
+                add("terminal_backlog")
+    budget = problem.discretionary_budget
+    if budget is not None:
+        spent = evaluate_plan(problem, plan).discretionary_cost
+        if budget - spent <= tolerance(spent, budget):
+            add("budget")
+    return counts
+
+
+def surge_delay_days(unit: ServiceUnit) -> int:
+    """Leading days on which surge is unavailable although it is available later (0 if none)."""
+    first = next((day for day, limit in enumerate(unit.surge_max) if limit > 0), None)
+    return 0 if first is None else first

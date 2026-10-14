@@ -19,8 +19,6 @@ NOT_A_RECOMMENDATION: Final = (
 LIMITATIONS: Final = (
     "Every operational parameter is HYPOTHETICAL: ATLAS has no data on closures, backlog, "
     "staffing, productivity, costs or budgets of any NYC agency.",
-    "Demand is an unvalidated point forecast (M2 future projection) whose historical error "
-    "over 30-day horizons is large compared with the differences between plans.",
     "The M3 intervals failed their calibration criteria; quantile stress paths are "
     "per-day marginal quantiles, not joint scenarios, and carry no probability.",
     "The model is deterministic: it plans as if demand were known. No chance constraint, "
@@ -136,6 +134,11 @@ def render_optimization_report(payload: Mapping[str, Any]) -> str:
     lines += _frontier_section(payload["scenarios"])
     lines += _sensitivity_section(payload)
     lines += ["## Limitations", ""]
+    lines.append(
+        "- Demand is an unvalidated point forecast (M2 future projection). Over horizons "
+        f"1-30 that model's historical error was {_n(accuracy['mae_requests_per_day'])} "
+        "requests/day on average (mean absolute error), and no plan here accounts for it."
+    )
     lines += [f"- {text}" for text in LIMITATIONS]
     lines += ["", NOT_A_RECOMMENDATION, ""]
     return "\n".join(lines)
@@ -152,7 +155,7 @@ def _model_section() -> list[str]:
         "b[t] = b[t-1] + d[t] - x[t]              backlog balance (requests)",
         "x[t] <= p*H[t] + q*o[t] + s[t]           capacity (requests/day)",
         "0 <= o[t] <= O_max,  sum o <= O_total    overtime limits (staff hours)",
-        "0 <= s[t] <= S_max[t]                    surge limits (0 before availability)",
+        "0 <= s[t] <= S_max[t], sum s <= S_total  surge limits (S_max 0 before availability)",
         "sum (c_ot*o[t] + c_s*s[t]) <= D          discretionary budget (USD)",
         "b[T] <= target,  x, b >= 0               terminal backlog target (requests)",
         "minimise  sum (c_ot*o[t] + c_s*s[t]) + w*sum b[t] + w_T*b[T]   (penalised score)",
@@ -165,7 +168,9 @@ def _model_section() -> list[str]:
         "duality gap), and no slack variable exists in the planning model. When no plan "
         "meets the HYPOTHETICAL terminal target, the reported plan is labelled "
         "`relaxed_terminal_target`: least target violation within the budget first, then "
-        "the planning objective.",
+        "the planning objective, then the least cash. When several plans share the optimal "
+        "score, the reported plan is the least-cash one, and the ranges over all optimal plans "
+        "are shown in the uniqueness table.",
         "",
     ]
 
@@ -191,6 +196,12 @@ def _scenario_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
                 ", ".join(s["binding_constraints"]) or "-",
             ]
         )
+    lines.append(
+        "`plan` is `strict` when a plan meets every HYPOTHETICAL constraint and "
+        "`relaxed_terminal_target` otherwise; the plan shown is the least-cash optimal one. "
+        "Binding constraints are read from the plan itself (slack within tolerance)."
+    )
+    lines.append("")
     lines += _table(
         [
             "scenario",
@@ -207,6 +218,15 @@ def _scenario_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         ],
         rows,
     )
+    for s in scenarios:
+        changes = s.get("terminal_target_changes_optimal_score")
+        if changes is not None:
+            effect = (
+                "changes the optimal score"
+                if changes
+                else "does not change the optimal score (it forces nothing)"
+            )
+            lines.append(f"- `{s['scenario_id']}`: dropping the HYPOTHETICAL target {effect}.")
     for s in scenarios:
         diagnosis = s.get("diagnosis")
         if not diagnosis:
@@ -247,7 +267,9 @@ def _policy_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
                 [
                     f"`{s['scenario_id']}`",
                     f"`{c['policy']}`",
+                    f"`{c['reported_plan']}`",
                     ", ".join(c["policy_constraints_violated"]) or "none",
+                    _n(c["comparable_on_score"]),
                     f"`{c['relation_of_reported_plan']}`",
                     _difference(c["discretionary_cost_difference"], "USD", "less", "more"),
                     _difference(c["request_days_difference"], "request-days", "fewer", "more"),
@@ -265,7 +287,9 @@ def _policy_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         [
             "scenario",
             "policy",
+            "reported plan",
             "constraints the policy violates",
+            "comparable on score",
             "relation",
             "reported plan's cash vs policy",
             "request-days vs policy",
@@ -335,15 +359,32 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
+    bracketed = [
+        f"`{s['scenario_id']}`"
+        for s in scenarios
+        if any(h["fd_status"] != "not_computed" for h in s["shadow_prices"]["headline"])
+    ]
+    if bracketed:
+        coverage = (
+            f"The duals of {', '.join(bracketed)} (the scenarios listed under "
+            "`shadow_prices`) are bracketed by one-sided finite differences of re-solved, "
+            "certified programmes (step: the larger of 0.001 natural units and 1e-7 of the "
+            "right-hand side): `locally_unique` when both slopes agree, `breakpoint` when "
+            "they differ (the solver's value is then one subgradient among several); other "
+            "duals show `not_computed`. The cash and penalty parts split the practical "
+            "forward step."
+        )
+    else:
+        coverage = (
+            "No dual was bracketed by finite differences (no `shadow_prices` scenarios): "
+            "these are unchecked solver values (`not_computed`)."
+        )
     lines = [
         "## Shadow prices (horizon-wide constraints)",
         "",
         "Derivative of the optimal penalised score with respect to one right-hand side, in "
-        "USD-equivalent units (cash plus notional penalty), valid only locally. Every dual "
-        "is bracketed by one-sided finite differences of re-solved programmes (step "
-        "0.001): `locally_unique` when both slopes agree, `breakpoint` when they differ (the "
-        "solver's value is then one subgradient among several). The cash and penalty parts "
-        "split the practical forward step. Daily rows are in `duals.csv`.",
+        f"USD-equivalent units (cash plus notional penalty), valid only locally. {coverage} "
+        "Daily rows are in `duals.csv`.",
         "",
     ]
     rows = []
@@ -409,12 +450,19 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         if not f:
             continue
         least = f["least_cash_for_least_penalty"]
+        kept = (
+            "with the terminal target kept, extra cash beyond "
+            f"{_n(least.get('kept'))} USD lowers the penalty no further"
+            if least.get("kept") is not None
+            else "with the terminal target kept, no plan meets the HYPOTHETICAL target at "
+            "any cash cap"
+        )
         lines.append(
-            f"- `{s['scenario_id']}`: the penalty stops falling at "
-            f"{_n(least.get('kept'))} USD of discretionary cash with the terminal target kept "
-            f"({_n(least.get('dropped'))} USD without it); the curve is non-increasing: "
-            f"{_n(f['monotone_ok'])}, convex: {_n(f['convex_ok'])}; the strict plan lies on "
-            f"it: {f['on_frontier_check']}."
+            f"- `{s['scenario_id']}`: {kept} ({_n(least.get('dropped'))} USD without the "
+            "target), under this deterministic demand path and the HYPOTHETICAL prices; the "
+            f"curve is non-increasing: {_n(f['monotone_ok'])}, convex: {_n(f['convex_ok'])}; "
+            f"the strict plan lies on it: {f['on_frontier_check']}. DIAGNOSTIC tradeoff "
+            "points, not budgets."
         )
     lines.append("")
     return lines
@@ -422,6 +470,8 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
 
 def _sensitivity_section(payload: Mapping[str, Any]) -> list[str]:
     sensitivity = payload["sensitivity"]
+    if sensitivity["base_scenario"] is None:
+        return ["## Sensitivity", "", "No sensitivity sweeps were configured.", ""]
     lines = [
         "## Sensitivity",
         "",
@@ -450,5 +500,45 @@ def _sensitivity_section(payload: Mapping[str, Any]) -> list[str]:
         "penalty sweep changes only the daily weight `w`; cash alone is not asserted to "
         "rise with it when a terminal penalty is set.",
         "",
+        "Values of the least-cash optimal plan at each point (`unique`: whether the optimal "
+        "plan is unique; otherwise `sensitivity.csv` has the ranges over all optimal plans). "
+        "An infeasible point shows the least terminal-target violation within the budget. "
+        "A swept capacity that lands within 1 % of the legacy demand percentile is marked "
+        "`near percentile`: it is a swept HYPOTHETICAL capacity, not that percentile.",
+        "",
     ]
+    rows = []
+    for p in sensitivity.get("points", []):
+        flags = []
+        if p["unique_optimal_plan"] is False:
+            flags.append("not unique")
+        if p["capacity_within_1pct_of_legacy_demand_percentile"]:
+            flags.append("near percentile")
+        rows.append(
+            [
+                p["parameter"],
+                _n(p["value"], 2),
+                p["status"],
+                _n(p["capacity_to_scenario_demand_mean_ratio"], 3),
+                _n(p["discretionary_cost"]),
+                _n(p["backlog_request_days"]),
+                _n(p["terminal_backlog"]),
+                _n(p["least_terminal_violation_within_budget"]),
+                ", ".join(flags) or "-",
+            ]
+        )
+    lines += _table(
+        [
+            "parameter",
+            "value",
+            "strict model",
+            "regular capacity / mean demand of the point",
+            "discretionary cash (USD)",
+            "request-days",
+            "terminal backlog",
+            "least violation if infeasible",
+            "flags",
+        ],
+        rows,
+    )
     return lines

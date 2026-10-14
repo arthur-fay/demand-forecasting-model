@@ -402,7 +402,9 @@ def test_inspect_refuses_a_run_marked_incomplete(smoke_run: SmokeRun, tmp_path: 
     code, output = run_cli("optimize", "inspect", str(run_dir))
     assert code == EXIT_FAILED
     report = optimization_report(output, "optimization_inspection")
-    assert issue_codes(report, "error") == ["run_incomplete"]
+    # The fingerprinted metrics.json records no failed check, so the flag is also flagged
+    # as inconsistent with it.
+    assert issue_codes(report, "error") == ["run_incomplete", "complete_flag_inconsistent"]
 
 
 @pytest.mark.integration

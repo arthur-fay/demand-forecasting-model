@@ -15,8 +15,11 @@ path), then applies its adjustment factors in a fixed order:
 Every factor is HYPOTHETICAL and recorded with the scenario, together with the SHA-256 of
 its demand path. The regular capacity of every scenario is compared with the demand
 percentile that the legacy project called "planning capacity" (the trailing 180-day 75th
-percentile at the forecast origin): a capacity within :data:`PERCENTILE_GUARD` of it is
-rejected, because M4 never uses a demand percentile as a service capacity.
+percentile at the forecast origin): a configured capacity within :data:`PERCENTILE_GUARD`
+of it is rejected, because M4 never uses a demand percentile as a service capacity.
+Sensitivity sweeps vary capacity on purpose; a swept point that lands inside that band is
+computed and flagged (:func:`capacity_near_percentile`), never presented as the
+percentile.
 """
 
 from __future__ import annotations
@@ -184,6 +187,16 @@ def build_scenarios(
         check_capacity_is_not_a_percentile(built, demand_percentile)
         scenarios.append(built)
     return tuple(scenarios)
+
+
+def capacity_near_percentile(problem: PlanningProblem, demand_percentile: float) -> bool:
+    """True when some unit's regular capacity on some day lies within
+    :data:`PERCENTILE_GUARD` of the legacy demand percentile."""
+    return any(
+        abs(unit.regular_capacity(day) - demand_percentile) <= PERCENTILE_GUARD * demand_percentile
+        for unit in problem.units
+        for day in range(unit.horizon)
+    )
 
 
 def check_capacity_is_not_a_percentile(scenario: Scenario, demand_percentile: float) -> None:

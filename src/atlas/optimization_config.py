@@ -331,6 +331,21 @@ class OptimizationConfig(_Config):
                     f"scenario {scenario.scenario_id}: surge_available_from_day must be within "
                     "1..horizon_days + 1"
                 )
+        if self.discretionary_budget is None:
+            # A budget multiplier would be reported as applied although it changes nothing.
+            scaled = [
+                s.scenario_id
+                for s in self.scenarios
+                if s.adjustments.discretionary_budget_multiplier is not None
+            ]
+            swept = self.sensitivity is not None and any(
+                s.parameter == "discretionary_budget_multiplier" for s in self.sensitivity.sweeps
+            )
+            if scaled or swept:
+                raise ValueError(
+                    "discretionary_budget is null, so no scenario or sweep may scale it "
+                    f"(scenarios {scaled}, budget sweep {swept})"
+                )
         return self
 
     @property
@@ -367,6 +382,19 @@ class OptimizationConfig(_Config):
                         {"scope": f"scenario:{scenario.scenario_id}", "parameter": name}
                         | value.model_dump()
                     )
+        if self.sensitivity is not None:
+            for sweep in self.sensitivity.sweeps:
+                rows.append(
+                    {
+                        "scope": f"sensitivity:{self.sensitivity.base_scenario}",
+                        "parameter": sweep.parameter,
+                        "value": ", ".join(f"{v:g}" for v in sweep.values),
+                        "unit": sweep.unit,
+                        "provenance": sweep.provenance,
+                        "assumption": "Sensitivity grid: this parameter varied one value at a "
+                        "time, everything else as in the base scenario.",
+                    }
+                )
         return rows
 
 

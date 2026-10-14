@@ -408,6 +408,9 @@ HIGHS_UNBOUNDED_OR_INFEASIBLE: Final = 9
 HIGHS_INCONCLUSIVE: Final = (9, 10, 15)
 #: Largest magnitude accepted in a programme (larger inputs are a configuration error).
 MAX_MAGNITUDE: Final = 1e9
+#: Bound on derived right-hand sides (sums of inputs over the horizon); HiGHS treats 1e20
+#: as infinite.
+MAX_DERIVED_MAGNITUDE: Final = 1e15
 _HIGHS_STATUS: Final = re.compile(r"HiGHS Status (\d+)")
 
 
@@ -430,22 +433,35 @@ def exact_matvec(matrix: FloatArray, v: FloatArray) -> FloatArray:
     return np.array([exact_dot(row, v) for row in matrix], dtype="float64")
 
 
+def is_derived_row(row: Row) -> bool:
+    """Analysis rows (lexicographic, frontier and policy caps, optimal-face rows)."""
+    return row.constraint.startswith(("cap_", "tight_"))
+
+
 def _check_magnitudes(lp: LinearProgram) -> None:
+    """Reject non-finite data, planning data of magnitude ``MAX_MAGNITUDE`` or more, and
+    derived right-hand sides of ``MAX_DERIVED_MAGNITUDE`` or more.
+
+    Derived rows (caps on request-days or penalties, for example) aggregate the inputs over
+    the horizon, so they may exceed the input bound while every input is within it.
+    """
     finite_upper = lp.upper[np.isfinite(lp.upper)]
-    for name, values in (
-        ("objective", lp.c),
-        ("A_ub", lp.a_ub),
-        ("b_ub", lp.b_ub),
-        ("A_eq", lp.a_eq),
-        ("b_eq", lp.b_eq),
-        ("lower bounds", lp.lower),
-        ("upper bounds", finite_upper),
+    derived = np.array([is_derived_row(row) for row in lp.ub_rows], dtype=bool)
+    for name, values, limit in (
+        ("objective", lp.c, MAX_MAGNITUDE),
+        ("A_ub", lp.a_ub, MAX_MAGNITUDE),
+        ("b_ub", lp.b_ub[~derived] if derived.size else lp.b_ub, MAX_MAGNITUDE),
+        ("derived b_ub", lp.b_ub[derived] if derived.size else lp.b_ub[:0], MAX_DERIVED_MAGNITUDE),
+        ("A_eq", lp.a_eq, MAX_MAGNITUDE),
+        ("b_eq", lp.b_eq, MAX_MAGNITUDE),
+        ("lower bounds", lp.lower, MAX_MAGNITUDE),
+        ("upper bounds", finite_upper, MAX_MAGNITUDE),
     ):
         if values.size and (
-            not np.all(np.isfinite(values)) or float(np.max(np.abs(values))) >= MAX_MAGNITUDE
+            not np.all(np.isfinite(values)) or float(np.max(np.abs(values))) >= limit
         ):
             raise OptimizationError(
-                f"{name} has a non-finite value or one of magnitude >= {MAX_MAGNITUDE:g}; "
+                f"{name} has a non-finite value or one of magnitude >= {limit:g}; "
                 "rescale the inputs"
             )
 
@@ -626,7 +642,12 @@ def certify(lp: LinearProgram, result: LPResult) -> Certificate:
         1.0, math.fsum(abs(t) for t in primal_terms), math.fsum(abs(t) for t in dual_terms)
     )
     gap = abs(primal_value - dual_value) / gap_allowed
-    holds = max(primal, dual_sign, stationarity, gap) <= 1.0
+    finite = all(bool(np.all(np.isfinite(values))) for values in (v, y_ub, y_eq, y_lo, y_up))
+    # Fail closed: a NaN anywhere makes every comparison False, and the built-in max
+    # ignores a NaN that is not its first argument.
+    holds = finite and all(
+        math.isfinite(ratio) and ratio <= 1.0 for ratio in (primal, dual_sign, stationarity, gap)
+    )
     return Certificate(
         primal=primal,
         dual_sign=dual_sign,
