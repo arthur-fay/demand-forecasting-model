@@ -559,6 +559,11 @@ as strictly feasible.
   terminal target is a single number at the end of the horizon, not a service level.
 - **Local shadow prices.** Valid for small changes of one right-hand side; not unique at
   breakpoints; in USD-equivalent units that mix cash with notional weights.
+- **Provenance of earlier milestones.** The M2 and M3 runners record the commit and code
+  hash of the repository root without checking that the imported `atlas` package is that
+  root's (section 12, R3). M4 left them unchanged, as it left all M0-M3 behaviour unchanged.
+  Their documented reference runs use `uv run` inside the checkout, which imports that
+  checkout's own package.
 
 ## 12. Reproduction
 
