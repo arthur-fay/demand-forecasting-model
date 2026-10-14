@@ -693,13 +693,18 @@ class LimitRelaxation:
 
 
 def reach_tolerance(problem: PlanningProblem) -> float:
-    """The terminal-target violation the plan check tolerates, summed over the units with a
-    target (:func:`check_plan` allows each unit ``tolerance(final, target)``)."""
-    return math.fsum(
+    """A total terminal-target violation the plan check tolerates in every unit.
+
+    :func:`check_plan` allows each unit ``tolerance(final, target)``; a total violation of
+    at most the smallest of these is within it for every unit however it is shared (for a
+    single unit this is exactly the check's tolerance).
+    """
+    allowed = [
         tolerance(unit.terminal_backlog_max)
         for unit in problem.units
         if unit.terminal_backlog_max is not None
-    )
+    ]
+    return min(allowed, default=0.0)
 
 
 def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
@@ -888,10 +893,11 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
     shortfall: float | None = None
     attempts = [unlimited, *stages]
     relaxations: tuple[LimitRelaxation, ...] = ()
-    # The same tolerance as the plan check, so a scenario is never both "out of reach at
-    # any cash" and BORDERLINE (its relaxed plan passing the check).
+    # The plan check's tolerance, so a scenario is never both "out of reach at any cash"
+    # and BORDERLINE (its relaxed plan, within the budget, passing the check).
     reach = reach_tolerance(problem)
-    reachable = least_unlimited is not None and least_unlimited <= reach
+    borderline = relaxed.solved is not None and check_plan(problem, relaxed.solved.plan).feasible
+    reachable = least_unlimited is not None and (least_unlimited <= reach or borderline)
     if least_unlimited is None:  # pragma: no cover - soft targets are always feasible
         reasons.append("the least terminal-target violation could not be computed")
     elif not reachable:
@@ -939,7 +945,6 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
                 f"{_amount(bound, 1)} requests at the end of the horizon, "
                 f"{_amount(bound - target, 1)} above the target of {_amount(target, 0)}"
             )
-    borderline = relaxed.solved is not None and check_plan(problem, relaxed.solved.plan).feasible
     if borderline:
         reasons.append(
             "BORDERLINE: the relaxed plan meets every HYPOTHETICAL constraint to within the "
@@ -1416,14 +1421,23 @@ def finite_differences(
         # A backward step cut short by a tiny right-hand side, so small that its noise
         # allowance exceeds the slope tolerance, cannot resolve a slope; such a secant is
         # kept but not tested.
-        unresolved = backward is not None and math.isfinite(backward) and down < step and nb > slope
+        # Only the cut makes it unresolvable (a full step has the noise nf), and only when the
+        # gap between the slopes is within that noise (a larger gap is a resolved kink).
+        unresolved = (
+            backward is not None
+            and math.isfinite(backward)
+            and down < step
+            and nb > slope + nf
+            and abs(forward - backward) <= slope + nf + nb
+        )
         b_test = None if unresolved else backward
         pb_test = (
             None
             if p_backward is not None
             and math.isfinite(p_backward)
             and p_down < practical
-            and pnb > _slope_tol(p_forward, p_backward)
+            and pnb > _slope_tol(p_forward, p_backward) + pnf
+            and abs(p_forward - p_backward) <= _slope_tol(p_forward, p_backward) + pnf + pnb
             else p_backward
         )
         bracket = dual.marginal <= forward + slope + nf and (

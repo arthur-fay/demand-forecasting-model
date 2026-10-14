@@ -767,7 +767,9 @@ def _sweep_summary(
     }
 
 
-def _face_summary(face: Any) -> dict[str, Any] | None:
+def _face_summary(face: Any, *, daily: bool = True) -> dict[str, Any] | None:
+    """``daily`` False: the per-day ranges were not computed, so the count of undetermined
+    days is unknown (``None``), not 0."""
     if face is None:
         return None
     return {
@@ -777,7 +779,7 @@ def _face_summary(face: Any) -> dict[str, Any] | None:
         "bounds_fixed": face.bounds_fixed,
         "rows_tight": face.rows_tight,
         "max_active_distance": face.max_active_distance,
-        "undetermined_days": face.undetermined_days(),
+        "undetermined_days": face.undetermined_days() if daily or face.unique else None,
         "ranges": [
             {"quantity": r.quantity, "units": r.units, "low": r.low, "high": r.high}
             for r in face.ranges
@@ -822,7 +824,7 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
         "diagnosis": None if result.diagnosis is None else result.diagnosis.to_dict(),
         "relaxed": None if result.diagnosis is None else _attempt_summary(result.diagnosis.relaxed),
         "optimal_face": _face_summary(result.reported_face),
-        "reported_plan_after_tie_breaks": _face_summary(result.tie_broken_face),
+        "reported_plan_after_tie_breaks": _face_summary(result.tie_broken_face, daily=False),
         "binding_constraints": []
         if reported is None
         else list(format_binding(binding_constraints(result.problem, reported.plan))),
@@ -1324,6 +1326,7 @@ def _check_manifest_shape(manifest: Any, run_dir: Path) -> None:
             or name in ("", ".", "..")
             or "/" in name
             or "\\" in name
+            or "\x00" in name
             or len(name.encode("utf-8", "replace")) > 255
         ):
             raise ConfigError(
@@ -1399,6 +1402,8 @@ def _read_run_json(path: Path, what: str) -> Any:
         return _read_json(path, what)
     except UnicodeDecodeError as exc:
         raise ConfigError(f"{path}: the {what} is not valid UTF-8 ({exc.reason})") from exc
+    except RecursionError as exc:
+        raise ConfigError(f"{path}: the {what} is nested too deeply to read") from exc
 
 
 def verify_optimization_command(settings: Settings, run_dir: Path) -> list[CheckReport]:

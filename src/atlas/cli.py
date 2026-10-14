@@ -523,11 +523,12 @@ def _render_optimization(facts: Any, stream: TextIO) -> None:
     )
     for row in facts["scenarios"]:
         over = row.get("terminal_violation")
-        excess = "" if over is None else f" ({_small(over)} over target)"
+        excess = "" if over is None else f" ({_m4_number(over, small=True)} over target)"
         stream.write(
-            f"    {row['scenario_id']:26} {row['feasibility']:24} "
-            f"{_bound(row['discretionary_cost']):>9} {_bound(row['backlog_request_days']):>13} "
-            f"{_bound(row['terminal_backlog']):>9}{excess}\n"
+            f"    {row['scenario_id']!s:26} {row['feasibility']!s:24} "
+            f"{_m4_number(row['discretionary_cost']):>9} "
+            f"{_m4_number(row['backlog_request_days']):>13} "
+            f"{_m4_number(row['terminal_backlog']):>9}{excess}\n"
         )
 
 
@@ -575,6 +576,14 @@ def _small(value: Any) -> str:
 
 def _bound(value: Any) -> str:
     return "n/a" if value is None or value != value else f"{value:,.0f}"
+
+
+def _m4_number(value: Any, small: bool = False) -> str:
+    """An M4 headline value from ``metrics.json``: ``n/a`` for anything that is not a number,
+    so a malformed run file is reported by ``inspect``, never a crash of the renderer."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return "n/a"
+    return _small(value) if small else _bound(value)
 
 
 _M2_RENDERERS = {
