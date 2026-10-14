@@ -61,6 +61,7 @@ from atlas.optimizer import (
     certify,
     dual_values,
     exact_dot,
+    exact_matvec,
     objective_vector,
     solve_lp,
     to_plan,
@@ -138,9 +139,11 @@ class Attempt:
     iterations: int
     solved: Solved | None = None
     problems: tuple[str, ...] = ()
-    #: True when a later lexicographic stage could not be solved on the exact optimal face
-    #: of the earlier one and an epsilon cap (:func:`lex_cap`) was used instead.
-    epsilon_fallback: bool = False
+    #: How a later lexicographic stage was solved when the optimal face of the earlier one
+    #: did not keep its optimum or failed (see :func:`minimise_on_face`): ``None`` (the face
+    #: worked), ``"zero_threshold"`` or ``"epsilon_cap"``; for caps on a policy's or the
+    #: strict plan's own values, ``"policy_epsilon_cap"`` or ``"frontier_epsilon_cap"``.
+    stage_fallback: str | None = None
 
     @property
     def optimal(self) -> bool:
@@ -269,43 +272,80 @@ def cap_row(lp_like: LinearProgram, objective: Objective, cap: float, name: str)
     return ExtraRow(Row(name, None, None), c, cap - constant)
 
 
-def face_programme(lp: LinearProgram, result: LPResult) -> tuple[LinearProgram, float, int, int]:
+def face_programme(
+    lp: LinearProgram, result: LPResult, *, zero_threshold: bool = False
+) -> tuple[LinearProgram, float, int, int]:
     """``lp`` restricted to its optimal face, by complementary slackness with ``result``.
 
     A feasible plan is optimal if and only if it satisfies complementary slackness with an
     optimal dual: it sits at every bound whose reduced cost is nonzero and keeps every row
     with a nonzero dual tight. So the face is the programme with those bounds fixed and
     those rows turned into equalities; no row parallel to the objective (which leaves the
-    solver a degenerate, near-infeasible programme on near-ties) is needed. Duals and
-    reduced costs within the certificate's dual tolerance (``FACE_DUAL_REL * max(1, max |c|)``)
-    count as zero, so prices tied to within that tolerance are treated as tied; callers
-    check that the plans they use score the optimum. Returns the restricted programme
-    (objective unchanged), the threshold, the number of bounds fixed and the number of rows
-    made tight.
+    solver a degenerate, near-infeasible programme on near-ties) is needed.
+
+    A reduced cost counts as zero when it is within ``FACE_DUAL_REL`` of its column's own
+    stationarity magnitude ``|c_j| + sum_i |a_ij y_i|`` (the certificate's scale), and a row
+    dual when it is within ``FACE_DUAL_REL`` of the largest column scale it couples,
+    divided by the coefficient. A large weight on one column therefore does not widen the
+    tie tolerance of the others. ``zero_threshold`` counts only exact zeros (a smaller
+    face, used when the face with thresholds turns out not to keep the optimum). Every row
+    and bound is widened to the optimum's own activity (tight rows are pinned there), so an
+    optimum that is feasible only to within the solver's tolerance stays on its face.
+    Returns the restricted programme (objective unchanged), the largest threshold, the
+    number of bounds fixed and the number of rows made tight.
     """
     if (
-        result.lower_marginals is None
+        result.x is None
+        or result.lower_marginals is None
         or result.upper_marginals is None
         or result.ub_marginals is None
+        or result.eq_marginals is None
     ):  # pragma: no cover - only optimal results are restricted
         raise AssertionError("optimal result without marginals")
-    threshold = FACE_DUAL_REL * max(1.0, float(np.max(np.abs(lp.c), initial=0.0)))
-    lower, upper = lp.lower.copy(), lp.upper.copy()
+    y_ub, y_eq = result.ub_marginals, result.eq_marginals
+    column_scale = (
+        np.abs(lp.c)
+        + exact_matvec(np.abs(lp.a_ub.T), np.abs(y_ub))
+        + exact_matvec(np.abs(lp.a_eq.T), np.abs(y_eq))
+    )
+    column_tau = (
+        np.zeros(lp.layout.size)
+        if zero_threshold
+        else (FACE_DUAL_REL * np.maximum(1.0, column_scale))
+    )
+    row_tau = np.zeros(len(lp.ub_rows))
+    if not zero_threshold:
+        for i in range(len(lp.ub_rows)):
+            coefficients = np.abs(lp.a_ub[i])
+            support = coefficients > 0
+            scale = (
+                float(np.max(column_scale[support] / coefficients[support]))
+                if support.any()
+                else 0.0
+            )
+            row_tau[i] = FACE_DUAL_REL * max(1.0, scale)
+    x = result.x
+    # The optimum is feasible only to within the solver's tolerance: widen every bound and
+    # row to include it, so the face is never empty (the widening is at most that
+    # tolerance; check_plan still judges every plan against the configured limits).
+    lower = np.minimum(lp.lower, x)
+    upper = np.where(np.isfinite(lp.upper), np.maximum(lp.upper, x), lp.upper)
     fixed = 0
     for j in range(lp.layout.size):
-        if result.lower_marginals[j] > threshold:
+        if result.lower_marginals[j] > column_tau[j]:
             upper[j] = lower[j]
             fixed += 1
-        elif result.upper_marginals[j] < -threshold and np.isfinite(upper[j]):
+        elif result.upper_marginals[j] < -column_tau[j] and np.isfinite(upper[j]):
             lower[j] = upper[j]
             fixed += 1
-    tight = [i for i in range(len(lp.ub_rows)) if result.ub_marginals[i] < -threshold]
+    tight = [i for i in range(len(lp.ub_rows)) if y_ub[i] < -row_tau[i]]
+    b_ub = np.maximum(lp.b_ub, exact_matvec(lp.a_ub, x))
     restricted = replace(
         lp,
         lower=lower,
         upper=upper,
         a_ub=np.vstack([lp.a_ub, -lp.a_ub[tight]]) if tight else lp.a_ub,
-        b_ub=np.append(lp.b_ub, -lp.b_ub[tight]) if tight else lp.b_ub,
+        b_ub=np.append(b_ub, -b_ub[tight]) if tight else b_ub,
         ub_rows=(
             *lp.ub_rows,
             *(
@@ -314,7 +354,16 @@ def face_programme(lp: LinearProgram, result: LPResult) -> tuple[LinearProgram, 
             ),
         ),
     )
+    threshold = float(max(np.max(column_tau, initial=0.0), np.max(row_tau, initial=0.0)))
     return restricted, threshold, fixed, len(tight)
+
+
+def _keeps_optimum(lp: LinearProgram, optimum: float, solution: LPResult | None) -> bool:
+    """Whether ``solution`` scores the optimum of ``lp`` to within the checking tolerance."""
+    if solution is None or solution.status is not SolveStatus.OPTIMAL or solution.x is None:
+        return False
+    magnitude = math.fsum(np.abs(lp.c * solution.x).tolist())
+    return abs(lp.value(solution.x) - optimum) <= 10 * tolerance(magnitude, optimum)
 
 
 def minimise_on_face(
@@ -324,40 +373,45 @@ def minimise_on_face(
     objective: Objective,
     c: FloatArray,
     constant: float = 0.0,
-) -> tuple[LinearProgram, LPResult, bool]:
+) -> tuple[LinearProgram, LPResult, str | None]:
     """Minimise ``c @ v + constant`` over the optimal plans of ``lp`` (optimal at ``result``).
 
-    Solved on the exact optimal face (:func:`face_programme`). Only if the solver cannot
-    solve that programme (a numerical failure: the earlier optimal plan lies on the face)
-    is it repeated with the earlier objective capped at :func:`lex_cap` of its optimum;
-    the returned flag says so. The solver error of the fallback, if any, propagates.
+    Solved on the optimal face (:func:`face_programme`) and accepted only if the plan keeps
+    the earlier optimum. Otherwise (a face loosened by the zero tests, or a solver failure)
+    the face is rebuilt counting only exact zeros (``"zero_threshold"``), and as a last
+    resort the earlier objective is capped at :func:`lex_cap` of its optimum
+    (``"epsilon_cap"``). The returned flag names the fallback used; the solver error of the
+    last fallback, if any, propagates.
     """
-    face, _, _, _ = face_programme(lp, result)
-    restricted = replace(face, objective=objective, c=c, constant=constant)
-    try:
-        solution = solve_lp(restricted, settings)
-    except OptimizationError:
-        solution = None
-    if solution is not None and solution.status is SolveStatus.OPTIMAL:
-        return restricted, solution, False
     if result.x is None:  # pragma: no cover - only optimal results are restricted
         raise AssertionError("optimal result without a solution")
+    optimum = lp.value(result.x)
+    for zero_threshold, flag in ((False, None), (True, "zero_threshold")):
+        face, _, _, _ = face_programme(lp, result, zero_threshold=zero_threshold)
+        restricted = replace(face, objective=objective, c=c, constant=constant)
+        try:
+            solution: LPResult | None = solve_lp(restricted, settings)
+        except OptimizationError:
+            solution = None
+        if solution is not None and _keeps_optimum(lp, optimum, solution):
+            return restricted, solution, flag
     capped = replace(
         lp,
         objective=objective,
         c=c,
         constant=constant,
         a_ub=np.vstack([lp.a_ub, lp.c]),
-        b_ub=np.append(lp.b_ub, lex_cap(lp.value(result.x)) - lp.constant),
+        b_ub=np.append(lp.b_ub, lex_cap(optimum) - lp.constant),
         ub_rows=(*lp.ub_rows, Row(f"cap_{lp.objective}", None, None)),
     )
-    return capped, solve_lp(capped, settings), True
+    return capped, solve_lp(capped, settings), "epsilon_cap"
 
 
 def solve_on_face(previous: Solved, settings: SolverSettings, objective: Objective) -> Attempt:
     """Minimise ``objective`` among the optimal plans of ``previous`` (a lexicographic stage).
 
-    Checked like every programme, and also that the earlier objective keeps its optimum.
+    Checked like every programme, and also that the earlier objective keeps its optimum. A
+    stage that is not optimal is a problem: the earlier optimum lies on its face.
     """
     lp = previous.lp
     c, constant = objective_vector(lp.problem, lp.layout, objective)
@@ -371,19 +425,21 @@ def solve_on_face(previous: Solved, settings: SolverSettings, objective: Objecti
         budget_row=previous.budget_row,
         extra_rows=previous.extra_rows,
     )
-    if attempt.solved is not None:
+    extra: list[str] = []
+    if attempt.solved is None:
+        extra.append(
+            f"lexicographic stage {objective} is {attempt.status} although the earlier "
+            "optimum lies on its face"
+        )
+    else:
         kept = lp.value(attempt.solved.x)
         magnitude = math.fsum(np.abs(lp.c * attempt.solved.x).tolist())
         if abs(kept - previous.objective_value) > 10 * tolerance(magnitude, kept):
-            attempt = replace(
-                attempt,
-                problems=(
-                    *attempt.problems,
-                    f"lexicographic stage {objective} moved the earlier optimum "
-                    f"{previous.objective_value!r} to {kept!r}",
-                ),
+            extra.append(
+                f"lexicographic stage {objective} moved the earlier optimum "
+                f"{previous.objective_value!r} to {kept!r}"
             )
-    return replace(attempt, epsilon_fallback=fallback)
+    return replace(attempt, problems=(*attempt.problems, *extra), stage_fallback=fallback)
 
 
 def solve_stages(
@@ -396,9 +452,8 @@ def solve_stages(
     extra_rows: Sequence[ExtraRow] = (),
 ) -> tuple[Attempt, ...]:
     """Lexicographic optimisation: each objective is minimised over the optimal face of the
-    previous stage (:func:`solve_on_face`), so later stages keep every earlier optimum
-    exactly. Returns one attempt per stage; an infeasible stage is repeated for the
-    remaining ones.
+    previous stage (:func:`solve_on_face`), so later stages keep every earlier optimum.
+    Returns one attempt per stage; an infeasible stage is repeated for the remaining ones.
     """
     attempts: list[Attempt] = []
     for objective in objectives:
@@ -430,11 +485,7 @@ def solve_lexicographic(
     budget_row: bool = True,
     extra_rows: Sequence[ExtraRow] = (),
 ) -> tuple[Attempt, Attempt]:
-    """Minimise ``first``; then ``second`` among the plans that keep its optimum.
-
-    The second stage makes the reported plan well defined: the first objective alone
-    leaves cash, timing and backlog free on a large optimal face.
-    """
+    """Minimise ``first``; then ``second`` among the plans that keep its optimum."""
     stage1, stage2 = solve_stages(
         problem,
         settings,
@@ -446,20 +497,37 @@ def solve_lexicographic(
     return stage1, stage2
 
 
+#: Tie-breaks among equally scored plans, in order: least discretionary cash, then least
+#: terminal backlog, then least request-days. They make every reported total (cash,
+#: penalty, terminal backlog, request-days) independent of the optimal vertex HiGHS
+#: returns; only the day-by-day split (and overtime against surge) can remain open, and
+#: the uniqueness test reports it.
+TIE_BREAKS: Final = (
+    Objective.DISCRETIONARY_CASH,
+    Objective.TERMINAL_BACKLOG,
+    Objective.BACKLOG_DAYS,
+)
+
+
+def tie_broken(*first: Objective) -> tuple[Objective, ...]:
+    """``first`` followed by the tie-breaks not already among them."""
+    return (*first, *(o for o in TIE_BREAKS if o not in first))
+
+
 @dataclass(frozen=True)
 class Canonical:
-    """An optimum and the reported plan: the least-cash plan among the optimal ones.
+    """An optimum and the reported plan: the tie-broken plan among the optimal ones.
 
     ``optimum`` is the programme of the objective itself (its value, duals and optimal
-    face); ``plan`` minimises discretionary cash over its optimal face (see
-    :func:`solve_on_face`). Reporting the least-cash optimal plan makes cash and the
-    penalty (and, without a terminal penalty, the request-days) independent of the vertex
-    the solver happens to return; when the optimum is not unique, the ranges over all
-    optimal plans are reported as well.
+    face); ``plan`` is the last stage of :data:`TIE_BREAKS` (least cash, then least
+    terminal backlog, then least request-days among the optimal plans), so every reported
+    total is independent of the vertex the solver happens to return; when the optimum is
+    not unique, the ranges over all optimal plans are reported as well.
     """
 
     optimum: Attempt
     plan: Attempt
+    stages: tuple[Attempt, ...] = ()
 
     @property
     def optimal(self) -> bool:
@@ -467,9 +535,36 @@ class Canonical:
 
     @property
     def problems(self) -> tuple[str, ...]:
-        if self.plan is self.optimum:
-            return self.optimum.problems
-        return self.optimum.problems + self.plan.problems
+        return attempt_problems(self.stages or (self.optimum, self.plan))
+
+    @property
+    def fallbacks(self) -> tuple[str, ...]:
+        return stage_fallbacks(self.stages)
+
+
+def attempt_problems(attempts: Sequence[Attempt]) -> tuple[str, ...]:
+    """The problems of distinct attempts (a repeated infeasible stage counts once)."""
+    seen: list[Attempt] = []
+    problems: list[str] = []
+    for attempt in attempts:
+        if any(attempt is other for other in seen):
+            continue
+        seen.append(attempt)
+        problems.extend(attempt.problems)
+    return tuple(problems)
+
+
+def stage_fallbacks(attempts: Sequence[Attempt]) -> tuple[str, ...]:
+    """The fallbacks used by distinct attempts (see :attr:`Attempt.stage_fallback`)."""
+    seen: list[Attempt] = []
+    flags: list[str] = []
+    for attempt in attempts:
+        if any(attempt is other for other in seen):
+            continue
+        seen.append(attempt)
+        if attempt.stage_fallback is not None:
+            flags.append(attempt.stage_fallback)
+    return tuple(flags)
 
 
 def solve_canonical(
@@ -481,16 +576,16 @@ def solve_canonical(
     budget_row: bool = True,
     extra_rows: Sequence[ExtraRow] = (),
 ) -> Canonical:
-    """``objective``, then the least discretionary cash among its optimal plans."""
-    optimum, plan = solve_stages(
+    """``objective``, then the tie-breaks (:data:`TIE_BREAKS`) among its optimal plans."""
+    stages = solve_stages(
         problem,
         settings,
-        (objective, Objective.DISCRETIONARY_CASH),
+        tie_broken(objective),
         terminal=terminal,
         budget_row=budget_row,
         extra_rows=extra_rows,
     )
-    return Canonical(optimum, plan)
+    return Canonical(stages[0], stages[-1], stages)
 
 
 # --- Infeasibility ------------------------------------------------------------------
@@ -517,7 +612,10 @@ class Diagnosis:
     relaxed: Attempt
     attempts: tuple[Attempt, ...] = ()
     relaxed_optimum: Attempt | None = None
-    binding_unlimited: Mapping[str, int] = field(default_factory=dict)
+    #: Least violation with unlimited cash when one configured limit is relaxed alone
+    #: (``"unit:limit"`` -> requests), computed only when no amount of cash reaches the
+    #: target; see :func:`limit_relaxations`.
+    limit_relaxations: Mapping[str, float | None] = field(default_factory=dict)
     #: The relaxed plan meets every constraint to within the checking tolerance: the strict
     #: model is infeasible only at the solver's (tighter) tolerance.
     borderline: bool = False
@@ -537,8 +635,8 @@ class Diagnosis:
             "analytic_terminal_backlog_lower_bound_requests": dict(self.terminal_lower_bound),
             "analytic_bound_exact": self.lower_bound_exact,
             "reasons": list(self.reasons),
-            "limits_binding_in_least_violation_plan_with_unlimited_cash": dict(
-                sorted(self.binding_unlimited.items())
+            "least_violation_unlimited_cash_with_one_limit_relaxed_requests": dict(
+                sorted(self.limit_relaxations.items())
             ),
             "relaxed_plan": RELAXED_TERMINAL_TARGET if self.relaxed.optimal else None,
         }
@@ -568,24 +666,125 @@ def confirm_infeasible(least_violation: float | None) -> list[str]:
     return []
 
 
-def describe_binding(problem: PlanningProblem, counts: Mapping[str, int]) -> str:
-    """Plain-language list of the limits that bind in a plan (see binding_constraints)."""
-    parts = []
-    for unit in problem.units:
-        if counts.get("overtime_total_limit") and unit.overtime_total_hours is not None:
-            parts.append(f"overtime total ({unit.overtime_total_hours:,.0f} staff hours) used up")
-        if counts.get("surge_total_limit") and unit.surge_total is not None:
-            parts.append(f"surge total ({unit.surge_total:,.0f} requests) used up")
-        delay = surge_delay_days(unit)
-        if delay:
-            parts.append(f"surge unavailable on the first {delay} days")
-    if counts.get("overtime_daily_limit"):
-        parts.append(f"daily overtime limit reached on {counts['overtime_daily_limit']} days")
-    if counts.get("surge_daily_limit"):
-        parts.append(f"daily surge limit reached on {counts['surge_daily_limit']} days")
-    if counts.get("budget"):
-        parts.append("discretionary budget spent")
-    return "; ".join(parts) if parts else "no limit binds"
+@dataclass(frozen=True)
+class LimitRelaxation:
+    """One configured limit relaxed alone, and the least violation (unlimited cash) then."""
+
+    unit_id: str
+    limit: str
+    description: str
+    least_violation: float | None
+    attempt: Attempt
+
+    def lowers(self, least_violation: float) -> bool:
+        return self.least_violation is not None and (
+            self.least_violation < least_violation - 10 * tolerance(least_violation)
+        )
+
+
+def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
+    """``(limit, description, unit with that limit removed)`` for every configured limit.
+
+    A daily limit is removed by raising it above all the work of the horizon; a delayed
+    surge becomes available from the first day at its configured daily capacity.
+    """
+    work = math.fsum(unit.demand) + unit.initial_backlog + 1.0
+    variants: list[tuple[str, str, ServiceUnit]] = []
+    if unit.overtime_productivity > 0:
+        hours = work / unit.overtime_productivity
+        variants.append(
+            (
+                "overtime_daily_limit",
+                f"the daily overtime limit of {max(unit.overtime_max_hours):,.0f} staff hours",
+                replace(unit, overtime_max_hours=(hours,) * unit.horizon),
+            )
+        )
+    if any(limit > 0 for limit in unit.surge_max):
+        variants.append(
+            (
+                "surge_daily_limit",
+                f"the daily surge limit of {max(unit.surge_max):,.0f} requests",
+                replace(
+                    unit, surge_max=tuple(work if limit > 0 else 0.0 for limit in unit.surge_max)
+                ),
+            )
+        )
+    delay = surge_delay_days(unit)
+    if delay:
+        daily = max(unit.surge_max)
+        variants.append(
+            (
+                "surge_delay",
+                f"the surge delay of {delay} days",
+                replace(
+                    unit,
+                    surge_max=tuple(
+                        daily if day < delay else limit for day, limit in enumerate(unit.surge_max)
+                    ),
+                ),
+            )
+        )
+    if unit.overtime_total_hours is not None:
+        variants.append(
+            (
+                "overtime_total_limit",
+                f"the overtime total of {unit.overtime_total_hours:,.0f} staff hours",
+                replace(unit, overtime_total_hours=None),
+            )
+        )
+    if unit.surge_total is not None:
+        variants.append(
+            (
+                "surge_total_limit",
+                f"the surge total of {unit.surge_total:,.0f} requests",
+                replace(unit, surge_total=None),
+            )
+        )
+    return variants
+
+
+def limit_relaxations(
+    problem: PlanningProblem, settings: SolverSettings
+) -> tuple[LimitRelaxation, ...]:
+    """The least violation with unlimited cash when each configured limit is relaxed alone.
+
+    This names the limits that keep the target out of reach without depending on which
+    least-violation plan the solver returns (that plan is rarely unique): a limit is named
+    only if relaxing it alone lowers the least violation.
+    """
+    results = []
+    for k, unit in enumerate(problem.units):
+        for limit, description, relaxed_unit in _relaxed_limits(unit):
+            units = list(problem.units)
+            units[k] = relaxed_unit
+            attempt = solve_problem(
+                replace(problem, units=tuple(units)),
+                settings,
+                Objective.TERMINAL_VIOLATION,
+                terminal=Terminal.SOFT,
+                budget_row=False,
+            )
+            results.append(
+                LimitRelaxation(unit.unit_id, limit, description, attempt.value, attempt)
+            )
+    return tuple(results)
+
+
+def _limits_text(
+    problem: PlanningProblem, relaxations: Sequence[LimitRelaxation], least: float
+) -> str:
+    named = [
+        (f"{r.unit_id}: " if len(problem.units) > 1 else "")
+        + f"{r.description} (to {_amount(r.least_violation or 0.0, 1)} requests)"
+        for r in relaxations
+        if r.lowers(least)
+    ]
+    if not named:
+        return (
+            "no configured limit lowers it when relaxed alone (the limits and the regular "
+            "capacity bind together)"
+        )
+    return "relaxed one at a time, these limits would lower it: " + "; ".join(named)
 
 
 def _amount(value: float, decimals: int) -> str:
@@ -600,39 +799,37 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
     """Explain an infeasible strict model (it can only be the terminal targets)."""
     bounds = {u.unit_id: least_terminal_backlog(u) for u in problem.units}
     exact = all(u.overtime_total_hours is None and u.surge_total is None for u in problem.units)
-    unlimited, unlimited_plan = solve_stages(
+    unlimited = solve_problem(
         problem,
         settings,
-        (Objective.TERMINAL_VIOLATION, Objective.DISCRETIONARY_CASH),
+        Objective.TERMINAL_VIOLATION,
         terminal=Terminal.SOFT,
         budget_row=False,
     )
-    within, relaxed_optimum, relaxed = solve_stages(
+    stages = solve_stages(
         problem,
         settings,
-        (Objective.TERMINAL_VIOLATION, Objective.WEIGHTED, Objective.DISCRETIONARY_CASH),
+        tie_broken(Objective.TERMINAL_VIOLATION, Objective.WEIGHTED),
         terminal=Terminal.SOFT,
     )
+    within, relaxed_optimum, relaxed = stages[0], stages[1], stages[-1]
     reasons: list[str] = []
     least_unlimited = unlimited.value
     least_within = within.value
     spend: float | None = None
     shortfall: float | None = None
-    attempts = [unlimited, unlimited_plan, within, relaxed_optimum, relaxed]
-    binding: dict[str, int] = {}
-    if unlimited_plan.solved is not None:
-        # The unlimited-cash programme has no budget row: the budget cannot bind there.
-        binding = binding_constraints(
-            replace(problem, discretionary_budget=None), unlimited_plan.solved.plan
-        )
+    attempts = [unlimited, *stages]
+    relaxations: tuple[LimitRelaxation, ...] = ()
     reachable = least_unlimited is not None and least_unlimited <= tolerance(least_unlimited)
     if least_unlimited is None:  # pragma: no cover - soft targets are always feasible
         reasons.append("the least terminal-target violation could not be computed")
     elif not reachable:
+        relaxations = limit_relaxations(problem, settings)
+        attempts.extend(r.attempt for r in relaxations)
         reasons.append(
             "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of "
             f"discretionary cash: the least violation is {_amount(least_unlimited, 1)} "
-            f"requests (in the least-violation plan: {describe_binding(problem, binding)})"
+            f"requests; {_limits_text(problem, relaxations, least_unlimited)} (DIAGNOSTIC)"
         )
     else:
         cash = solve_problem(
@@ -647,9 +844,11 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
         budget = problem.discretionary_budget
         if spend is not None and budget is not None:
             shortfall = spend - budget
+            # Below one USD of shortfall, print the spend precisely enough to show it.
+            spend_text = _amount(spend, 0) if abs(shortfall) >= 1 else f"{spend:,.9g}"
             reasons.append(
                 "under this deterministic demand path and the HYPOTHETICAL prices, no plan "
-                f"spending less than {_amount(spend, 0)} USD on overtime and surge reaches the "
+                f"spending less than {spend_text} USD on overtime and surge reaches the "
                 f"HYPOTHETICAL terminal-backlog target ({_amount(shortfall, 0)} USD above the "
                 "HYPOTHETICAL budget; DIAGNOSTIC, not a budget request)"
             )
@@ -693,7 +892,7 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
         attempts=tuple(attempts),
         relaxed_optimum=relaxed_optimum,
         borderline=borderline,
-        binding_unlimited=binding,
+        limit_relaxations={f"{r.unit_id}:{r.limit}": r.least_violation for r in relaxations},
     )
 
 
@@ -716,19 +915,20 @@ class FaceRange:
 class OptimalFace:
     """Is the optimal plan unique, and how much do optimal plans differ?
 
-    The optimal face is built exactly, from complementary slackness with the certified
-    optimal duals: a feasible plan is optimal if and only if it sits at every bound whose
-    reduced cost is nonzero and keeps every row with a nonzero dual tight. Duals and reduced
-    costs within the certificate's dual tolerance (``dual_threshold``,
-    ``1e-9 * max(1, max |c|)``) count as zero, so prices tied to within that tolerance are
-    treated as tied; every plan used below is checked to score the optimum. No slack row
-    parallel to the objective is needed, so near-ties neither break the solver nor hide an
-    alternative optimum behind a near-flat direction.
+    The optimal face is built from complementary slackness with the certified optimal
+    duals (:func:`face_programme`): a feasible plan is optimal if and only if it sits at
+    every bound whose reduced cost is nonzero and keeps every row with a nonzero dual
+    tight. Values within ``1e-9`` of their own column's (or row's) scale count as zero, so
+    prices tied to within that relative tolerance are treated as tied; every plan used
+    below is checked to score the optimum, and if one does not the face is rebuilt with
+    exact zero tests only (``rebuilt``).
 
     ``max_active_distance`` is the largest total distance, over that face, from the bounds
-    and tight rows active at the reported vertex (rows normalised by their largest
-    coefficient; requests or staff hours). A vertex is determined by its active constraints,
-    so the distance is zero exactly when the reported plan is the only optimal plan.
+    and tight rows active at the optimal vertex HiGHS returned (rows normalised by their
+    largest coefficient; requests or staff hours). A vertex is determined by its active
+    constraints, so the distance is zero exactly when no other optimal plan exists; the
+    plan is called unique when the distance is at most :data:`UNIQUENESS_THRESHOLD`
+    (0.001 requests or staff hours). Any vertex of the face gives the same verdict.
     Ranges are over the same face.
     """
 
@@ -740,6 +940,7 @@ class OptimalFace:
     ranges: tuple[FaceRange, ...]
     daily_extra_capacity: tuple[tuple[str, int, float, float], ...]
     problems: tuple[str, ...] = ()
+    rebuilt: bool = False
 
     def undetermined_days(self) -> int:
         """Days whose extra capacity (overtime and surge requests) differs across optimal
@@ -798,16 +999,34 @@ def optimal_face(
 ) -> OptimalFace:
     """Uniqueness test and ranges over the optimal face of the programme that produced
     ``strict`` (the planning model, or a relaxed or diagnostic stage with its own target
-    handling, budget row and lexicographic caps). ``daily`` False skips the per-day ranges.
+    handling, budget row and lexicographic restrictions). ``daily`` False skips the
+    per-day ranges.
 
     Every face programme is certified, its plan is checked against the constraints of the
-    programme (:func:`check_plan`) and must score the optimum of ``strict``; a solver
-    failure is recorded as a problem instead of aborting the run.
+    programme (:func:`check_plan`) and must score the optimum of ``strict``. If a plan does
+    not (the zero tests loosened the face), the face is rebuilt with exact zero tests only;
+    a solver failure is recorded as a problem instead of aborting the run.
     """
+    face = _face_test(problem, settings, strict, daily=daily, zero_threshold=False)
+    if face.problems and any("not the optimum" in p for p in face.problems):
+        retry = _face_test(problem, settings, strict, daily=daily, zero_threshold=True)
+        return replace(retry, rebuilt=True)
+    return face
+
+
+def _face_test(
+    problem: PlanningProblem,
+    settings: SolverSettings,
+    strict: Solved,
+    *,
+    daily: bool,
+    zero_threshold: bool,
+) -> OptimalFace:
     problems: list[str] = []
-    face, threshold, fixed, tight = face_programme(strict.lp, strict.result)
+    face, threshold, fixed, tight = face_programme(
+        strict.lp, strict.result, zero_threshold=zero_threshold
+    )
     optimum = strict.objective_value
-    magnitude = math.fsum(np.abs(strict.lp.c * strict.x).tolist())
 
     def extreme(coefficients: FloatArray, sign: float) -> float | None:
         lp = replace(face, objective=Objective.CUSTOM, c=sign * coefficients, constant=0.0)
@@ -829,9 +1048,11 @@ def optimal_face(
                 "optimal-face plan fails the independent check: "
                 + "; ".join(v.describe() for v in check.violations[:5])
             )
-        score = strict.lp.value(result.x)
-        if abs(score - optimum) > 10 * tolerance(magnitude, optimum):
-            problems.append(f"optimal-face plan scores {score!r}, not the optimum {optimum!r}")
+        if not _keeps_optimum(strict.lp, optimum, result):
+            problems.append(
+                f"optimal-face plan scores {strict.lp.value(result.x)!r}, "
+                f"not the optimum {optimum!r}"
+            )
         return exact_dot(coefficients, result.x)
 
     linear, constant = _active_distance(strict.lp, strict.x)
@@ -900,9 +1121,12 @@ class FiniteDifference:
     (a right-hand side cannot fall below 0); an infeasible side gives ``-inf`` (backward)
     or ``+inf`` (forward). The forward practical change is split into its
     discretionary-cash and notional-penalty parts (least-cash optimal plans before and
-    after the step). Slopes are compared with a tolerance that includes ``noise``, the
-    rounding noise of two optimal values divided by the step. Every re-solve is certified;
-    ``problems`` lists the failures.
+    after the step). Slopes are compared with a tolerance that includes the rounding noise
+    of two optimal values divided by each step actually taken (``noise`` is that allowance
+    for the forward against the backward local secant). Every re-solve is certified;
+    ``problems`` lists the failures, and a slope the solver could not compute gives the
+    status ``solver_failed``. ``stage_fallback`` records a fallback of the least-cash
+    stage of the split (see :func:`minimise_on_face`).
     """
 
     dual: DualValue
@@ -919,6 +1143,7 @@ class FiniteDifference:
     sign_ok: bool
     noise: float = 0.0
     problems: tuple[str, ...] = ()
+    stage_fallback: str | None = None
 
     @property
     def locally_unique(self) -> bool:
@@ -931,6 +1156,9 @@ class FiniteDifference:
 
     @property
     def status(self) -> str:
+        slopes = [self.forward, *([] if self.backward is None else [self.backward])]
+        if any(math.isnan(v) for v in slopes):
+            return "solver_failed"
         if self.backward is None:
             return "domain_boundary_below"
         if math.isinf(self.backward) or math.isinf(self.forward):
@@ -1008,19 +1236,20 @@ def _secants(
     step: float,
     what: str,
     problems: list[str],
-) -> tuple[float | None, float, LPResult | None]:
-    """Backward and forward secants of the optimal value, and the forward re-solve."""
+) -> tuple[float | None, float, LPResult | None, float]:
+    """Backward and forward secants of the optimal value, the forward re-solve and the
+    backward step taken (``min(step, rhs)``, 0 at a domain boundary)."""
     up_lp = _perturbed(lp, kind, index, step)
     up, up_result = _value_at(up_lp, settings, f"{what} +{step:g}", problems)
     forward = (up - base) / step
     down_step = min(step, rhs)
     if down_step <= 0:
-        return None, forward, up_result
+        return None, forward, up_result, 0.0
     down, _ = _value_at(
         _perturbed(lp, kind, index, -down_step), settings, f"{what} -{down_step:g}", problems
     )
     backward = -math.inf if math.isinf(down) else (base - down) / down_step
-    return backward, forward, up_result
+    return backward, forward, up_result, down_step
 
 
 def _least_cash(
@@ -1029,21 +1258,24 @@ def _least_cash(
     settings: SolverSettings,
     what: str,
     problems: list[str],
-) -> float | None:
-    """Least discretionary cash among the optimal plans of ``lp`` (certified)."""
+) -> tuple[float | None, str | None]:
+    """Least discretionary cash among the optimal plans of ``lp`` (certified, and kept at
+    the optimum by :func:`minimise_on_face`), and the fallback used, if any."""
     cash, _ = objective_vector(lp.problem, lp.layout, Objective.DISCRETIONARY_CASH)
     try:
-        restricted, solution, _ = minimise_on_face(
+        restricted, solution, fallback = minimise_on_face(
             lp, result, settings, Objective.DISCRETIONARY_CASH, cash
         )
     except OptimizationError as error:
         problems.append(f"{what}: least cash: {error}")
-        return None
+        return None, "epsilon_cap"
     if solution.x is None:
         problems.append(f"{what}: least-cash programme is {solution.status}")
-        return None
+        return None, fallback
     _certified(restricted, solution, f"{what}: least cash", problems)
-    return restricted.value(solution.x)
+    if result.x is not None and not _keeps_optimum(lp, lp.value(result.x), solution):
+        problems.append(f"{what}: the least-cash plan does not keep the optimal score")
+    return restricted.value(solution.x), fallback
 
 
 def finite_differences(
@@ -1062,8 +1294,11 @@ def finite_differences(
     base = strict.objective_value
     value_noise = 2 * VALUE_NOISE_REL * max(1.0, math.fsum(np.abs(lp.c * strict.x).tolist()))
     base_problems: list[str] = []
+    base_fallback: str | None = None
     if base_cash is None:
-        base_cash = _least_cash(lp, strict.result, settings, "base point", base_problems)
+        base_cash, base_fallback = _least_cash(
+            lp, strict.result, settings, "base point", base_problems
+        )
     results = []
     for dual in dual_values(lp, strict.result):
         problems = list(base_problems)
@@ -1071,38 +1306,49 @@ def finite_differences(
         what = f"finite difference {dual.constraint} {dual.unit_id or ''} {dual.day}".strip()
         kind, index = _locate(lp, dual)
         step = small_step(dual.rhs)
-        backward, forward, _ = _secants(
+        backward, forward, _, down = _secants(
             lp, settings, kind, index, dual.rhs, base, step, what, problems
         )
         practical = _step_for(dual.rhs_units, steps)
-        p_backward, p_forward, p_result = _secants(
+        p_backward, p_forward, p_result, p_down = _secants(
             lp, settings, kind, index, dual.rhs, base, practical, what, problems
         )
-        noise = value_noise / step
-        p_noise = value_noise / practical
-        tol = _slope_tol(dual.marginal, forward, *([] if backward is None else [backward])) + noise
-        bracket = dual.marginal <= forward + tol and (
-            backward is None or dual.marginal >= backward - tol
+        # Rounding noise of two optimal values divided by each step actually taken (the
+        # backward step is min(step, rhs), smaller than the forward one near zero).
+        nf, pnf = value_noise / step, value_noise / practical
+        nb = value_noise / down if down > 0 else 0.0
+        pnb = value_noise / p_down if p_down > 0 else 0.0
+        slope = _slope_tol(dual.marginal, forward, *([] if backward is None else [backward]))
+        bracket = dual.marginal <= forward + slope + nf and (
+            backward is None or dual.marginal >= backward - slope - nb
         )
         convex = (
-            (backward is None or backward <= forward + _slope_tol(forward, backward) + noise)
+            (backward is None or backward <= forward + _slope_tol(forward, backward) + nf + nb)
             and (
                 p_backward is None
-                or p_backward <= p_forward + _slope_tol(p_forward, p_backward) + p_noise
+                or p_backward <= p_forward + _slope_tol(p_forward, p_backward) + pnf + pnb
             )
             and (
                 backward is None
                 or p_backward is None
-                or (p_backward <= backward + tol and forward <= p_forward + tol)
+                or (
+                    p_backward <= backward + slope + pnb + nb
+                    and forward <= p_forward + slope + nf + pnf
+                )
             )
         )
         # The optimal score never falls when demand rises (proved for d >= 0), so the dual
         # of a balance row with a positive right-hand side is a non-negative subgradient.
-        sign = not (dual.constraint == "balance" and dual.rhs > 0 and dual.marginal < -tol)
+        sign = not (dual.constraint == "balance" and dual.rhs > 0 and dual.marginal < -(slope + nf))
         cash = penalty = None
+        fallback = base_fallback
+        base_fallback = None
         if math.isfinite(p_forward) and base_cash is not None and p_result is not None:
             up = _perturbed(lp, kind, index, practical)
-            up_cash = _least_cash(up, p_result, settings, f"{what} +{practical:g}", problems)
+            up_cash, up_fallback = _least_cash(
+                up, p_result, settings, f"{what} +{practical:g}", problems
+            )
+            fallback = fallback or up_fallback
             if up_cash is not None:
                 cash = (up_cash - base_cash) / practical
                 penalty = p_forward - cash
@@ -1120,8 +1366,9 @@ def finite_differences(
                 bracket_ok=bool(bracket),
                 convex_ok=bool(convex),
                 sign_ok=bool(sign),
-                noise=noise,
+                noise=nf + nb,
                 problems=tuple(problems),
+                stage_fallback=fallback,
             )
         )
     return tuple(results)
@@ -1143,6 +1390,7 @@ class PolicyOutcome:
     problems: tuple[str, ...] = ()
     least_request_days_at_policy_cash: float | None = None
     least_cash_at_policy_backlog: float | None = None
+    fallbacks: tuple[str, ...] = ()
 
 
 def _policy_plan(problem: PlanningProblem, policy: str, triggers: Mapping[str, float]) -> Plan:
@@ -1151,6 +1399,49 @@ def _policy_plan(problem: PlanningProblem, policy: str, triggers: Mapping[str, f
     if policy == BACKLOG_TRIGGER:
         return backlog_trigger_plan(problem, triggers)
     raise AssertionError(f"unknown policy {policy!r}")  # pragma: no cover
+
+
+def stages_under_caps(
+    problem: PlanningProblem,
+    settings: SolverSettings,
+    objectives: Sequence[Objective],
+    caps: Sequence[tuple[Objective, float, str]],
+    *,
+    terminal: Terminal,
+    budget_row: bool = True,
+    fallback: str,
+) -> tuple[Attempt, ...]:
+    """:func:`solve_stages` under caps ``objective <= value``, exact first.
+
+    When the capped values are those of a known feasible plan (a policy's, or the strict
+    plan's own cash), that plan sits exactly on the caps and HiGHS can call the programme
+    infeasible at its tolerance. Only then are the caps loosened to :func:`lex_cap`, and the
+    first stage records ``fallback``.
+    """
+    probe = build_lp(problem, terminal=terminal, budget_row=budget_row)
+
+    def solve(loose: bool) -> tuple[Attempt, ...]:
+        rows = [
+            cap_row(probe, objective, lex_cap(value) if loose else value, name)
+            for objective, value, name in caps
+        ]
+        return solve_stages(
+            problem,
+            settings,
+            objectives,
+            terminal=terminal,
+            budget_row=budget_row,
+            extra_rows=rows,
+        )
+
+    stages = solve(False)
+    if stages[0].status is not SolveStatus.INFEASIBLE:
+        return stages
+    stages = solve(True)
+    if not stages[0].optimal:
+        return stages
+    first = replace(stages[0], stage_fallback=fallback)
+    return (first, *(first if a is stages[0] else a for a in stages[1:]))
 
 
 def evaluate_policy(
@@ -1163,43 +1454,33 @@ def evaluate_policy(
 
     Both LP comparisons drop the terminal target (the policies do not plan for it) and
     keep every other constraint, so the policy plan itself is feasible for them: the LP
-    can only do at least as well (checked).
+    can only do at least as well (checked). Each is tie-broken (:data:`TIE_BREAKS`).
     """
     plan = _policy_plan(problem, policy, triggers)
     evaluation = evaluate_plan(problem, plan)
     check = check_plan(problem, plan)
-    probe = build_lp(problem, terminal=Terminal.NONE)
-    cash_cap = cap_row(
-        probe, Objective.DISCRETIONARY_CASH, evaluation.discretionary_cost, "cap_policy_cash"
-    )
-    cash_first, same_cash = solve_lexicographic(
+    same_cash_stages = stages_under_caps(
         problem,
         settings,
-        Objective.BACKLOG_DAYS,
+        tie_broken(Objective.BACKLOG_DAYS, Objective.WEIGHTED),
+        [(Objective.DISCRETIONARY_CASH, evaluation.discretionary_cost, "cap_policy_cash")],
         terminal=Terminal.NONE,
-        extra_rows=[cash_cap],
+        fallback="policy_epsilon_cap",
     )
-    backlog_caps = [
-        cap_row(
-            probe,
-            Objective.BACKLOG_DAYS,
-            evaluation.backlog_request_days,
-            "cap_policy_backlog",
-        ),
-        cap_row(
-            probe, Objective.TERMINAL_BACKLOG, evaluation.terminal_backlog, "cap_policy_terminal"
-        ),
-    ]
-    backlog_first, same_backlog = solve_lexicographic(
+    same_backlog_stages = stages_under_caps(
         problem,
         settings,
-        Objective.DISCRETIONARY_CASH,
+        tie_broken(Objective.DISCRETIONARY_CASH, Objective.WEIGHTED),
+        [
+            (Objective.BACKLOG_DAYS, evaluation.backlog_request_days, "cap_policy_backlog"),
+            (Objective.TERMINAL_BACKLOG, evaluation.terminal_backlog, "cap_policy_terminal"),
+        ],
         terminal=Terminal.NONE,
-        extra_rows=backlog_caps,
+        fallback="policy_epsilon_cap",
     )
-    problems: list[str] = []
-    for attempt in (cash_first, same_cash, backlog_first, same_backlog):
-        problems.extend(attempt.problems)
+    cash_first, same_cash = same_cash_stages[0], same_cash_stages[-1]
+    backlog_first, same_backlog = same_backlog_stages[0], same_backlog_stages[-1]
+    problems = list(attempt_problems((*same_cash_stages, *same_backlog_stages)))
     other = set(check.constraints_violated()) - {"terminal_backlog"}
     if other:
         problems.append(f"policy {policy} violates {sorted(other)}")
@@ -1209,7 +1490,9 @@ def evaluate_policy(
         problems.append(f"policy {policy}: the same-cash or same-backlog LP is not optimal")
     else:
         # The policy plan is feasible for both programmes, so the LP can only do as well.
-        if least_days > evaluation.backlog_request_days + 10 * tolerance(least_days):
+        if least_days > evaluation.backlog_request_days + 10 * tolerance(least_days) + (
+            LEX_EPS_ABS if cash_first.stage_fallback else 0.0
+        ):
             problems.append(f"policy {policy}: the LP at the same cash has more backlog")
         if least_cash > evaluation.discretionary_cost + 10 * tolerance(least_cash) + LEX_EPS_ABS:
             problems.append(f"policy {policy}: the LP at the same backlog costs more")
@@ -1223,6 +1506,7 @@ def evaluate_policy(
         tuple(problems),
         least_request_days_at_policy_cash=least_days,
         least_cash_at_policy_backlog=least_cash,
+        fallbacks=stage_fallbacks((*same_cash_stages, *same_backlog_stages)),
     )
 
 
@@ -1263,6 +1547,12 @@ class FrontierPoint:
     terminal_backlog: float | None
     overtime_hours: float | None
     surge_requests: float | None
+    #: Whether the tie-broken plan is the only plan with its penalty, cash, terminal
+    #: backlog and request-days; if not, overtime and surge can still differ, within these
+    #: ranges (over all such plans).
+    unique_after_tie_breaks: bool | None = None
+    overtime_hours_range: tuple[float, float] | None = None
+    surge_requests_range: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -1275,6 +1565,7 @@ class Frontier:
     convex_ok: bool
     on_frontier_check: str
     problems: tuple[str, ...] = ()
+    fallbacks: tuple[str, ...] = ()
 
 
 def frontier(
@@ -1292,9 +1583,10 @@ def frontier(
     reported for each point. Two curves: with the HYPOTHETICAL terminal targets kept, and
     without them. Each keeps daily limits and totals and drops the budget row; the cap runs
     from 0 to the least cash that achieves the least possible penalty. Each point is
-    lexicographic (least penalty, then least cash). The curve must be non-increasing and
-    convex in the cap (the cap is a right-hand side). ``None`` when every penalty weight is
-    zero (the penalty is then identically zero).
+    lexicographic (least penalty, then the tie-breaks of :data:`TIE_BREAKS`), and its
+    uniqueness test gives the ranges of overtime and surge over the plans it leaves open.
+    The curve must be non-increasing and convex in the cap (the cap is a right-hand side).
+    ``None`` when every penalty weight is zero (the penalty is then identically zero).
     """
     if all(u.backlog_penalty == 0 and u.terminal_penalty == 0 for u in problem.units):
         return None
@@ -1302,41 +1594,42 @@ def frontier(
     result: list[FrontierPoint] = []
     least_cash: dict[str, float | None] = {}
     monotone = convex = True
+    fallbacks: list[str] = []
     for variant, terminal in (("kept", Terminal.HARD), ("dropped", Terminal.NONE)):
-        stage1, stage2 = solve_lexicographic(
+        top_stages = solve_stages(
             problem,
             settings,
-            Objective.PENALTY,
-            Objective.DISCRETIONARY_CASH,
+            tie_broken(Objective.PENALTY),
             terminal=terminal,
             budget_row=False,
         )
-        problems.extend(stage1.problems + stage2.problems)
-        if stage2.solved is None:
+        problems.extend(attempt_problems(top_stages))
+        fallbacks.extend(stage_fallbacks(top_stages))
+        if top_stages[-1].solved is None:
             least_cash[variant] = None
             continue
-        top = stage2.solved.evaluation.discretionary_cost
+        top = top_stages[-1].solved.evaluation.discretionary_cost
         least_cash[variant] = top
         caps = [(top * i / (points - 1), "grid") for i in range(points)]
         if problem.discretionary_budget is not None and problem.discretionary_budget < top:
             caps.append((problem.discretionary_budget, "configured_budget"))
         if strict is not None and variant == "kept":
             caps.append((strict.evaluation.discretionary_cost, "strict_plan_cash"))
-        probe = build_lp(problem, terminal=terminal, budget_row=False)
         curve: list[tuple[float, float]] = []
         for cap, marker in sorted(caps):
-            row = cap_row(probe, Objective.DISCRETIONARY_CASH, cap, "cap_frontier_cash")
-            first, second = solve_lexicographic(
+            stages = stages_under_caps(
                 problem,
                 settings,
-                Objective.PENALTY,
-                Objective.DISCRETIONARY_CASH,
+                tie_broken(Objective.PENALTY),
+                [(Objective.DISCRETIONARY_CASH, cap, "cap_frontier_cash")],
                 terminal=terminal,
                 budget_row=False,
-                extra_rows=[row],
+                fallback="frontier_epsilon_cap",
             )
-            problems.extend(first.problems + second.problems)
-            if first.solved is None or second.solved is None:
+            first, last = stages[0], stages[-1]
+            problems.extend(attempt_problems(stages))
+            fallbacks.extend(stage_fallbacks(stages))
+            if first.solved is None or last.solved is None:
                 # Confirm independently: only the target can make a capped plan impossible,
                 # so the cap must lie below the least cash that reaches the target.
                 if terminal is Terminal.NONE:
@@ -1361,9 +1654,14 @@ def frontier(
                     )
                 )
                 continue
-            evaluation = second.solved.evaluation
+            evaluation = last.solved.evaluation
             penalty = first.solved.objective_value
             curve.append((cap, penalty))
+            face = optimal_face(problem, settings, last.solved, daily=False)
+            problems.extend(face.problems)
+            if face.rebuilt:
+                fallbacks.append("face_rebuilt")
+            spans = {r.quantity: (r.low, r.high) for r in face.ranges}
             result.append(
                 FrontierPoint(
                     variant,
@@ -1376,6 +1674,9 @@ def frontier(
                     evaluation.terminal_backlog,
                     evaluation.overtime_hours,
                     evaluation.surge_requests,
+                    unique_after_tie_breaks=face.unique,
+                    overtime_hours_range=spans.get("overtime_hours"),
+                    surge_requests_range=spans.get("surge_requests"),
                 )
             )
         for (_c1, v1), (_c2, v2) in itertools.pairwise(curve):
@@ -1406,7 +1707,9 @@ def frontier(
         problems.append("frontier penalty increases with the cash cap")
     if not convex:
         problems.append("frontier is not convex in the cash cap")
-    return Frontier(tuple(result), least_cash, monotone, convex, check, tuple(problems))
+    return Frontier(
+        tuple(result), least_cash, monotone, convex, check, tuple(problems), tuple(fallbacks)
+    )
 
 
 # --- Sweeps ----------------------------------------------------------------------------
@@ -1458,8 +1761,9 @@ def apply_sweep(problem: PlanningProblem, parameter: str, value: float) -> Plann
 @dataclass(frozen=True)
 class SweepPoint:
     """One sweep value: the planning optimum (``attempt``: score and duals), the reported
-    least-cash optimal plan, its optimal face (uniqueness and ranges), or the least
-    terminal-target violation within the budget when the strict model is infeasible."""
+    tie-broken optimal plan, its optimal face (uniqueness and ranges), or the least
+    terminal-target violation within the budget when the strict model is infeasible.
+    ``fallbacks`` lists the stage fallbacks used (see :attr:`Attempt.stage_fallback`)."""
 
     parameter: str
     value: float
@@ -1472,6 +1776,7 @@ class SweepPoint:
     face: OptimalFace | None = None
     least_violation: float | None = None
     problems: tuple[str, ...] = ()
+    fallbacks: tuple[str, ...] = ()
 
     @property
     def reported(self) -> Attempt:
@@ -1539,7 +1844,7 @@ def run_sweep(
 ) -> tuple[tuple[SweepPoint, ...], tuple[MonotonicityCheck, ...]]:
     """Solve the strict model at each value and check the proven monotonicity properties.
 
-    The score is the planning optimum; the other quantities come from the least-cash
+    The score is the planning optimum; the other quantities come from the tie-broken
     optimal plan (the properties hold for every optimal plan). Every programme's check
     problems are kept on the point.
     """
@@ -1549,6 +1854,7 @@ def run_sweep(
         canonical = solve_canonical(changed, settings)
         attempt = canonical.optimum
         problems = list(canonical.problems)
+        fallbacks = list(canonical.fallbacks)
         binding: tuple[str, ...] = ()
         budget_dual = terminal_dual = None
         face: OptimalFace | None = None
@@ -1561,9 +1867,11 @@ def run_sweep(
             )
             face = optimal_face(changed, settings, attempt.solved, daily=False)
             problems.extend(face.problems)
+            if face.rebuilt:
+                fallbacks.append("face_rebuilt")
         if canonical.plan.solved is not None:
             binding = format_binding(binding_constraints(changed, canonical.plan.solved.plan))
-        else:
+        elif attempt.solved is None:
             soft = solve_problem(
                 changed, settings, Objective.TERMINAL_VIOLATION, terminal=Terminal.SOFT
             )
@@ -1583,6 +1891,7 @@ def run_sweep(
                 face,
                 least_violation,
                 tuple(problems),
+                tuple(fallbacks),
             )
         )
     checks = []
@@ -1626,10 +1935,13 @@ class ScenarioResult:
     """Everything computed for one scenario.
 
     ``strict`` is the planning optimum (score, duals, optimal face); ``strict_plan`` the
-    reported least-cash optimal plan. ``without_target`` / ``without_target_plan`` are the
+    reported tie-broken optimal plan. ``without_target`` / ``without_target_plan`` are the
     same without the HYPOTHETICAL terminal target; ``target_changes_score`` says whether
-    dropping the target changes the optimal score at all (if not, the target forces nothing
-    and the two programmes share their optimal plans).
+    dropping the target changes the optimal score at all, and ``target_changes_plan``
+    whether it changes the reported (tie-broken) plan: the target can leave the score
+    unchanged and still exclude cheaper equally scored plans. ``duals`` carry the slack and
+    binding state of the reported plan (the duals are optimal for every optimal plan).
+    ``fallbacks`` lists every stage fallback used (see :attr:`Attempt.stage_fallback`).
     """
 
     scenario_id: str
@@ -1647,6 +1959,8 @@ class ScenarioResult:
     without_target_plan: Attempt | None = None
     target_changes_score: bool | None = None
     relaxed_face: OptimalFace | None = None
+    target_changes_plan: bool | None = None
+    fallbacks: tuple[str, ...] = ()
 
     @property
     def feasibility(self) -> str:
@@ -1654,7 +1968,7 @@ class ScenarioResult:
 
     @property
     def reported(self) -> Attempt:
-        """The least-cash strict plan, or the relaxed plan when the strict model is
+        """The tie-broken strict plan, or the relaxed plan when the strict model is
         infeasible."""
         if self.strict.optimal or self.diagnosis is None:
             return self.strict_plan if self.strict_plan is not None else self.strict
@@ -1679,18 +1993,35 @@ def analyse_scenario(
     free_solve = solve_canonical(problem, settings, terminal=Terminal.NONE)
     strict, strict_plan = strict_solve.optimum, strict_solve.plan
     problems = list(strict_solve.problems) + list(free_solve.problems)
+    fallbacks = list(strict_solve.fallbacks) + list(free_solve.fallbacks)
     diagnosis = face = relaxed_face = None
     duals: tuple[DualValue, ...] = ()
     differences: tuple[FiniteDifference, ...] = ()
     changes: bool | None = None
+    changes_plan: bool | None = None
     if strict.solved is not None and free_solve.optimum.solved is not None:
         mine = strict.solved.objective_value
         other = free_solve.optimum.solved.objective_value
         changes = abs(mine - other) > 10 * tolerance(mine, other) + LEX_EPS_ABS
+        free = free_solve.plan.solved
+        if changes:
+            changes_plan = True
+        elif free is not None:
+            # Same score: the no-target tie-broken plan is also the strict one exactly when
+            # it meets the target (it is then minimal over a superset of the strict face).
+            violation = terminal_violation(problem, free.plan)
+            changes_plan = violation > tolerance(violation)
     if strict.solved is not None:
-        duals = dual_values(strict.solved.lp, strict.solved.result)
+        if strict_plan.solved is not None:
+            duals = dual_values(
+                strict.solved.lp, replace(strict.solved.result, x=strict_plan.solved.x)
+            )
+        else:
+            duals = dual_values(strict.solved.lp, strict.solved.result)
         face = optimal_face(problem, settings, strict.solved)
         problems.extend(face.problems)
+        if face.rebuilt:
+            fallbacks.append("face_rebuilt")
         if shadow_steps is not None:
             base_cash = (
                 None
@@ -1700,26 +2031,31 @@ def analyse_scenario(
             differences = finite_differences(strict.solved, settings, shadow_steps, base_cash)
             for item in differences:
                 problems.extend(item.problems)
+                if item.stage_fallback is not None:
+                    fallbacks.append(item.stage_fallback)
                 if not (item.bracket_ok and item.convex_ok and item.sign_ok):
                     problems.append(
                         f"shadow price {item.dual.key()} outside its finite-difference bracket"
                     )
     else:
         diagnosis = diagnose(problem, settings)
-        for attempt in diagnosis.attempts:
-            problems.extend(attempt.problems)
+        problems.extend(attempt_problems(diagnosis.attempts))
+        fallbacks.extend(stage_fallbacks(diagnosis.attempts))
         problems.extend(confirm_infeasible(diagnosis.least_violation_within_budget))
         if not diagnosis.relaxed.optimal:
             problems.append("the relaxed plan could not be computed")
         elif diagnosis.relaxed_optimum is not None and diagnosis.relaxed_optimum.solved:
             relaxed_face = optimal_face(problem, settings, diagnosis.relaxed_optimum.solved)
             problems.extend(relaxed_face.problems)
+            if relaxed_face.rebuilt:
+                fallbacks.append("face_rebuilt")
     policies = tuple(
         evaluate_policy(problem, settings, policy, triggers)
         for policy in (FIXED_CAPACITY, BACKLOG_TRIGGER)
     )
     for outcome in policies:
         problems.extend(outcome.problems)
+        fallbacks.extend(outcome.fallbacks)
         if (
             strict.solved is not None
             and outcome.check.feasible
@@ -1735,6 +2071,7 @@ def analyse_scenario(
         curve = frontier(problem, settings, frontier_points, strict_plan.solved)
         if curve is not None:
             problems.extend(curve.problems)
+            fallbacks.extend(curve.fallbacks)
     return ScenarioResult(
         scenario_id=scenario_id,
         problem=problem,
@@ -1751,4 +2088,6 @@ def analyse_scenario(
         without_target_plan=free_solve.plan,
         target_changes_score=changes,
         relaxed_face=relaxed_face,
+        target_changes_plan=changes_plan,
+        fallbacks=tuple(fallbacks),
     )

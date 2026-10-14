@@ -516,13 +516,16 @@ def _render_optimization(facts: Any, stream: TextIO) -> None:
         f"\n  result fingerprint {facts['result_fingerprint']}\n"
     )
     stream.write(
-        "  scenario                    plan                      cash USD  request-days  terminal\n"
+        "  scenario                    plan                      cash USD  request-days"
+        "  terminal backlog (requests)\n"
     )
     for row in facts["scenarios"]:
+        over = row.get("terminal_violation")
+        excess = "" if over is None else f" ({_small(over)} over target)"
         stream.write(
             f"    {row['scenario_id']:26} {row['feasibility']:24} "
             f"{_bound(row['discretionary_cost']):>9} {_bound(row['backlog_request_days']):>13} "
-            f"{_bound(row['terminal_backlog']):>9}\n"
+            f"{_bound(row['terminal_backlog']):>9}{excess}\n"
         )
 
 
@@ -534,7 +537,27 @@ def _render_optimization_verification(facts: Any, stream: TextIO) -> None:
         f"  {facts['label']}\n  M3 calibration status "
         f"{str(facts['m3_interval_status']).upper()}: {grade}\n"
     )
-    _render_uncertainty_verification(facts, stream)
+    same = all(v == "identical" for v in facts["files"].values()) and (
+        facts.get("recorded_result_fingerprint") == facts["result_fingerprint"]
+    )
+    stream.write(
+        f"  recomputation {'identical' if same else 'DIFFERENT'}: "
+        + ", ".join(f"{k} {v}" for k, v in facts["files"].items())
+        + f"\n  result fingerprint {facts['result_fingerprint']}\n"
+    )
+    if facts.get("altered_on_disk"):
+        stream.write(f"  altered on disk: {', '.join(facts['altered_on_disk'])}\n")
+    if facts.get("recomputed_errors"):
+        stream.write(f"  failed checks in the recomputation: {facts['recomputed_errors']}\n")
+    for name, (then, now) in facts["provenance_differences"].items():
+        stream.write(f"  provenance differs: {name} recorded {then}, now {now}\n")
+
+
+def _small(value: Any) -> str:
+    """Like :func:`_bound`, but a nonzero value below one keeps three significant digits."""
+    if isinstance(value, float) and value == value and 0 < abs(value) < 1:
+        return f"{value:.3g}"
+    return _bound(value)
 
 
 def _bound(value: Any) -> str:

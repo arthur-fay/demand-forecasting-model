@@ -800,9 +800,11 @@ def test_dual_signs_on_random_optima(problem: PlanningProblem) -> None:
                 assert dual.marginal >= -sign_tol, dual
         else:
             assert dual.marginal <= sign_tol, dual
-            # Only a binding constraint can carry a non-zero shadow price.
+            # Only a tight constraint can carry a non-zero shadow price; a daily limit of
+            # zero (resource unavailable) is tight but never called binding.
             if abs(dual.marginal) > 1e-6:
-                assert dual.binding, dual
+                assert dual.binding or dual.rhs == 0, dual
+                assert dual.slack <= 1e-6 + 1e-9 * abs(dual.rhs), dual
     assert np.all(solved.result.lower_marginals >= -sign_tol)
 
 

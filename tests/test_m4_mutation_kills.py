@@ -342,17 +342,18 @@ def test_lp_worse_than_the_policy_at_the_same_cash_is_a_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Mutant: the "LP at the policy's cash has no more backlog" check is switched off."""
-    real = da.solve_lexicographic
+    real = da.stages_under_caps
     calls: list[int] = []
 
     def worse(*args: Any, **kwargs: Any) -> Any:
-        first, second = real(*args, **kwargs)
+        stages = real(*args, **kwargs)
         calls.append(1)
         if len(calls) == 1:  # the same-cash comparison: least request-days first
-            first = replace(first, solved=replace(first.require(), objective_value=1e9))
-        return first, second
+            first = replace(stages[0], solved=replace(stages[0].require(), objective_value=1e9))
+            return (first, *stages[1:])
+        return stages
 
-    monkeypatch.setattr(da, "solve_lexicographic", worse)
+    monkeypatch.setattr(da, "stages_under_caps", worse)
     outcome = da.evaluate_policy(case_1a(), SETTINGS, "fixed_capacity", {"u": 0.0})
     assert any("the LP at the same cash has more backlog" in p for p in outcome.problems)
 

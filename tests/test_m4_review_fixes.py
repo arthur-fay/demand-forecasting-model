@@ -25,7 +25,6 @@ from atlas.cli import main
 from atlas.config import load_settings
 from atlas.decision_analysis import (
     analyse_scenario,
-    describe_binding,
     diagnose,
     evaluate_policy,
     finite_differences,
@@ -287,8 +286,10 @@ def test_intervals_pin_is_checked_without_a_quantile_scenario() -> None:
 # --- Diagnoses and binding constraints come from the plans ------------------------------
 
 
-def test_reasons_name_only_limits_that_exist() -> None:
-    # Unreachable target, surge available from day 1, no horizon totals.
+def test_reasons_name_only_limits_whose_relaxation_lowers_the_violation() -> None:
+    # Unreachable target: 100 requests, 25 of capacity a day (10 regular, 10 overtime, 5
+    # surge), no totals, surge from day 1. Raising either daily limit alone would clear the
+    # backlog; nothing else is configured, so nothing else is named.
     problem = PlanningProblem(
         date(2026, 7, 1),
         (
@@ -303,13 +304,35 @@ def test_reasons_name_only_limits_that_exist() -> None:
     )
     diagnosis = diagnose(problem, SETTINGS)
     text = " ".join(diagnosis.reasons)
-    assert "surge unavailable" not in text
+    assert "the least violation is 50.0 requests" in text
+    assert "the daily overtime limit of 10 staff hours (to 0.0 requests)" in text
+    assert "the daily surge limit of 5 requests (to 0.0 requests)" in text
+    assert "delay" not in text
     assert "total" not in text
-    assert "daily overtime limit reached on 2 days" in text
-    delayed = dataclasses.replace(
-        problem, units=(dataclasses.replace(problem.units[0], surge_max=(0.0, 5.0)),)
-    )
-    assert "surge unavailable on the first 1 days" in " ".join(diagnose(delayed, SETTINGS).reasons)
+    relaxed = diagnosis.limit_relaxations
+    assert relaxed["u:overtime_daily_limit"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_a_surge_delay_is_named_only_when_it_matters() -> None:
+    # Surge only from day 2. With all demand on day 2 the delay cannot matter; with all of it
+    # on day 1 (capacity 25 on day 2 alone) it does.
+    def delayed(demand: tuple[float, float]) -> str:
+        problem = PlanningProblem(
+            date(2026, 7, 1),
+            (
+                unit(
+                    demand=demand,
+                    regular_hours=(10.0, 10.0),
+                    surge_max=(0.0, 5.0),
+                    terminal_backlog_max=0.0,
+                ),
+            ),
+            None,
+        )
+        return " ".join(diagnose(problem, SETTINGS).reasons)
+
+    assert "surge delay" not in delayed((0.0, 60.0))
+    assert "the surge delay of 1 days" in delayed((60.0, 0.0))
 
 
 def test_relaxed_plan_reports_its_binding_budget_and_has_a_uniqueness_test() -> None:
@@ -327,7 +350,6 @@ def test_relaxed_plan_reports_its_binding_budget_and_has_a_uniqueness_test() -> 
     assert counts.get("terminal_backlog_violated") == 1
     assert result.relaxed_face is not None
     assert result.reported_face is result.relaxed_face
-    assert "discretionary budget spent" in describe_binding(problem, counts)
 
 
 def test_later_stages_keep_earlier_optima_exactly() -> None:
@@ -339,39 +361,66 @@ def test_later_stages_keep_earlier_optima_exactly() -> None:
         5.0,
     )
     relaxed = diagnose(problem, SETTINGS).relaxed
-    assert not relaxed.epsilon_fallback
+    assert relaxed.stage_fallback is None
     assert relaxed.require().evaluation.discretionary_cost == pytest.approx(5.0, abs=1e-9)
     assert relaxed.require().evaluation.terminal_backlog == pytest.approx(25.0, abs=1e-9)
     canonical = solve_canonical(tied_problem(), SETTINGS)
-    assert not canonical.plan.epsilon_fallback
+    assert canonical.fallbacks == ()
     assert canonical.plan.require().evaluation.penalised_score == pytest.approx(10.0, abs=1e-9)
 
 
-def test_face_stage_falls_back_to_an_epsilon_cap_only_when_the_solver_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _failing_calls(monkeypatch: pytest.MonkeyPatch, failing: set[int]) -> list[Any]:
     seen: list[Any] = []
     real = analysis.solve_lp
 
-    def face_programme_fails(lp: Any, settings: Any) -> Any:
+    def solve(lp: Any, settings: Any) -> Any:
         seen.append(lp)
-        if len(seen) == 2:
+        if len(seen) in failing:
             raise OptimizationError("injected: HiGHS Status 15")
         return real(lp, settings)
 
-    monkeypatch.setattr(analysis, "solve_lp", face_programme_fails)
+    monkeypatch.setattr(analysis, "solve_lp", solve)
+    return seen
+
+
+def test_a_failing_face_is_rebuilt_with_exact_zero_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _failing_calls(monkeypatch, {2})
     canonical = solve_canonical(tied_problem(), SETTINGS)
-    assert len(seen) == 3
-    face, fallback = seen[1], seen[2]
-    assert any(row.constraint.startswith("tight_") for row in face.ub_rows) or bool(
-        np.any(face.lower == face.upper)
-    )
+    assert canonical.stages[1].stage_fallback == "zero_threshold"
+    assert canonical.fallbacks == ("zero_threshold",)
+    assert canonical.optimum.stage_fallback is None
+    assert not canonical.problems
+    assert not any(row.constraint.startswith("cap_") for row in seen[2].ub_rows)
+
+
+def test_the_epsilon_cap_is_the_last_resort(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _failing_calls(monkeypatch, {2, 3})
+    canonical = solve_canonical(tied_problem(), SETTINGS)
+    assert canonical.stages[1].stage_fallback == "epsilon_cap"
+    fallback = seen[3]
     assert fallback.ub_rows[-1].constraint == "cap_weighted"
     assert fallback.b_ub[-1] == pytest.approx(analysis.lex_cap(10.0))
-    assert canonical.plan.epsilon_fallback
     assert canonical.plan.optimal
-    assert not canonical.optimum.epsilon_fallback
     assert canonical.plan.require().evaluation.penalised_score <= analysis.lex_cap(10.0) + 1e-9
+
+
+def test_a_failed_later_stage_is_a_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The earlier optimum lies on the face, so a later stage that is not optimal is an
+    # error, never a silently missing plan.
+    real = analysis.minimise_on_face
+
+    def no_plan(*args: Any, **kwargs: Any) -> Any:
+        restricted, solution, flag = real(*args, **kwargs)
+        return (
+            restricted,
+            dataclasses.replace(solution, status=SolveStatus.INFEASIBLE, x=None),
+            flag,
+        )
+
+    monkeypatch.setattr(analysis, "minimise_on_face", no_plan)
+    canonical = solve_canonical(tied_problem(), SETTINGS)
+    assert not canonical.plan.optimal
+    assert any("although the earlier optimum lies on its face" in p for p in canonical.problems)
 
 
 def test_near_tied_prices_neither_abort_the_run_nor_hide_an_alternative_optimum() -> None:
@@ -489,20 +538,25 @@ def test_shadow_price_statuses_do_not_depend_on_the_scale_of_the_inputs() -> Non
 
 
 def test_an_exceeded_budget_is_not_a_binding_budget() -> None:
-    # The unlimited-cash least-violation plan has no budget row: it may spend more than the
-    # budget, which must not be described as "discretionary budget spent".
+    # A plan computed without the budget row may spend more than the budget: that is
+    # budget_exceeded, never a binding budget.
     problem = PlanningProblem(
         date(2026, 7, 1),
         (unit(demand=(30.0, 0.0), regular_hours=(0.0, 0.0), terminal_backlog_max=0.0),),
         5.0,
     )
-    diagnosis = diagnose(problem, SETTINGS)
-    assert "budget" not in diagnosis.binding_unlimited
-    assert "discretionary budget spent" not in diagnosis.reasons[0]
-    over = diagnosis.attempts[1].require().plan
-    counts = binding_constraints(problem, over)
+    over = solve_canonical(
+        problem,
+        SETTINGS,
+        Objective.TERMINAL_VIOLATION,
+        terminal=analysis.Terminal.SOFT,
+        budget_row=False,
+    ).plan.require()
+    assert over.evaluation.discretionary_cost > 5.0
+    counts = binding_constraints(problem, over.plan)
     assert counts.get("budget_exceeded") == 1
     assert "budget" not in counts
+    assert "budget" not in " ".join(diagnose(problem, SETTINGS).reasons[:1])
 
 
 def test_penalty_objective_is_checked_against_the_plan() -> None:
@@ -675,12 +729,28 @@ def test_reference_runs_need_a_committed_configuration(tmp_path: Path) -> None:
         _require_committed_config(root, outside)
     inside = root / "configs" / "m4.json"
     inside.write_text("{}")
-    git = ["git", "-C", str(root)]
+    git = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
     subprocess.run([*git, "init", "-q"], check=True)  # noqa: S603
     with pytest.raises(ConfigError, match="not tracked"):
         _require_committed_config(root, inside)
     subprocess.run([*git, "add", "configs/m4.json"], check=True)  # noqa: S603
+    with pytest.raises(ConfigError, match="differs from the committed file"):
+        _require_committed_config(root, inside)  # staged, not committed
+    subprocess.run([*git, "commit", "-q", "-m", "c"], check=True)  # noqa: S603
     _require_committed_config(root, inside)
+    # A glob-like name must not match the committed file, even if git ignores it.
+    glob = root / "configs" / "m?.json"
+    glob.write_text('{"forged": true}')
+    (root / ".git" / "info" / "exclude").write_text("configs/m[?].json\n")
+    with pytest.raises(ConfigError, match="not tracked"):
+        _require_committed_config(root, glob)
+    # An edit hidden from git status by skip-worktree is still caught by its content.
+    subprocess.run(  # noqa: S603
+        [*git, "update-index", "--skip-worktree", "configs/m4.json"], check=True
+    )
+    inside.write_text('{"edited": true}')
+    with pytest.raises(ConfigError, match="differs from the committed file"):
+        _require_committed_config(root, inside)
 
 
 @pytest.mark.integration
@@ -705,15 +775,14 @@ def test_report_states_which_blocks_were_not_configured(smoke: Any) -> None:
     payload = json.loads(outputs.files["metrics.json"])
     payload["sensitivity"]["base_scenario"] = None
     for scenario in payload["scenarios"]:
-        for row in scenario["shadow_prices"]["headline"]:
-            row["fd_status"] = "not_computed"
+        scenario["shadow_prices"]["computed"] = False
     report = render_optimization_report(payload)
     assert "No sensitivity sweeps were configured." in report
     assert "on scenario `None`" not in report
     assert "No dual was bracketed" in report
     full = outputs.files["report.md"].decode()
     assert "Every dual is bracketed" not in full
-    assert "(the scenarios listed under `shadow_prices`)" in full
+    assert "(the strictly feasible scenarios among those listed under `shadow_prices`" in full
 
 
 @pytest.mark.integration

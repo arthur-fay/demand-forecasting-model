@@ -397,7 +397,7 @@ def test_solve_lexicographic_second_stage_removes_idle_paid_overtime() -> None:
     assert second.evaluation.idle_paid_capacity == pytest.approx(0.0, abs=ABS)
     assert second.evaluation.penalised_score == pytest.approx(0.0, abs=ABS)
     # The second stage runs on the optimal face of the first (no epsilon cap row).
-    assert not stage2.epsilon_fallback
+    assert stage2.stage_fallback is None
     assert not [row for row in second.lp.ub_rows if row.constraint.startswith("cap_")]
     assert stage1.problems == ()
     assert stage2.problems == ()

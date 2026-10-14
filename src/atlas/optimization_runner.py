@@ -131,13 +131,23 @@ OPTIMIZED: Final = "optimized"
 WITHOUT_TARGET: Final = "optimized_without_terminal_target"
 #: How each reported plan is chosen (a policy plan follows its rule).
 SELECTION: Final = {
-    OPTIMIZED: "least cash among the optimal plans",
+    OPTIMIZED: "optimal score, then least cash, least terminal backlog, least request-days",
     RELAXED_TERMINAL_TARGET: (
-        "least target violation within the budget, then optimal score, then least cash"
+        "least target violation within the budget, then optimal score, least cash, least "
+        "terminal backlog, least request-days"
     ),
-    WITHOUT_TARGET: "least cash among the optimal plans without the target",
-    "lp_same_cash": "least request-days at the policy's cash, then optimal score",
-    "lp_same_backlog": "least cash at the policy's request-days and terminal backlog",
+    WITHOUT_TARGET: (
+        "optimal score without the target, then least cash, least terminal backlog, least "
+        "request-days"
+    ),
+    "lp_same_cash": (
+        "least request-days at the policy's cash, then optimal score, least cash, least "
+        "terminal backlog"
+    ),
+    "lp_same_backlog": (
+        "least cash at the policy's request-days and terminal backlog, then optimal score, "
+        "least terminal backlog, least request-days"
+    ),
 }
 
 
@@ -322,9 +332,9 @@ def _plan_rows(
             )
     free_attempt = result.without_target_plan or result.without_target
     free = free_attempt.solved
-    if strict is not None and result.target_changes_score is False:
-        # Dropping the target does not change the optimal score: the target forces
-        # nothing, and the reported plan is optimal for both programmes.
+    if strict is not None and result.target_changes_plan is False:
+        # Dropping the target changes neither the optimal score nor the tie-broken plan:
+        # the target forces nothing, and the reported plan is that plan for both.
         rows.append(
             (
                 WITHOUT_TARGET,
@@ -390,14 +400,23 @@ def scenario_frame(
                 else pareto_relation(reference, evaluation)
             )
             budget = result.problem.discretionary_budget
-            face = result.reported_face if plan_id in (OPTIMIZED, RELAXED_TERMINAL_TARGET) else None
+            # The uniqueness test belongs to the reported plan (strict, or relaxed when the
+            # strict model is infeasible), never to an infeasible programme.
+            face = (
+                result.reported_face
+                if (plan_id == OPTIMIZED and result.strict.optimal)
+                or plan_id == RELAXED_TERMINAL_TARGET
+                else None
+            )
             rows.append(
                 {
                     **_labels(status),
                     "scenario_id": scenario.scenario_id,
                     "plan": plan_id,
                     "feasibility": feasibility,
-                    "plan_selection": SELECTION.get(plan_id.split("_as_")[0], "policy rule"),
+                    "plan_selection": None
+                    if plan is None
+                    else SELECTION.get(plan_id.split("_as_")[0], "policy rule"),
                     "unique_optimal_plan": None if face is None else face.unique,
                     "solver_status": None if attempt is None else str(attempt.status),
                     "demand_basis": scenario.demand_basis,
@@ -585,7 +604,7 @@ def sensitivity_frame(
                     "parameter": point.parameter,
                     "value": point.value,
                     "solver_status": str(point.attempt.status),
-                    "plan_selection": "least cash among the optimal plans" if solved else None,
+                    "plan_selection": SELECTION[OPTIMIZED] if solved else None,
                     "unique_optimal_plan": None if point.face is None else point.face.unique,
                     "least_terminal_violation_within_budget": point.least_violation,
                     "regular_capacity_mean": capacity,
@@ -631,9 +650,22 @@ def frontier_frame(results: Sequence[ScenarioResult], status: M3Status) -> pd.Da
                     "terminal_backlog": point.terminal_backlog,
                     "overtime_hours": point.overtime_hours,
                     "surge_requests": point.surge_requests,
+                    "unique_after_tie_breaks": point.unique_after_tie_breaks,
+                    "overtime_hours_min_over_tied_plans": _low(point.overtime_hours_range),
+                    "overtime_hours_max_over_tied_plans": _high(point.overtime_hours_range),
+                    "surge_requests_min_over_tied_plans": _low(point.surge_requests_range),
+                    "surge_requests_max_over_tied_plans": _high(point.surge_requests_range),
                 }
             )
     return pd.DataFrame(rows)
+
+
+def _low(span: tuple[float, float] | None) -> float | None:
+    return None if span is None else span[0]
+
+
+def _high(span: tuple[float, float] | None) -> float | None:
+    return None if span is None else span[1]
 
 
 # --- Metrics -----------------------------------------------------------------------------
@@ -658,7 +690,7 @@ def _attempt_summary(attempt: Attempt | None) -> dict[str, Any] | None:
         "largest_snap": solved.cleaning.max_adjustment,
         "highs_status": solved.result.highs_status,
         "retried_without_presolve": solved.result.retried,
-        "lexicographic_epsilon_fallback": attempt.epsilon_fallback,
+        "stage_fallback": attempt.stage_fallback,
         "iterations": solved.result.iterations,
         "evaluation": solved.evaluation.to_dict(),
     }
@@ -722,6 +754,7 @@ def _sweep_summary(
         "terminal_backlog": None if evaluation is None else evaluation.terminal_backlog,
         "unique_optimal_plan": None if point.face is None else point.face.unique,
         "least_terminal_violation_within_budget": point.least_violation,
+        "stage_fallbacks": list(point.fallbacks),
         "capacity_to_point_forecast_mean_ratio": capacity / forecast_mean,
         "capacity_to_scenario_demand_mean_ratio": capacity / _mean_demand(point),
         "capacity_within_1pct_of_legacy_demand_percentile": capacity_near_percentile(
@@ -748,9 +781,23 @@ def _face_summary(face: Any) -> dict[str, Any] | None:
     }
 
 
+def _fallback_issue(subject: str, fallbacks: Sequence[str]) -> Issue:
+    counts = {name: fallbacks.count(name) for name in sorted(set(fallbacks))}
+    return Issue(
+        "stage_fallback",
+        Severity.WARNING,
+        subject,
+        "A lexicographic stage or optimal-face test needed a fallback "
+        f"({', '.join(f'{k} x{v}' for k, v in counts.items())}): its plan keeps the earlier "
+        "optimum only to within the epsilon cap, or comes from a smaller face.",
+    )
+
+
 def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, Any]:
     fd = result.finite_differences
     reported = result.reported.solved
+    # result.duals carry the slack and binding state of the reported plan.
+    binding_at_reported = {d.key(): d.binding for d in result.duals}
     return {
         **scenario.to_dict(),
         "feasibility": result.feasibility,
@@ -766,6 +813,8 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             result.without_target_plan or result.without_target
         ),
         "terminal_target_changes_optimal_score": result.target_changes_score,
+        "terminal_target_changes_reported_plan": result.target_changes_plan,
+        "stage_fallbacks": list(result.fallbacks),
         "diagnosis": None if result.diagnosis is None else result.diagnosis.to_dict(),
         "relaxed": None if result.diagnosis is None else _attempt_summary(result.diagnosis.relaxed),
         "optimal_face": _face_summary(result.reported_face),
@@ -775,9 +824,12 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
         "shadow_prices": {
             "computed": bool(fd),
             "n": len(fd),
-            "brackets_ok": all(i.bracket_ok and i.convex_ok and i.sign_ok for i in fd),
+            "brackets_ok": None
+            if not fd
+            else all(i.bracket_ok and i.convex_ok and i.sign_ok for i in fd),
             "locally_unique": sum(1 for i in fd if i.status == "locally_unique"),
             "breakpoint": sum(1 for i in fd if i.status == "breakpoint"),
+            "solver_failed": sum(1 for i in fd if i.status == "solver_failed"),
             "domain_boundary_or_infeasible_side": sum(
                 1 for i in fd if i.status in ("domain_boundary_below", "infeasible_side")
             ),
@@ -791,7 +843,7 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
                     "fd_status": i.status,
                     "practical_forward_cash_part": i.forward_cash,
                     "practical_forward_penalty_part": i.forward_penalty,
-                    "binding": i.dual.binding,
+                    "binding": binding_at_reported.get(i.dual.key(), i.dual.binding),
                 }
                 for i in fd
                 if i.dual.day is None
@@ -805,6 +857,9 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             "monotone_ok": result.frontier.monotone_ok,
             "convex_ok": result.frontier.convex_ok,
             "least_cash_for_least_penalty": dict(result.frontier.cash_for_least_penalty),
+            "points_not_unique_after_tie_breaks": sum(
+                1 for point in result.frontier.points if point.unique_after_tie_breaks is False
+            ),
         },
         "problems": list(result.problems),
     }
@@ -888,11 +943,20 @@ def m4_outputs(settings: Settings, config: OptimizationConfig, inputs: DecisionI
                     Severity.WARNING,
                     result.scenario_id,
                     "No plan meets every HYPOTHETICAL constraint; a relaxed plan (least "
-                    f"terminal-target violation within the budget) is reported. {reasons}",
+                    f"terminal-target violation within the budget) is reported. Reasons: "
+                    f"{reasons}",
                 )
             )
+        if result.fallbacks:
+            issues.append(_fallback_issue(result.scenario_id, result.fallbacks))
     for swept_points, _ in sweeps:
         for swept in swept_points:
+            if swept.fallbacks:
+                issues.append(
+                    _fallback_issue(
+                        f"sensitivity:{swept.parameter}={swept.value:g}", swept.fallbacks
+                    )
+                )
             for problem in swept.problems:
                 issues.append(
                     Issue(
@@ -960,6 +1024,8 @@ def m4_outputs(settings: Settings, config: OptimizationConfig, inputs: DecisionI
         },
         "checks": {
             "errors": sum(1 for i in issues if i.severity is Severity.ERROR),
+            "stage_fallbacks": sum(len(r.fallbacks) for r in results)
+            + sum(len(swept.fallbacks) for points, _ in sweeps for swept in points),
             "scenarios_strictly_feasible": sum(1 for r in results if r.strict.optimal),
             "scenarios_infeasible": sum(1 for r in results if not r.strict.optimal),
         },
@@ -989,6 +1055,7 @@ def headline(payload: Mapping[str, Any]) -> dict[str, Any]:
     rows = []
     for scenario in payload.get("scenarios", []):
         evaluation = (scenario.get("reported_plan") or {}).get("evaluation") or {}
+        diagnosis = scenario.get("diagnosis") or {}
         rows.append(
             {
                 "scenario_id": scenario.get("scenario_id"),
@@ -996,6 +1063,9 @@ def headline(payload: Mapping[str, Any]) -> dict[str, Any]:
                 "discretionary_cost": evaluation.get("discretionary_cost"),
                 "backlog_request_days": evaluation.get("backlog_request_days"),
                 "terminal_backlog": evaluation.get("terminal_backlog"),
+                "terminal_violation": diagnosis.get(
+                    "least_terminal_violation_within_budget_requests"
+                ),
             }
         )
     status = (payload.get("inputs") or {}).get("uncertainty_status") or {}
@@ -1067,11 +1137,31 @@ def _solver_failure(stage: str, exc: OptimizationError) -> CheckReport:
     )
 
 
-def _require_committed_config(repo_root: Path, config_path: Path) -> None:
-    """A reference run's configuration must be a committed file under ``configs/``.
+def _git(root: Path, *args: str) -> str | None:
+    executable = shutil.which("git")
+    if executable is None:
+        return None
+    try:
+        # Absolute executable, fixed argument list, no shell; literal pathspecs (a file
+        # name with glob characters must not match a different tracked file).
+        completed = subprocess.run(  # noqa: S603
+            [executable, "--literal-pathspecs", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return completed.stdout.strip() if completed.returncode == 0 else None
 
-    ``git status`` only covers the repository, so a configuration elsewhere (or an ignored
-    one) would be recorded with a clean commit although it is not part of it.
+
+def _require_committed_config(repo_root: Path, config_path: Path) -> None:
+    """A reference run's configuration must be the committed file under ``configs/``.
+
+    ``git status`` only covers the repository, misses ignored files and trusts
+    ``skip-worktree``/``assume-unchanged`` flags, so the file must be tracked (matched
+    literally, not as a glob) and its content must equal the blob committed at HEAD.
     """
     root = repo_root.resolve()
     path = config_path.resolve()
@@ -1080,24 +1170,17 @@ def _require_committed_config(repo_root: Path, config_path: Path) -> None:
             f"refusing a reference run: the configuration {config_path} is not under "
             f"{root / 'configs'}"
         )
-    executable = shutil.which("git")
-    tracked = False
-    if executable is not None:
-        try:
-            # Absolute executable, fixed argument list, no shell.
-            completed = subprocess.run(  # noqa: S603
-                [executable, "-C", str(root), "ls-files", "--error-unmatch", "--", str(path)],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            tracked = completed.returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
-            tracked = False
-    if not tracked:
+    relative = path.relative_to(root).as_posix()
+    if _git(root, "ls-files", "--error-unmatch", "--", relative) is None:
         raise ConfigError(
             f"refusing a reference run: the configuration {config_path} is not tracked by git"
+        )
+    committed = _git(root, "rev-parse", f"HEAD:{relative}")
+    working = _git(root, "hash-object", "--", relative)
+    if committed is None or working is None or committed != working:
+        raise ConfigError(
+            f"refusing a reference run: the configuration {config_path} differs from the "
+            "committed file"
         )
 
 
@@ -1156,6 +1239,9 @@ def _check_manifest_shape(manifest: Any, run_dir: Path) -> None:
     """A malformed manifest is a usage error (exit 2), never an internal error."""
     if not isinstance(manifest.get("config"), dict):
         raise ConfigError(f"{run_dir}/manifest.json has no recorded configuration")
+    for key in ("code", "git", "solver"):
+        if key in manifest and manifest[key] is not None and not isinstance(manifest[key], dict):
+            raise ConfigError(f"{run_dir}/manifest.json: '{key}' is not an object")
     outputs = manifest.get("outputs")
     if not isinstance(outputs, dict) or any(
         not isinstance(outputs.get(name), str) for name in RESULT_FILES
@@ -1239,8 +1325,8 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
     now_code = code_fingerprint(settings.repo_root)
     now_git = git_info(settings.repo_root)
     differences = {
-        "code_sha256": [manifest.get("code", {}).get("code_sha256"), now_code["code_sha256"]],
-        "git_commit": [manifest.get("git", {}).get("commit"), now_git.get("commit")],
+        "code_sha256": [(manifest.get("code") or {}).get("code_sha256"), now_code["code_sha256"]],
+        "git_commit": [(manifest.get("git") or {}).get("commit"), now_git.get("commit")],
         "scipy": [recorded_solver.get("scipy"), now_solver["scipy"]],
         "highs": [recorded_solver.get("highs"), now_solver["highs"]],
     }
@@ -1309,6 +1395,11 @@ def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
         )
         return [CheckReport(name="optimization_inspection", issues=tuple(issues))]
     payload = _read_json(run_dir / "metrics.json", "metrics")
+    scenarios = payload.get("scenarios")
+    if not isinstance(scenarios, list) or not all(isinstance(x, dict) for x in scenarios):
+        raise ConfigError(f"{run_dir}/metrics.json: 'scenarios' is not a list of objects")
+    if not isinstance(payload.get("inputs", {}), dict):
+        raise ConfigError(f"{run_dir}/metrics.json: 'inputs' is not an object")
     # metrics.json is covered by the result fingerprint; the manifest flag is not.
     checks = payload.get("checks") if isinstance(payload, dict) else None
     errors = checks.get("errors") if isinstance(checks, dict) else None

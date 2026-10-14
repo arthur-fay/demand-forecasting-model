@@ -48,6 +48,14 @@ def _n(value: Any, digits: int = 0) -> str:
     return str(value)
 
 
+def _q(value: Any, digits: int = 0) -> str:
+    """Like :func:`_n`, but a nonzero value below one unit keeps three significant digits
+    (a violation of 0.29 requests never prints as 0)."""
+    if isinstance(value, float) and value == value and 0 < abs(value) < 1:
+        return f"{value:.3g}"
+    return _n(value, digits)
+
+
 def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
     lines = ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|"]
     lines += ["| " + " | ".join(row) + " |" for row in rows]
@@ -66,7 +74,7 @@ def _difference(value: float | None, unit: str, fewer: str, more: str, digits: i
 
 
 def _reported(scenario: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The reported plan: the least-cash optimal strict plan, or the relaxed plan."""
+    """The reported plan: the tie-broken optimal strict plan, or the relaxed plan."""
     return (scenario.get("reported_plan") or {}).get("evaluation") or {}
 
 
@@ -168,9 +176,10 @@ def _model_section() -> list[str]:
         "duality gap), and no slack variable exists in the planning model. When no plan "
         "meets the HYPOTHETICAL terminal target, the reported plan is labelled "
         "`relaxed_terminal_target`: least target violation within the budget first, then "
-        "the planning objective, then the least cash. When several plans share the optimal "
-        "score, the reported plan is the least-cash one, and the ranges over all optimal plans "
-        "are shown in the uniqueness table.",
+        "the planning objective. When several plans share the optimal score, ties are broken "
+        "by the least discretionary cash, then the least terminal backlog, then the least "
+        "request-days, so every reported total is determined; the ranges over all optimal "
+        "plans are shown in the uniqueness table.",
         "",
     ]
 
@@ -180,6 +189,11 @@ def _scenario_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
     rows = []
     for s in scenarios:
         e = _reported(s)
+        terminal = _n(e.get("terminal_backlog"))
+        diagnosis = s.get("diagnosis")
+        if diagnosis is not None:
+            over = diagnosis["least_terminal_violation_within_budget_requests"]
+            terminal += f" ({_q(over)} over target)"
         rows.append(
             [
                 f"`{s['scenario_id']}`",
@@ -191,41 +205,47 @@ def _scenario_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
                 f"`{s['feasibility']}`",
                 _n(e.get("discretionary_cost")),
                 _n(e.get("backlog_request_days")),
-                _n(e.get("terminal_backlog")),
+                terminal,
                 _n(e.get("peak_backlog")),
                 ", ".join(s["binding_constraints"]) or "-",
             ]
         )
     lines.append(
         "`plan` is `strict` when a plan meets every HYPOTHETICAL constraint and "
-        "`relaxed_terminal_target` otherwise; the plan shown is the least-cash optimal one. "
-        "Binding constraints are read from the plan itself (slack within tolerance)."
+        "`relaxed_terminal_target` otherwise; the plan shown is the tie-broken optimal one. "
+        "Binding constraints are read from the plan itself (slack within tolerance; "
+        "`terminal_backlog_violated` marks a relaxed plan above its target)."
     )
     lines.append("")
     lines += _table(
         [
             "scenario",
             "demand basis",
-            "demand total (vs point forecast)",
-            "regular capacity/day",
+            "demand total, requests (vs point forecast)",
+            "regular capacity (requests/day)",
             "discretionary budget (USD)",
             "plan",
             "discretionary cash (USD)",
             "request-days",
-            "terminal backlog",
-            "peak backlog",
+            "terminal backlog (requests)",
+            "peak backlog (requests)",
             "binding constraints",
         ],
         rows,
     )
     for s in scenarios:
         changes = s.get("terminal_target_changes_optimal_score")
+        changes_plan = s.get("terminal_target_changes_reported_plan")
         if changes is not None:
-            effect = (
-                "changes the optimal score"
-                if changes
-                else "does not change the optimal score (it forces nothing)"
-            )
+            if changes:
+                effect = "changes the optimal score"
+            elif changes_plan:
+                effect = (
+                    "does not change the optimal score but changes the reported plan "
+                    "(equally scored plans with less cash or backlog miss the target)"
+                )
+            else:
+                effect = "changes neither the optimal score nor the reported plan"
             lines.append(f"- `{s['scenario_id']}`: dropping the HYPOTHETICAL target {effect}.")
     for s in scenarios:
         diagnosis = s.get("diagnosis")
@@ -238,9 +258,9 @@ def _scenario_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         lines += [f"  - {reason}" for reason in diagnosis["reasons"]]
         lines.append(
             "  - least terminal-target violation within the budget: "
-            f"{_n(diagnosis['least_terminal_violation_within_budget_requests'])} requests; "
+            f"{_q(diagnosis['least_terminal_violation_within_budget_requests'])} requests; "
             "with unlimited discretionary cash: "
-            f"{_n(diagnosis['least_terminal_violation_unlimited_discretionary_cash_requests'])} "
+            f"{_q(diagnosis['least_terminal_violation_unlimited_discretionary_cash_requests'])} "
             "requests"
         )
     lines.append("")
@@ -314,11 +334,14 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
     lines = [
         "## Is the optimal plan unique?",
         "",
-        "An active-set test over the exact optimal face (complementary slackness with the "
-        "certified duals; prices tied to within solver accuracy count as tied). When the "
-        "plan is not unique, the daily schedule shown is one of several equally scored "
-        "HYPOTHETICAL plans and its day-by-day allocation is not determined by the model; "
-        "the ranges are over all optimal plans.",
+        "An active-set test from the optimal vertex the solver returned, over the optimal "
+        "face built by complementary slackness from the certified duals (a reduced cost or "
+        "dual within 1e-9 of its own scale counts as zero, so prices tied that closely count "
+        "as tied). `yes` means no other optimal plan differs by more than 0.001 requests or "
+        "staff hours in that distance. For an infeasible scenario the test is on its relaxed "
+        "plan. When the plan is not unique, its day-by-day allocation in `plans.csv` is one "
+        "of several equally scored HYPOTHETICAL plans; the ranges are over all optimal "
+        "plans.",
         "",
     ]
     rows = []
@@ -335,6 +358,7 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         rows.append(
             [
                 f"`{s['scenario_id']}`",
+                "strict" if s["feasibility"] == "strict" else "relaxed",
                 _n(face["unique"]),
                 _n(face["undetermined_days"]),
                 span("discretionary_cash"),
@@ -347,13 +371,14 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
     lines += _table(
         [
             "scenario",
+            "plan tested",
             "unique",
             "days not determined",
             "discretionary cash (USD)",
             "request-days",
-            "terminal backlog",
-            "overtime hours",
-            "surge requests",
+            "terminal backlog (requests)",
+            "overtime (staff hours)",
+            "surge (requests)",
         ],
         rows,
     )
@@ -361,25 +386,24 @@ def _face_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
-    bracketed = [
-        f"`{s['scenario_id']}`"
-        for s in scenarios
-        if any(h["fd_status"] != "not_computed" for h in s["shadow_prices"]["headline"])
-    ]
+    bracketed = [f"`{s['scenario_id']}`" for s in scenarios if s["shadow_prices"]["computed"]]
     if bracketed:
         coverage = (
-            f"The duals of {', '.join(bracketed)} (the scenarios listed under "
-            "`shadow_prices`) are bracketed by one-sided finite differences of re-solved, "
-            "certified programmes (step: the larger of 0.001 natural units and 1e-7 of the "
-            "right-hand side): `locally_unique` when both slopes agree, `breakpoint` when "
-            "they differ (the solver's value is then one subgradient among several); other "
-            "duals show `not_computed`. The cash and penalty parts split the practical "
-            "forward step."
+            f"The duals of {', '.join(bracketed)} (the strictly feasible scenarios among "
+            "those listed under `shadow_prices`; an infeasible scenario has no strict duals) "
+            "are bracketed by one-sided finite differences of re-solved, certified "
+            "programmes (step: the larger of 0.001 natural units and 1e-7 of the right-hand "
+            "side): `locally_unique` when both slopes agree, `breakpoint` when they differ "
+            "(the solver's value is then one subgradient among several); other duals show "
+            "`not_computed`. The cash and penalty parts split the practical forward step "
+            "between the tie-broken plans before and after it. Slack and `binding` describe "
+            "the reported plan."
         )
     else:
         coverage = (
-            "No dual was bracketed by finite differences (no `shadow_prices` scenarios): "
-            "these are unchecked solver values (`not_computed`)."
+            "No dual was bracketed by finite differences (no strictly feasible scenario is "
+            "listed under `shadow_prices`): these are unchecked solver values "
+            "(`not_computed`)."
         )
     lines = [
         "## Shadow prices (horizon-wide constraints)",
@@ -430,7 +454,7 @@ def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
             f"({'all brackets hold' if p['brackets_ok'] else 'A BRACKET FAILED'}); "
             f"{p['locally_unique']} locally unique, {p['breakpoint']} at a breakpoint, "
             f"{p['domain_boundary_or_infeasible_side']} at a domain boundary or with an "
-            "infeasible side."
+            f"infeasible side, {p.get('solver_failed', 0)} not computed (solver failure)."
         )
     lines.append("")
     return lines
@@ -441,10 +465,12 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         "## Tradeoff frontier",
         "",
         "Least notional backlog penalty achievable for each cap on discretionary cash "
-        "(budget row dropped, daily limits and totals kept), with the least cash that "
-        "achieves it, the request-days and the terminal backlog of that plan "
-        "(`frontier.csv`). A HYPOTHETICAL TRADEOFF under HYPOTHETICAL prices and a point "
-        "forecast; no point on it is singled out as a budget.",
+        "(budget row dropped, daily limits and totals kept), with the least cash, then the "
+        "least terminal backlog and request-days among the plans that achieve it "
+        "(`frontier.csv`). Overtime and surge can still differ between such plans; "
+        "`frontier.csv` flags those points (`unique_after_tie_breaks`) with their ranges. "
+        "A HYPOTHETICAL TRADEOFF under HYPOTHETICAL prices and a point forecast; no point on "
+        "it is singled out as a budget.",
         "",
     ]
     for s in scenarios:
@@ -469,8 +495,9 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
             f"- `{s['scenario_id']}`: {kept}; {dropped}; "
             "under this deterministic demand path and the HYPOTHETICAL prices; the "
             f"curve is non-increasing: {_n(f['monotone_ok'])}, convex: {_n(f['convex_ok'])}; "
-            f"the strict plan lies on it: {f['on_frontier_check']}. DIAGNOSTIC tradeoff "
-            "points, not budgets."
+            f"the strict plan lies on it: {f['on_frontier_check']}; "
+            f"{_n(f.get('points_not_unique_after_tie_breaks'))} points leave overtime and "
+            "surge open. DIAGNOSTIC tradeoff points, not budgets."
         )
     lines.append("")
     return lines
@@ -508,9 +535,9 @@ def _sensitivity_section(payload: Mapping[str, Any]) -> list[str]:
         "penalty sweep changes only the daily weight `w`; cash alone is not asserted to "
         "rise with it when a terminal penalty is set.",
         "",
-        "Values of the least-cash optimal plan at each point (`unique`: whether the optimal "
-        "plan is unique; otherwise `sensitivity.csv` has the ranges over all optimal plans). "
-        "An infeasible point shows the least terminal-target violation within the budget. "
+        "Values of the tie-broken optimal plan at each point (flag `not unique`: other "
+        "optimal plans exist; `sensitivity.csv` has their ranges). An infeasible point shows "
+        "the least terminal-target violation within the budget. "
         "A swept capacity that lands within 1 % of the legacy demand percentile is marked "
         "`near percentile`: it is a swept HYPOTHETICAL capacity, not that percentile.",
         "",
@@ -531,7 +558,7 @@ def _sensitivity_section(payload: Mapping[str, Any]) -> list[str]:
                 _n(p["discretionary_cost"]),
                 _n(p["backlog_request_days"]),
                 _n(p["terminal_backlog"]),
-                _n(p["least_terminal_violation_within_budget"]),
+                _q(p["least_terminal_violation_within_budget"]),
                 ", ".join(flags) or "-",
             ]
         )
@@ -543,8 +570,8 @@ def _sensitivity_section(payload: Mapping[str, Any]) -> list[str]:
             "regular capacity / mean demand of the point",
             "discretionary cash (USD)",
             "request-days",
-            "terminal backlog",
-            "least violation if infeasible",
+            "terminal backlog (requests)",
+            "least violation if infeasible (requests)",
             "flags",
         ],
         rows,

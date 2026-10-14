@@ -254,7 +254,8 @@ class SensitivityConfig(_Config):
 
 
 class FrontierConfig(_Config):
-    """Epsilon-constraint tradeoff curves (discretionary cash against request-days)."""
+    """Epsilon-constraint tradeoff curves (discretionary cash against the notional backlog
+    penalty)."""
 
     scenarios: tuple[str, ...] = Field(min_length=1)
     points: int = Field(ge=3, le=41)

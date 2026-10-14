@@ -408,6 +408,9 @@ HIGHS_UNBOUNDED_OR_INFEASIBLE: Final = 9
 HIGHS_INCONCLUSIVE: Final = (9, 10, 15)
 #: Largest magnitude accepted in a programme (larger inputs are a configuration error).
 MAX_MAGNITUDE: Final = 1e9
+#: Nonzero matrix coefficients at or below HiGHS's ``small_matrix_value`` are dropped by the
+#: solver, which then solves a different programme; they are rejected.
+MIN_MAGNITUDE: Final = 1e-9
 #: Bound on derived right-hand sides (sums of inputs over the horizon); HiGHS treats 1e20
 #: as infinite.
 MAX_DERIVED_MAGNITUDE: Final = 1e15
@@ -439,12 +442,22 @@ def is_derived_row(row: Row) -> bool:
 
 
 def _check_magnitudes(lp: LinearProgram) -> None:
-    """Reject non-finite data, planning data of magnitude ``MAX_MAGNITUDE`` or more, and
-    derived right-hand sides of ``MAX_DERIVED_MAGNITUDE`` or more.
+    """Reject non-finite data, planning data of magnitude ``MAX_MAGNITUDE`` or more, nonzero
+    matrix coefficients of ``MIN_MAGNITUDE`` or less, and derived right-hand sides of
+    ``MAX_DERIVED_MAGNITUDE`` or more.
 
     Derived rows (caps on request-days or penalties, for example) aggregate the inputs over
     the horizon, so they may exceed the input bound while every input is within it.
     """
+    for name, matrix in (("A_ub", lp.a_ub), ("A_eq", lp.a_eq)):
+        magnitudes = np.abs(matrix[np.isfinite(matrix)])
+        tiny = magnitudes[(magnitudes > 0) & (magnitudes <= MIN_MAGNITUDE)]
+        if tiny.size:
+            raise OptimizationError(
+                f"{name} has a nonzero coefficient of magnitude <= {MIN_MAGNITUDE:g} "
+                f"({float(tiny.min()):g}), which HiGHS drops; rescale the inputs or set "
+                "the price or productivity to 0"
+            )
     finite_upper = lp.upper[np.isfinite(lp.upper)]
     derived = np.array([is_derived_row(row) for row in lp.ub_rows], dtype=bool)
     for name, values, limit in (
@@ -551,8 +564,8 @@ def solve_lp(lp: LinearProgram, settings: SolverSettings) -> LPResult:
 
 
 #: Tolerances of the optimality certificate: absolute and relative parts for rows and
-#: bounds, relative part for dual signs, stationarity and the duality gap. About 100
-#: times the noise observed on realistic instances, and far below any meaningful error.
+#: bounds, relative part for dual signs, stationarity and the duality gap. Far below any
+#: meaningful error; the margin measured on the reference run is in docs/OPTIMIZATION.md.
 CERT_ABS: Final = 1e-7
 CERT_REL: Final = 1e-9
 
@@ -717,7 +730,9 @@ class DualValue:
     ``marginal`` is the derivative of the optimal objective (units ``marginal_units``) with
     respect to the right-hand side ``rhs`` (units ``rhs_units``). ``binding`` means the
     slack is within tolerance of zero; a binding constraint can have a zero marginal
-    (degeneracy) and only a binding constraint can have a non-zero one.
+    (degeneracy) and only a tight constraint can have a non-zero one. A daily limit of zero
+    (the resource is unavailable that day) is never called binding, although its marginal
+    can be non-zero.
     """
 
     constraint: str
@@ -798,7 +813,8 @@ def dual_values(lp: LinearProgram, result: LPResult) -> tuple[DualValue, ...]:
                         day,
                         float(lp.upper[j]),
                         slack,
-                        bool(slack <= tolerance(lp.upper[j], v[j])),
+                        # A zero limit (surge not yet available) is unavailable, not used up.
+                        bool(lp.upper[j] > 0 and slack <= tolerance(lp.upper[j], v[j])),
                         float(result.upper_marginals[j]),
                         rhs_units,
                         marginal_units,
