@@ -142,6 +142,32 @@ and the calibration window), `exceedance.csv` (one row per forecast and threshol
 backtest (which must reproduce that run's `forecasts.csv`) and labels every projection with
 the evaluation status.
 
+### Reproducibility across machines
+
+Two different guarantees apply:
+
+- **Same environment:** every run is deterministic. `atlas backtest verify` and
+  `atlas uncertainty verify` re-run a recorded run and require byte-identical files
+  (SHA-256), and the engine tests compare frames exactly. CI runs and verifies each smoke
+  run on the same runner.
+- **Across machines:** the locked numpy wheel bundles OpenBLAS, which picks CPU-specific
+  kernels at run time (`OPENBLAS_CORETYPE` overrides the choice). The committed reference
+  results were produced with AVX-512 kernels; GitHub-hosted runners without AVX-512 use
+  AVX2 kernels, and least-squares predictions then differ by a few units in the last place
+  (at most 1.5e-15 relative on the M2 spot check). Tests that compare a fresh computation
+  with a committed reference therefore use `tests/numeric.py`: exact equality for models
+  that do not call BLAS, and a relative tolerance of 1e-9 (0.00001 requests at typical
+  demand) for the regressions. Committed files are always compared exactly with each
+  other.
+
+A run recorded on one machine may therefore fail `verify` on a machine with a different
+CPU, in the last bits of the regression predictions; re-run it there instead. To check a
+change against another kernel family locally:
+
+```bash
+OPENBLAS_CORETYPE=Haswell uv run pytest      # AVX2 kernels, as on some CI runners
+```
+
 Every command prints the report of each stage it ran, prerequisites included. Stages run in
 order, and a stage is **skipped** when an earlier one failed, so nothing is ever computed from
 unverified or invalid data.
