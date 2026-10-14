@@ -296,11 +296,147 @@ document, the code and the tests before its first run; nothing in it was changed
 
 ## 9. Results
 
-Added after the reference run.
+Reference run `atlas-m4-optimization-v1-02258d28-5ab8b3a5`, committed in
+[`docs/results/atlas-m4-optimization-v1/`](results/atlas-m4-optimization-v1/report.md):
+configuration fingerprint `02258d28d0e30759946e5aafbb83a8492d5db905c5fb77da921b191d4ce22e8a`,
+result fingerprint `bc7ec821cdc1198c32b888276bd3220f8e56701ac1a9463df1d6a969b8ef8dea`, code
+commit `a885a69` (clean tree, `--require-clean`), SciPy 1.18.1 / HiGHS 1.12.0, 20 seconds.
+`optimize verify` reproduces every file byte for byte, also under the Haswell and Prescott
+OpenBLAS kernels (tested). **0 errors; 7 warnings**: M3 status FAILED_CALIBRATION, and six
+scenarios without a plan that meets every HYPOTHETICAL constraint.
+
+**Every number below is computed from HYPOTHETICAL parameters and an unvalidated point
+forecast (MAE 985 requests/day over these horizons). It illustrates the method; it is not a
+staffing, budget or capacity recommendation, and no number is a probability.**
+
+### 9.1 Scenarios (reported plan)
+
+| Scenario | Strict model | Discretionary cash (USD) | Request-days | Terminal backlog | Overtime h | Surge requests | Optimal plan unique |
+|---|---|---|---|---|---|---|---|
+| `normal` | feasible | 225,276 | 48,728 | 3,712 | 2,988 | 1,534 | yes |
+| `increased_costs` | feasible | 268,996 | 49,396 | 3,712 | 3,136 | 1,200 | **no**: cash 268,996-270,331, request-days 48,728-49,396 over the optimal plans; 4 days not determined |
+| `delayed_surge` | feasible | 220,163 | 55,539 | 3,712 | 3,669 | 0 | yes |
+| `reduced_budget` | infeasible (relaxed plan) | 150,000 | 110,244 | 6,343 | 2,500 | 0 | yes |
+| `m2_bias_shift` | infeasible (relaxed plan) | 300,000 | 111,440 | 8,398 | 5,000 | 0 | yes |
+| `increased_demand` | infeasible (relaxed plan) | 300,000 | 505,359 | 34,115 | 5,000 | 0 | yes |
+| `reduced_capacity` | infeasible (relaxed plan) | 300,000 | 502,944 | 33,718 | 5,000 | 0 | yes |
+| `combined_stress` | infeasible (relaxed plan) | 225,000 | 575,701 | 37,496 | 3,409 | 0 | yes |
+| `m3_marginal_q90_stress` | infeasible (relaxed plan) | 300,000 | 813,258 | 56,612 | 5,000 | 0 | yes |
+
+- In the three feasible scenarios the HYPOTHETICAL target (4,000) does not bind: the plans
+  end at 3,712 because waiting is penalised, and dropping the target leaves the optimal score
+  unchanged. Regular capacity binds on all 30 days; the budget, the overtime total and the
+  terminal target do not (their shadow prices are 0).
+- **Why the six scenarios are infeasible** (DIAGNOSTIC values, not plans or requests):
+  in `reduced_budget` and `m2_bias_shift` the target is reachable, but only with at least
+  212,474 and 424,433 USD of discretionary cash under these prices (the budgets are 150,000 and
+  300,000). In `increased_demand`, `reduced_capacity`, `combined_stress` and the q0.9 stress
+  path no amount of cash reaches it: with the daily and total limits, at least 9,865, 9,468,
+  13,866 and 32,362 requests stay above the target. The relaxed plans spend the whole budget
+  (all on overtime, the cheaper source per request) and are labelled
+  `relaxed_terminal_target` everywhere.
+- The q0.9 stress path is each day's marginal 90 % M3 quantile (16.7 % more demand than the
+  point forecast); the M3 intervals failed calibration, so it carries no probability.
+
+### 9.2 Policies under the same assumptions
+
+The fixed-capacity rule misses the HYPOTHETICAL target in every scenario (11,968 requests left
+in `normal`). The backlog-trigger rule meets every constraint in the three feasible
+scenarios; there the reported plan is a **tradeoff**, not an improvement on every measure: in
+`normal` it spends 8,802 USD more discretionary cash and has 62,850 fewer request-days and 288
+fewer requests left at the end. Compared like for like, the LP at the rule's own cash has
+57,280 fewer request-days, and the LP at the rule's request-days and terminal backlog needs
+4,000 USD less (`increased_costs`: 57,280 fewer, 4,800 USD less; `delayed_surge`: 54,136
+fewer, the same cash). In `reduced_budget`, `combined_stress` and `m2_bias_shift` the relaxed
+plan dominates the rule (same cash, fewer request-days, lower terminal backlog); in
+`increased_demand`, `reduced_capacity` and the q0.9 path it has more request-days but a lower
+terminal backlog. These differences come from a myopic rule with an arbitrary trigger and from
+hypothetical prices; they say nothing about any real agency.
+
+### 9.3 Uniqueness, shadow prices, frontier
+
+- Only `increased_costs` (and four sweep points) has several optimal plans: at 1.2 × the
+  prices overtime costs exactly 32 USD per request (72 USD/h at 2.25 requests/h), the same as
+  the penalty of 16 nights of waiting at 2 USD, so the amount and timing of overtime and surge
+  on four days can change without changing the score. The reported plan is the least-cash
+  one; the ranges are reported.
+- 369 shadow prices of `normal`, `increased_costs` and `delayed_surge` were bracketed by
+  certified finite differences: every bracket holds, none at a breakpoint, 7 at a domain
+  boundary (surge limits that are zero before day 8 in `delayed_surge`, flagged
+  `limit_is_zero_unavailable`).
+- Frontier (`normal`): extra discretionary cash beyond 435,458 USD lowers the notional
+  penalty no further, with or without the target; the curve is non-increasing and convex, and
+  the strict plan lies on it. `combined_stress`: with the target kept no cash cap is
+  feasible; without it the penalty stops falling at 851,400 USD. These are DIAGNOSTIC
+  tradeoff points under HYPOTHETICAL prices, not budgets.
+
+### 9.4 Sensitivity (`normal`, one parameter at a time)
+
+All 14 proved monotonicity and feasibility properties hold on the results. The strict model
+becomes infeasible at 2 % more demand, at 2 % fewer regular hours or 2 % lower productivity, at
+half the discretionary budget (feasible again at 0.75) and at 1.5 × the prices. The penalty
+weight `w` trades cash against waiting: from `w = 0` to `w = 16` cash rises from 212,474 to
+300,000 USD (the whole budget) and request-days fall from 156,673 to 27,272; at `w = 0` the
+request-days are not determined (60,442-224,834 over the optimal plans). Two swept capacities
+(regular hours or productivity × 1.05, 11,550 requests/day) fall within 1 % of the legacy
+demand percentile and are flagged `near percentile`.
+
+### 9.5 Verification of the run
+
+- Certificates: the largest violations in the 27 programme summaries of `metrics.json` are
+  `7.4e-8` (primal), `5.4e-8` (stationarity) and `3.1e-8` (duality gap) **of their
+  tolerances**, i.e. about 10^7 times below them; no value was snapped onto a bound and no
+  lexicographic stage needed the epsilon fallback.
+- An independent re-implementation by the reviewers (own variable layout, own LP with
+  `highs-ipm` and with `highs-ds` without presolve, own policies and diagnostics, without
+  importing the M4 analysis code) agrees with this run on all 180 scenario, policy and
+  diagnostic values within `1e-6` relative, on all 369 duals and on every frontier and sweep
+  value. Its own optimal-face check, at a slack of `1e-9`, flagged three more sweep points; at
+  a slack of `1e-11` their ranges vanish (near-optimal plans, not ties), as the exact face
+  says. The sweep point `discretionary_budget_multiplier = 0.75`, non-unique here with zero
+  aggregate ranges, has another plan with exactly the optimal score (322,786.97) that moves 77
+  surge requests from day 6 to day 3 and 34 overtime hours from day 5 to day 8.
 
 ## 10. Independent review
 
-Added after the review.
+Before the freeze, four reviewers examined the formulation design (units, constraints,
+diagnostics, integrity rules); sections 1-8 include their changes. After the freeze (commit
+`af10ddd`), six independent reviewers examined the code, configuration, documents and tests,
+each from one angle: **formulation against code**, an **independent re-implementation** of the
+model and of all nine scenarios, **numerical robustness**, **scientific integrity** of every
+output, **mutation testing** of the test suite (108 planted bugs) and **edge cases and
+failure paths**. Each major or critical finding was then given to a separate skeptic told to
+refute it by reproducing it from scratch. Every finding verified against the frozen code was
+upheld; later verifiers, who ran after the fixes had landed, reported each defect as no
+longer reproducible and re-ran their own reproductions against the fix. Every confirmed
+defect was fixed, with a regression test that fails on the frozen code
+(`tests/test_m4_review_fixes.py`, `tests/test_m4_mutation_kills.py`), and the reference
+configuration was run for the first time on the fixed code (section 9).
+
+| Defect (lenses that found it) | Severity | Fix |
+|---|---|---|
+| Numbers of a non-unique optimum depended on the vertex HiGHS returned: the "what the target forces" row showed a tradeoff that was only another optimal vertex, the cash/penalty split of shadow prices and the policy deltas came from an arbitrary vertex, sweep points had no uniqueness test (formulation, independent, integrity) | critical | the reported plan is the least-cash optimal plan; the target effect compares optimal scores; the split compares least-cash plans; every sweep point and relaxed plan has a uniqueness test and ranges |
+| Lexicographic stages used up their epsilon cap (a binding budget reported as not binding by 1e-6 USD), and near-parallel cap and face rows made HiGHS fail on near-tied prices, aborting the run (numerics; found again by a regression test) | major | stages solved on the exact optimal face (complementary slackness); epsilon cap only as a recorded fallback (0 used) |
+| Uniqueness test: missed a genuine alternative optimum when a near-flat direction also existed; failed on near-ties (numerics) | major | exact complementary-slackness face, every face plan certified and checked to score the optimum |
+| Failed checks of sweep points, soft-target re-solves and policy first stages never became errors; finite-difference re-solves were never certified (formulation, numerics, edge cases) | major | every programme is checked and every failure is an ERROR; re-solves certified |
+| The certificate accepted NaN duals (Python's `max` skips NaN) (numerics) | major | fails closed on any non-finite value |
+| Absolute finite-difference step: false breakpoints and bracket ERRORs when every input is scaled by 100-300 (numerics) | major | relative step and value-noise allowance; scale-invariance test |
+| An infeasible verdict was never confirmed independently; at the tolerance boundary the reasons were empty or said "0.0 requests" (integrity, numerics) | major | confirmation by the certified soft-target programme; BORDERLINE reason; three significant digits |
+| Diagnosis text hard-coded "(daily limits, totals and delayed surge bind)"; relaxed plans showed no binding constraints although they spend the budget; an unlimited-cash diagnostic plan was described as "budget spent" (independent, formulation, integrity, edge cases; the last found reading the fixed run) | major | reasons and binding constraints read from the plan; an exceeded budget is `budget_exceeded`, never binding |
+| Sweeps could reach a capacity within 1 % of the legacy demand percentile without notice (independent, formulation, integrity, edge cases) | major | flagged `near percentile` (protocol amended, section 1) |
+| `verify` passed a run whose failed checks reproduce; `inspect` trusted the unhashed `complete` flag; `--require-clean` accepted an untracked configuration; a null budget could be "scaled" by a scenario or sweep (edge cases) | major | all four closed (sections 4 and 12); malformed manifests are usage errors; the intervals pin is always checked |
+| The report's scenario table showed the solver's vertex instead of the reported least-cash plan where the optimum is not unique (found reading the fixed run) | major | the table reads the reported plan; `metrics.json` names the programme summary `strict_programme` |
+| Labels and units: capacity ratio against the unscaled forecast; sensitivity duals without units; `verify` without the label; budget-request phrasing; q0.9 rows without the "no probability" notice; an uncomputed comparative sentence; "n/a USD"; the surge total missing from the documented model; prose for blocks that were not configured; zero surge limits read as binding (integrity, formulation, independent, edge cases) | minor | each wording, column and label corrected |
+| No objective-agreement check for the frontier's penalty objective; the input-magnitude guard fired on derived rows; the certificate margin overstated in this document (independent, formulation, numerics) | minor | check added; derived rows bounded separately; margin measured (section 9) |
+| 26 of the 108 planted bugs survived the suite: guards whose failure path was never exercised (objective agreement, bracket lower side, balance-dual sign, monotonicity and frontier checks, policy invariants, snapshot data check, verify on a changed report, `--require-clean` without git), unpinned tolerances (dual signs, binding slack, snapping) (mutation) | major/minor | 22 new tests kill 23 of them; two are equivalent mutants and one concerned code since removed (the epsilon re-test of the old face) |
+
+What the reviewers verified as sound: the LP rows, bounds, coefficients and units against
+section 3 (no slack column, service never above the available work, the budget excludes the
+regular cost everywhere); all scores, diagnostics, policies, frontiers and sweeps against
+the independent re-implementation (section 9.5); byte-identical determinism across runs and
+OpenBLAS kernels; labels on every CSV row; multi-unit problems through every analysis; the
+CLI in every configuration variant; and that diagnostic and relaxed plans are never presented
+as strictly feasible.
 
 ## 11. Limitations
 

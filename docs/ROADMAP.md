@@ -109,6 +109,10 @@ See [OPTIMIZATION.md](OPTIMIZATION.md).
   monotonicity properties checked; nine scenarios including an M2-bias shift and an M3
   marginal-quantile stress path; the M3 calibration status on every result;
   `atlas optimize run|verify|inspect`.
+- An independent six-lens review after the freeze (including a re-implementation and
+  mutation testing); every confirmed defect fixed with a regression test. Reference results:
+  [`docs/results/atlas-m4-optimization-v1/`](results/atlas-m4-optimization-v1/report.md)
+  (OPTIMIZATION.md sections 9-10).
 
 Deliberately not done in M4:
 

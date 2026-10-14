@@ -1,0 +1,3751 @@
+{
+ "checks": {
+  "errors": 0,
+  "scenarios_infeasible": 6,
+  "scenarios_strictly_feasible": 3
+ },
+ "config_fingerprint": "02258d28d0e30759946e5aafbb83a8492d5db905c5fb77da921b191d4ce22e8a",
+ "experiment_id": "atlas-m4-optimization-v1",
+ "horizon": {
+  "days": 30,
+  "first_date": "2026-07-01",
+  "forecast_mean_requests_per_day": 11132.258738950943,
+  "forecast_total_requests": 333967.7621685283,
+  "last_date": "2026-07-30"
+ },
+ "hypothetical_parameters": [
+  {
+   "assumption": "Illustrative open backlog at the start of the horizon (about 0.7 days of forecast demand); no backlog is observed in the data.",
+   "parameter": "initial_backlog",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "requests",
+   "value": 8000.0
+  },
+  {
+   "assumption": "Illustrative regular staff time per day (for example 550 staff working 8 hours); with the regular productivity it gives 11,000 requests per day, 1.2 % below the forecast mean.",
+   "parameter": "regular_hours_per_day",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "staff_hours_per_day",
+   "value": 4400.0
+  },
+  {
+   "assumption": "Illustrative number of requests one staff hour resolves; no productivity is measured in the data.",
+   "parameter": "regular_productivity",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "requests_per_staff_hour",
+   "value": 2.5
+  },
+  {
+   "assumption": "Illustrative: 10 % below regular productivity, for fatigue.",
+   "parameter": "overtime_productivity",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "requests_per_staff_hour",
+   "value": 2.25
+  },
+  {
+   "assumption": "Illustrative daily overtime limit (about 9 % of regular hours).",
+   "parameter": "overtime_max_hours_per_day",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "staff_hours_per_day",
+   "value": 400.0
+  },
+  {
+   "assumption": "Illustrative overtime limit over the 30 days (half the daily limit on average).",
+   "parameter": "overtime_total_hours",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "staff_hours",
+   "value": 6000.0
+  },
+  {
+   "assumption": "Illustrative capacity of an external surge contract.",
+   "parameter": "surge_max_per_day",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "requests_per_day",
+   "value": 600.0
+  },
+  {
+   "assumption": "Illustrative: the surge contract is available from the first day in the base case.",
+   "parameter": "surge_available_from_day",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "planning_day",
+   "value": 1
+  },
+  {
+   "assumption": "Illustrative loaded cost of a regular staff hour; not an NYC pay rate.",
+   "parameter": "regular_wage",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "usd_per_staff_hour",
+   "value": 40.0
+  },
+  {
+   "assumption": "Illustrative overtime cost (1.5 times the regular wage): 26.67 USD per request at overtime productivity.",
+   "parameter": "overtime_wage",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "usd_per_staff_hour",
+   "value": 60.0
+  },
+  {
+   "assumption": "Illustrative price of one externally processed request (more than overtime per request).",
+   "parameter": "surge_price",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "usd_per_request",
+   "value": 30.0
+  },
+  {
+   "assumption": "Notional weight on each request waiting overnight; a preference for less waiting, not a cash cost.",
+   "parameter": "backlog_penalty",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "usd_per_request_day",
+   "value": 2.0
+  },
+  {
+   "assumption": "No extra notional weight on the backlog left after the last day (the terminal target constrains it instead).",
+   "parameter": "terminal_penalty",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "usd_per_request",
+   "value": 0.0
+  },
+  {
+   "assumption": "Illustrative target for the backlog left after the last day (half of the initial backlog).",
+   "parameter": "terminal_backlog_max",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "requests",
+   "value": 4000.0
+  },
+  {
+   "assumption": "Trigger of the backlog-trigger rule, set equal to the terminal target.",
+   "parameter": "backlog_trigger",
+   "provenance": "HYPOTHETICAL",
+   "scope": "unit:citywide",
+   "unit": "requests",
+   "value": 4000.0
+  },
+  {
+   "assumption": "Illustrative cash available for overtime and surge over the 30 days; the regular staff cost is committed and reported separately.",
+   "parameter": "discretionary_budget",
+   "provenance": "HYPOTHETICAL",
+   "scope": "budget",
+   "unit": "usd",
+   "value": 300000.0
+  },
+  {
+   "assumption": "Illustrative uniform demand increase of 10 %.",
+   "parameter": "demand_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:increased_demand",
+   "unit": "ratio",
+   "value": 1.1
+  },
+  {
+   "assumption": "Illustrative 10 % loss of regular staff hours.",
+   "parameter": "regular_hours_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:reduced_capacity",
+   "unit": "ratio",
+   "value": 0.9
+  },
+  {
+   "assumption": "Illustrative 20 % increase of every cost rate.",
+   "parameter": "cost_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:increased_costs",
+   "unit": "ratio",
+   "value": 1.2
+  },
+  {
+   "assumption": "Illustrative 50 % cut of the discretionary budget.",
+   "parameter": "discretionary_budget_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:reduced_budget",
+   "unit": "ratio",
+   "value": 0.5
+  },
+  {
+   "assumption": "Illustrative one-week delay of the surge contract.",
+   "parameter": "surge_available_from_day",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:delayed_surge",
+   "unit": "planning_day",
+   "value": 8
+  },
+  {
+   "assumption": "Illustrative demand increase of 5 %.",
+   "parameter": "demand_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:combined_stress",
+   "unit": "ratio",
+   "value": 1.05
+  },
+  {
+   "assumption": "Illustrative 5 % loss of regular staff hours.",
+   "parameter": "regular_hours_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:combined_stress",
+   "unit": "ratio",
+   "value": 0.95
+  },
+  {
+   "assumption": "Illustrative 10 % increase of every cost rate.",
+   "parameter": "cost_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:combined_stress",
+   "unit": "ratio",
+   "value": 1.1
+  },
+  {
+   "assumption": "Illustrative 25 % cut of the discretionary budget.",
+   "parameter": "discretionary_budget_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:combined_stress",
+   "unit": "ratio",
+   "value": 0.75
+  },
+  {
+   "assumption": "Illustrative one-week delay of the surge contract.",
+   "parameter": "surge_available_from_day",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:combined_stress",
+   "unit": "planning_day",
+   "value": 8
+  },
+  {
+   "assumption": "M2 confirmation-period mean error of the recommended model over horizons 1-30 was -255.9 requests per day (under-forecast); applied here as a HYPOTHETICAL stress, not as a correction.",
+   "parameter": "demand_shift_per_day",
+   "provenance": "HYPOTHETICAL",
+   "scope": "scenario:m2_bias_shift",
+   "unit": "requests_per_day",
+   "value": 256.0
+  },
+  {
+   "assumption": "Sensitivity grid: this parameter varied one value at a time, everything else as in the base scenario.",
+   "parameter": "demand_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "sensitivity:normal",
+   "unit": "ratio",
+   "value": "0.9, 0.95, 0.98, 1, 1.02, 1.05, 1.1"
+  },
+  {
+   "assumption": "Sensitivity grid: this parameter varied one value at a time, everything else as in the base scenario.",
+   "parameter": "discretionary_budget_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "sensitivity:normal",
+   "unit": "ratio",
+   "value": "0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3"
+  },
+  {
+   "assumption": "Sensitivity grid: this parameter varied one value at a time, everything else as in the base scenario.",
+   "parameter": "regular_hours_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "sensitivity:normal",
+   "unit": "ratio",
+   "value": "0.9, 0.95, 0.98, 1, 1.02, 1.05, 1.1"
+  },
+  {
+   "assumption": "Sensitivity grid: this parameter varied one value at a time, everything else as in the base scenario.",
+   "parameter": "productivity_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "sensitivity:normal",
+   "unit": "ratio",
+   "value": "0.9, 0.95, 0.98, 1, 1.02, 1.05, 1.1"
+  },
+  {
+   "assumption": "Sensitivity grid: this parameter varied one value at a time, everything else as in the base scenario.",
+   "parameter": "cost_multiplier",
+   "provenance": "HYPOTHETICAL",
+   "scope": "sensitivity:normal",
+   "unit": "ratio",
+   "value": "0.8, 0.9, 1, 1.1, 1.2, 1.5"
+  },
+  {
+   "assumption": "Sensitivity grid: this parameter varied one value at a time, everything else as in the base scenario.",
+   "parameter": "backlog_penalty",
+   "provenance": "HYPOTHETICAL",
+   "scope": "sensitivity:normal",
+   "unit": "usd_per_request_day",
+   "value": "0, 0.5, 1, 2, 4, 8, 16"
+  }
+ ],
+ "inputs": {
+  "forecast": {
+   "config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+   "kind": "m2_projection_run",
+   "label": "FUTURE PROJECTION: forecasts beyond the last observed day. No outcome has been observed; these numbers are not validated by any backtest.",
+   "manifest_sha256": "6baad8e2813d65f490f722c0da1f5cef997454fb1b6be978b3345f7de61583bb",
+   "model_id": "atlas_linear_regression",
+   "origin": "2026-06-30",
+   "projections_sha256": "1fb2f1a0c1ae0dfa722e11ebd8b79906a9d5945e7d0f352c9c580b630ffacab3",
+   "recommendation_source": {
+    "recommendation_sha256": "2fa912c3bd2b9fc1c3cfbce28da5135eb76baf9888933cdd3b063821ee419620",
+    "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a",
+    "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5-development-confirmation-legacy_window"
+   },
+   "record_type": "future_projection",
+   "run_dir": "docs/results/atlas-m2-rolling-origin-v1/projection",
+   "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5"
+  },
+  "forecast_accuracy": {
+   "bias_requests_per_day": -255.92319894851286,
+   "bias_sign": "prediction - actual (negative = under-forecast)",
+   "bucket": "days_1_30",
+   "mae_requests_per_day": 984.9183743068235,
+   "model_id": "atlas_linear_regression",
+   "n_predictions": 10080,
+   "period": "confirmation",
+   "source": {
+    "metrics_sha256": "4fc9f5efe2e5edbaf7d7f4333e8c486daf53593bc94dd2608401774f33ebf86c",
+    "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a",
+    "run_dir": "docs/results/atlas-m2-rolling-origin-v1/full",
+    "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5-development-confirmation-legacy_window"
+   },
+   "wape_pct": 9.236367268327673
+  },
+  "legacy_demand_percentile_requests_per_day": 11608.75,
+  "legacy_demand_percentile_source_sha256": "6eea63e3c878b32991822e63f1e8ff6f7171cfcc17cef51f1aac62c01d039a39",
+  "snapshot": {
+   "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+   "first_date": "2023-01-01",
+   "last_date": "2026-06-30",
+   "manifest_sha256": "3a57e7627d5e4eb5ba73cf2127a936a3d58131a79d52d1c2b8a0a695ad75fc5f",
+   "n_days": 1277,
+   "n_missing_days": 0,
+   "series_fingerprint": "7bb663463ef85df960938a2f7cbf7b779fe3cd1102989f198eca39f556378146",
+   "snapshot_id": "legacy-v0",
+   "table": "daily_total",
+   "table_path": "01 Data/daily_total.csv",
+   "table_sha256": "16a338f4851f62380a706a611e54706f52a29f3ee9a5adcea4f276b9b904d65c"
+  },
+  "stress_paths": {
+   "0.9": {
+    "calibration_status": "failed_calibration",
+    "kind": "m3_projection_run",
+    "manifest_sha256": "f9568b4f8f2b27fa1749c80923e33180d798264ea2958705a5d4a539529f2769",
+    "model_id": "atlas_linear_regression",
+    "notice": "HYPOTHETICAL STRESS PATH: each day's marginal M3 quantile, taken day by day. It is not a joint scenario, not a quantile of total demand and carries no probability; the M3 intervals it comes from failed their calibration criteria.",
+    "pair_id": "empirical_relative@fixed365",
+    "projection_intervals_sha256": "0e648e0a3430af9b00181f439f110c769e4bb13d8b48da617a48873af65efa8c",
+    "quantile": 0.9,
+    "record_type": "future_projection_intervals",
+    "run_dir": "docs/results/atlas-m3-intervals-v1/projection",
+    "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5"
+   }
+  },
+  "uncertainty_status": {
+   "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+   "decision_grade": false,
+   "evaluation_share_at_or_below_quantile_days_1_30": {
+    "0.025": 0.04246031746031746,
+    "0.1": 0.07976190476190476,
+    "0.25": 0.14851190476190476,
+    "0.5": 0.3863095238095238,
+    "0.75": 0.6446428571428572,
+    "0.9": 0.8787698412698413,
+    "0.975": 0.9631944444444445
+   },
+   "exceedance_status": {
+    "hypothetical_capacity_12000": "insufficient_evidence",
+    "hypothetical_capacity_13000": "insufficient_evidence",
+    "trailing180_p75": "failed_calibration"
+   },
+   "interval_status": "failed_calibration",
+   "primary_model": "atlas_linear_regression",
+   "selected_pair": "empirical_relative@fixed365",
+   "source": {
+    "evaluation_period": "m3_evaluation",
+    "manifest_record_type": "historical_probabilistic_backtest",
+    "path": "docs/results/atlas-m3-intervals-v1/full/calibration_status.json",
+    "result_fingerprint": "c4d2adbf128e9f5e136c3e19d6aaba281257f6721f8a2d1804ac22eb27f8dfaf",
+    "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5-m3_selection-m3_evaluation",
+    "sha256": "41768af15f69a28faf80c882d67b85aa2a271883df9ec93a835b49fe2a94a715"
+   },
+   "statement": "The selected intervals FAILED the pre-registered calibration criteria on the evaluation period. Decision-grade status is withheld; the intervals are reported as they are, not adjusted after the fact."
+  }
+ },
+ "label": "HYPOTHETICAL DECISION SIMULATION: exploratory resource-allocation scenarios computed from an unvalidated point forecast with HYPOTHETICAL operational parameters. Not a validated staffing, budget or service-capacity recommendation for any NYC agency.",
+ "parameter_provenance": "HYPOTHETICAL",
+ "point_forecast_validated": false,
+ "record_type": "hypothetical_decision_simulation",
+ "scenarios": [
+  {
+   "adjustments": {},
+   "binding_constraints": [
+    "capacity (30 days)",
+    "overtime_daily_limit (7 days)",
+    "surge_daily_limit (2 days)"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 225275.79752229623,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 264144.24785426003,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "strict",
+     "request_days_difference": -215416.24364580036,
+     "request_days_difference_at_same_cash": 0.0,
+     "terminal_backlog_difference": -8256.12322469356
+    },
+    {
+     "cash_difference_at_same_backlog": -3999.999999999942,
+     "comparable_on_score": true,
+     "discretionary_cost_difference": 8802.139694875834,
+     "lp_cash_at_policy_backlog": 212473.65782742045,
+     "lp_request_days_at_policy_cash": 54297.649081550444,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "strict",
+     "request_days_difference": -62849.957651284254,
+     "request_days_difference_at_same_cash": -57280.31277819347,
+     "terminal_backlog_difference": -288.36105616528766
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "c2abaa4f4948e3aaf8b4d3fc61d513bc2c6cd4321d13c36ae86dd8a95fccf61c",
+   "demand_total_requests": 333967.7621685283,
+   "demand_total_vs_point_forecast_pct": 0.0,
+   "description": "Base case: the M2 point forecast and the base HYPOTHETICAL parameters.",
+   "diagnosis": null,
+   "discretionary_budget_usd": 300000.0,
+   "feasibility": "strict",
+   "frontier": {
+    "convex_ok": true,
+    "least_cash_for_least_penalty": {
+     "dropped": 435458.462904889,
+     "kept": 435458.462904889
+    },
+    "monotone_ok": true,
+    "on_frontier_check": "passed"
+   },
+   "optimal_face": {
+    "bounds_fixed": 60,
+    "dual_threshold": 6.000000000000001e-08,
+    "max_active_distance": 0.0,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 225275.79752229623,
+      "low": 225275.79752229623,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 48728.00420845966,
+      "low": 48728.00420845966,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 3711.6389438347123,
+      "low": 3711.6389438347123,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 2987.7198958013882,
+      "low": 2987.7198958013882,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 1533.753459140431,
+      "low": 1533.753459140431,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 30,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": 322731.8059392155,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 11000.0,
+   "relaxed": null,
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 225275.79752229608,
+     "dual_sign": 0.0,
+     "duality_gap": 1.1913533271897252e-08,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 225275.79752229623,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [],
+    "evaluation": {
+     "backlog_penalty": 97456.00841691931,
+     "backlog_request_days": 48728.00420845966,
+     "budget_remaining": 74724.20247770377,
+     "days_with_backlog": 26,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 225275.79752229623,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5505275.797522296,
+     "overtime_cost": 179263.1937480833,
+     "overtime_hours": 2987.7198958013882,
+     "peak_backlog": 6623.683380141374,
+     "penalised_score": 322731.8059392155,
+     "regular_cost": 5280000.0,
+     "surge_cost": 46012.60377421293,
+     "surge_requests": 1533.753459140431,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 225275.79752229623,
+    "objective_value": 225275.79752229623,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least cash among the optimal plans",
+   "scenario_id": "normal",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": true,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [
+     {
+      "binding": false,
+      "constraint": "overtime_total_limit",
+      "dual_units": "usd_equivalent_per_overtime_hour_allowed",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     },
+     {
+      "binding": false,
+      "constraint": "terminal_backlog",
+      "dual_units": "usd_equivalent_per_request",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     },
+     {
+      "binding": false,
+      "constraint": "budget",
+      "dual_units": "usd_equivalent_per_usd",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     }
+    ],
+    "locally_unique": 123,
+    "n": 123
+   },
+   "strict_programme": {
+    "certificate": {
+     "dual_objective": 322731.8059392155,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 322731.8059392155,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [],
+    "evaluation": {
+     "backlog_penalty": 97456.00841691931,
+     "backlog_request_days": 48728.00420845966,
+     "budget_remaining": 74724.20247770377,
+     "days_with_backlog": 26,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 225275.79752229623,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5505275.797522296,
+     "overtime_cost": 179263.1937480833,
+     "overtime_hours": 2987.7198958013882,
+     "peak_backlog": 6623.683380141374,
+     "penalised_score": 322731.8059392155,
+     "regular_cost": 5280000.0,
+     "surge_cost": 46012.60377421293,
+     "surge_requests": 1533.753459140431,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (least discretionary cash among the optimal plans)",
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 63,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "weighted",
+    "objective_recomputed_from_plan": 322731.8059392155,
+    "objective_value": 322731.8059392155,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "terminal_target_changes_optimal_score": false,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 225275.79752229608,
+     "dual_sign": 0.0,
+     "duality_gap": 1.1913533271897252e-08,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 225275.79752229623,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 97456.00841691931,
+     "backlog_request_days": 48728.00420845966,
+     "budget_remaining": 74724.20247770377,
+     "days_with_backlog": 26,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 225275.79752229623,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5505275.797522296,
+     "overtime_cost": 179263.1937480833,
+     "overtime_hours": 2987.7198958013882,
+     "peak_backlog": 6623.683380141374,
+     "penalised_score": 322731.8059392155,
+     "regular_cost": 5280000.0,
+     "surge_cost": 46012.60377421293,
+     "surge_requests": 1533.753459140431,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 225275.79752229623,
+    "objective_value": 225275.79752229623,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {
+    "demand_multiplier": {
+     "assumption": "Illustrative uniform demand increase of 10 %.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.1
+    }
+   },
+   "binding_constraints": [
+    "budget",
+    "capacity (30 days)",
+    "overtime_daily_limit (12 days)",
+    "terminal_backlog_violated"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 300000.0,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 778058.6726396866,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -272699.9999999998,
+     "request_days_difference_at_same_cash": 1.1641532182693481e-10,
+     "terminal_backlog_difference": -11249.999999999993
+    },
+    {
+     "cash_difference_at_same_backlog": -4172.524068900908,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 0.0,
+     "lp_cash_at_policy_backlog": 295827.4759310991,
+     "lp_request_days_at_policy_cash": 488258.6726396867,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": 12843.079307210923,
+     "request_days_difference_at_same_cash": -4256.920692789077,
+     "terminal_backlog_difference": -476.41396897695813
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "561d2972fa2b33468508b37b0b5efcc9f82406f87c0d04d6741d504a5bebdad1",
+   "demand_total_requests": 367364.5383853811,
+   "demand_total_vs_point_forecast_pct": 10.000000000000009,
+   "description": "Demand 10 % above the M2 point forecast on every day.",
+   "diagnosis": {
+    "analytic_bound_exact": false,
+    "analytic_terminal_backlog_lower_bound_requests": {
+     "citywide": 1063.0379551137976
+    },
+    "borderline_within_checking_tolerance": false,
+    "diagnostic_budget_shortfall_usd": null,
+    "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd": null,
+    "label": "DIAGNOSTIC: not a plan for the stated constraints",
+    "least_terminal_violation_unlimited_discretionary_cash_requests": 9864.538385381127,
+    "least_terminal_violation_within_budget_requests": 30114.53838538113,
+    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
+     "capacity": 30,
+     "overtime_daily_limit": 15,
+     "overtime_total_limit": 1,
+     "surge_daily_limit": 30,
+     "terminal_backlog_violated": 1
+    },
+    "reasons": [
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,864.5 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)"
+    ],
+    "relaxed_plan": "relaxed_terminal_target"
+   },
+   "discretionary_budget_usd": 300000.0,
+   "feasibility": "relaxed_terminal_target",
+   "frontier": null,
+   "optimal_face": {
+    "bounds_fixed": 59,
+    "dual_threshold": 6.000000000000001e-08,
+    "max_active_distance": 1.8189894035458565e-12,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 505358.6726396867,
+      "low": 505358.6726396867,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 34114.53838538113,
+      "low": 34114.53838538113,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": null,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 11000.0,
+   "relaxed": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 5.7029151768629506e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1010717.3452793733,
+     "backlog_request_days": 505358.6726396867,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 34114.53838538113,
+     "penalised_score": 1310717.3452793732,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 34114.53838538113,
+     "terminal_penalty": 0.0,
+     "total_demand": 367364.5383853811,
+     "total_served": 341250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 5.7029151768629506e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1010717.3452793733,
+     "backlog_request_days": 505358.6726396867,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 34114.53838538113,
+     "penalised_score": 1310717.3452793732,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 34114.53838538113,
+     "terminal_penalty": 0.0,
+     "total_demand": 367364.5383853811,
+     "total_served": 341250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "scenario_id": "increased_demand",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": false,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [],
+    "locally_unique": 0,
+    "n": 0
+   },
+   "strict_programme": {
+    "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
+    "status": "infeasible"
+   },
+   "terminal_target_changes_optimal_score": null,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 4.037055199117229e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 976517.3452793733,
+     "backlog_request_days": 488258.6726396867,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 192000.0,
+     "overtime_hours": 3200.0,
+     "peak_backlog": 34564.53838538113,
+     "penalised_score": 1276517.3452793732,
+     "regular_cost": 5280000.0,
+     "surge_cost": 108000.0,
+     "surge_requests": 3600.0,
+     "terminal_backlog": 34564.53838538113,
+     "terminal_penalty": 0.0,
+     "total_demand": 367364.5383853811,
+     "total_served": 340800.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {
+    "regular_hours_multiplier": {
+     "assumption": "Illustrative 10 % loss of regular staff hours.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.9
+    }
+   },
+   "binding_constraints": [
+    "budget",
+    "capacity (30 days)",
+    "overtime_daily_limit (12 days)",
+    "terminal_backlog_violated"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 300000.0,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 775644.24785426,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -272699.9999999998,
+     "request_days_difference_at_same_cash": 1.1641532182693481e-10,
+     "terminal_backlog_difference": -11249.999999999993
+    },
+    {
+     "cash_difference_at_same_backlog": -2582.8783381208777,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 0.0,
+     "lp_cash_at_policy_backlog": 297417.1216618791,
+     "lp_request_days_at_policy_cash": 485844.2478542601,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": 14600.545994255226,
+     "request_days_difference_at_same_cash": -2499.454005744774,
+     "terminal_backlog_difference": -450.0000000000073
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "c2abaa4f4948e3aaf8b4d3fc61d513bc2c6cd4321d13c36ae86dd8a95fccf61c",
+   "demand_total_requests": 333967.7621685283,
+   "demand_total_vs_point_forecast_pct": 0.0,
+   "description": "Regular staff hours 10 % lower (for example absence); the discretionary budget is unchanged.",
+   "diagnosis": {
+    "analytic_bound_exact": false,
+    "analytic_terminal_backlog_lower_bound_requests": {
+     "citywide": 820.9435955579938
+    },
+    "borderline_within_checking_tolerance": false,
+    "diagnostic_budget_shortfall_usd": null,
+    "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd": null,
+    "label": "DIAGNOSTIC: not a plan for the stated constraints",
+    "least_terminal_violation_unlimited_discretionary_cash_requests": 9467.762168528267,
+    "least_terminal_violation_within_budget_requests": 29717.762168528272,
+    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
+     "capacity": 30,
+     "overtime_daily_limit": 15,
+     "overtime_total_limit": 1,
+     "surge_daily_limit": 30,
+     "terminal_backlog_violated": 1
+    },
+    "reasons": [
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,467.8 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)"
+    ],
+    "relaxed_plan": "relaxed_terminal_target"
+   },
+   "discretionary_budget_usd": 300000.0,
+   "feasibility": "relaxed_terminal_target",
+   "frontier": null,
+   "optimal_face": {
+    "bounds_fixed": 59,
+    "dual_threshold": 6.000000000000001e-08,
+    "max_active_distance": 0.0,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 502944.2478542601,
+      "low": 502944.2478542601,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 33717.76216852827,
+      "low": 33717.76216852827,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": null,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 9900.0,
+   "relaxed": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 5.887427667407928e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1005888.4957085202,
+     "backlog_request_days": 502944.2478542601,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5052000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 33717.76216852827,
+     "penalised_score": 1305888.49570852,
+     "regular_cost": 4752000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 33717.76216852827,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 308250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 5.887427667407928e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1005888.4957085202,
+     "backlog_request_days": 502944.2478542601,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5052000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 33717.76216852827,
+     "penalised_score": 1305888.49570852,
+     "regular_cost": 4752000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 33717.76216852827,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 308250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "scenario_id": "reduced_capacity",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": false,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [],
+    "locally_unique": 0,
+    "n": 0
+   },
+   "strict_programme": {
+    "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
+    "status": "infeasible"
+   },
+   "terminal_target_changes_optimal_score": null,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 4.166145025883247e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 971688.4957085202,
+     "backlog_request_days": 485844.2478542601,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5052000.0,
+     "overtime_cost": 192000.0,
+     "overtime_hours": 3200.0,
+     "peak_backlog": 34167.76216852827,
+     "penalised_score": 1271688.49570852,
+     "regular_cost": 4752000.0,
+     "surge_cost": 108000.0,
+     "surge_requests": 3600.0,
+     "terminal_backlog": 34167.76216852827,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 307800.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": {
+     "assumption": "Illustrative 20 % increase of every cost rate.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.2
+    }
+   },
+   "binding_constraints": [
+    "capacity (30 days)",
+    "overtime_daily_limit (7 days)",
+    "surge_daily_limit (2 days)"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 268995.94319019374,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 264144.24785426003,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "strict",
+     "request_days_difference": -214748.7367275195,
+     "request_days_difference_at_same_cash": 0.0,
+     "terminal_backlog_difference": -8256.12322469356
+    },
+    {
+     "cash_difference_at_same_backlog": -4799.999999999942,
+     "comparable_on_score": true,
+     "discretionary_cost_difference": 9227.553797289263,
+     "lp_cash_at_policy_backlog": 254968.38939290453,
+     "lp_request_days_at_policy_cash": 54297.649081550444,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "strict",
+     "request_days_difference": -62182.45073300339,
+     "request_days_difference_at_same_cash": -57280.31277819347,
+     "terminal_backlog_difference": -288.36105616528766
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "c2abaa4f4948e3aaf8b4d3fc61d513bc2c6cd4321d13c36ae86dd8a95fccf61c",
+   "demand_total_requests": 333967.7621685283,
+   "demand_total_vs_point_forecast_pct": 0.0,
+   "description": "Regular wage, overtime wage and surge price 20 % higher.",
+   "diagnosis": null,
+   "discretionary_budget_usd": 300000.0,
+   "feasibility": "strict",
+   "frontier": null,
+   "optimal_face": {
+    "bounds_fixed": 58,
+    "dual_threshold": 7.200000000000001e-08,
+    "max_active_distance": 290.89763800552464,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 270330.95702675544,
+      "low": 268995.94319019374,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 49395.51112674052,
+      "low": 48728.00420845966,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 3711.6389438347123,
+      "low": 3711.6389438347123,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 3136.0547665304684,
+      "low": 2987.7198958013882,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 1533.753459140431,
+      "low": 1200.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 30,
+    "undetermined_days": 4,
+    "unique": false
+   },
+   "optimal_score": 367786.96544367477,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 11000.0,
+   "relaxed": null,
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 268995.94319019374,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 268995.94319019374,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [],
+    "evaluation": {
+     "backlog_penalty": 98791.02225348105,
+     "backlog_request_days": 49395.51112674052,
+     "budget_remaining": 31004.056809806265,
+     "days_with_backlog": 27,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 268995.94319019374,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 6604995.943190194,
+     "overtime_cost": 225795.94319019374,
+     "overtime_hours": 3136.0547665304684,
+     "peak_backlog": 6623.683380141374,
+     "penalised_score": 367786.96544367477,
+     "regular_cost": 6336000.0,
+     "surge_cost": 43200.0,
+     "surge_requests": 1200.0,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 268995.94319019374,
+    "objective_value": 268995.94319019374,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least cash among the optimal plans",
+   "scenario_id": "increased_costs",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": true,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [
+     {
+      "binding": false,
+      "constraint": "overtime_total_limit",
+      "dual_units": "usd_equivalent_per_overtime_hour_allowed",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     },
+     {
+      "binding": false,
+      "constraint": "terminal_backlog",
+      "dual_units": "usd_equivalent_per_request",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     },
+     {
+      "binding": false,
+      "constraint": "budget",
+      "dual_units": "usd_equivalent_per_usd",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     }
+    ],
+    "locally_unique": 123,
+    "n": 123
+   },
+   "strict_programme": {
+    "certificate": {
+     "dual_objective": 367786.9654436746,
+     "dual_sign": 0.0,
+     "duality_gap": 1.0764984715080193e-08,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 367786.96544367477,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [],
+    "evaluation": {
+     "backlog_penalty": 98482.46034131004,
+     "backlog_request_days": 49241.23017065502,
+     "budget_remaining": 30695.494897635246,
+     "days_with_backlog": 27,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 269304.50510236475,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 6605304.505102364,
+     "overtime_cost": 223327.44789282576,
+     "overtime_hours": 3101.77010962258,
+     "peak_backlog": 6623.683380141374,
+     "penalised_score": 367786.9654436748,
+     "regular_cost": 6336000.0,
+     "surge_cost": 45977.05720953897,
+     "surge_requests": 1277.1404780427492,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (least discretionary cash among the optimal plans)",
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 64,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "weighted",
+    "objective_recomputed_from_plan": 367786.9654436748,
+    "objective_value": 367786.96544367477,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "terminal_target_changes_optimal_score": false,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 268995.94319019374,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 268995.94319019374,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 98791.02225348105,
+     "backlog_request_days": 49395.51112674052,
+     "budget_remaining": 31004.056809806265,
+     "days_with_backlog": 27,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 268995.94319019374,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 6604995.943190194,
+     "overtime_cost": 225795.94319019374,
+     "overtime_hours": 3136.0547665304684,
+     "peak_backlog": 6623.683380141374,
+     "penalised_score": 367786.96544367477,
+     "regular_cost": 6336000.0,
+     "surge_cost": 43200.0,
+     "surge_requests": 1200.0,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 268995.94319019374,
+    "objective_value": 268995.94319019374,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {
+    "discretionary_budget_multiplier": {
+     "assumption": "Illustrative 50 % cut of the discretionary budget.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.5
+    }
+   },
+   "binding_constraints": [
+    "budget",
+    "capacity (30 days)",
+    "overtime_daily_limit (6 days)",
+    "terminal_backlog_violated"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 150000.0,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 264144.24785426003,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -153900.0,
+     "request_days_difference_at_same_cash": 0.0,
+     "terminal_backlog_difference": -5625.0000000000055
+    },
+    {
+     "cash_difference_at_same_backlog": -3999.999999999942,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 0.0,
+     "lp_cash_at_policy_backlog": 146000.00000000006,
+     "lp_request_days_at_policy_cash": 108852.26739208902,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "dominates",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -16472.772311024237,
+     "request_days_difference_at_same_cash": -17864.752773195258,
+     "terminal_backlog_difference": -149.99999999999818
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "c2abaa4f4948e3aaf8b4d3fc61d513bc2c6cd4321d13c36ae86dd8a95fccf61c",
+   "demand_total_requests": 333967.7621685283,
+   "demand_total_vs_point_forecast_pct": 0.0,
+   "description": "Discretionary budget halved.",
+   "diagnosis": {
+    "analytic_bound_exact": false,
+    "analytic_terminal_backlog_lower_bound_requests": {
+     "citywide": 0.0
+    },
+    "borderline_within_checking_tolerance": false,
+    "diagnostic_budget_shortfall_usd": 62473.65782742045,
+    "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd": 212473.65782742045,
+    "label": "DIAGNOSTIC: not a plan for the stated constraints",
+    "least_terminal_violation_unlimited_discretionary_cash_requests": 0.0,
+    "least_terminal_violation_within_budget_requests": 2342.7621685282666,
+    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
+     "capacity": 30,
+     "overtime_daily_limit": 8,
+     "terminal_backlog": 1
+    },
+    "reasons": [
+     "under this deterministic demand path and the HYPOTHETICAL prices, no plan spending less than 212,474 USD on overtime and surge reaches the HYPOTHETICAL terminal-backlog target (62,474 USD above the HYPOTHETICAL budget; DIAGNOSTIC, not a budget request)"
+    ],
+    "relaxed_plan": "relaxed_terminal_target"
+   },
+   "discretionary_budget_usd": 150000.0,
+   "feasibility": "relaxed_terminal_target",
+   "frontier": null,
+   "optimal_face": {
+    "bounds_fixed": 58,
+    "dual_threshold": 6.000000000000001e-08,
+    "max_active_distance": 1.8189894035458565e-11,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 150000.0,
+      "low": 150000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 110244.24785426004,
+      "low": 110244.24785426004,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 6342.762168528267,
+      "low": 6342.762168528267,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 2500.0,
+      "low": 2500.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": null,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 11000.0,
+   "relaxed": {
+    "certificate": {
+     "dual_objective": 150000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 150000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 220488.4957085201,
+     "backlog_request_days": 110244.24785426004,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 150000.0,
+     "discretionary_cost": 150000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5430000.0,
+     "overtime_cost": 150000.0,
+     "overtime_hours": 2500.0,
+     "peak_backlog": 7223.683380141374,
+     "penalised_score": 370488.49570852006,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 6342.762168528267,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 335625.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 150000.0,
+    "objective_value": 150000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 150000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 150000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 220488.4957085201,
+     "backlog_request_days": 110244.24785426004,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 150000.0,
+     "discretionary_cost": 150000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5430000.0,
+     "overtime_cost": 150000.0,
+     "overtime_hours": 2500.0,
+     "peak_backlog": 7223.683380141374,
+     "penalised_score": 370488.49570852006,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 6342.762168528267,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 335625.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 150000.0,
+    "objective_value": 150000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "scenario_id": "reduced_budget",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": false,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [],
+    "locally_unique": 0,
+    "n": 0
+   },
+   "strict_programme": {
+    "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
+    "status": "infeasible"
+   },
+   "terminal_target_changes_optimal_score": null,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 150000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 7.446035704215767e-08,
+     "primal_objective": 150000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 217704.53478417805,
+     "backlog_request_days": 108852.26739208902,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 29,
+     "discretionary_budget": 150000.0,
+     "discretionary_cost": 150000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5430000.0,
+     "overtime_cost": 130560.66986842472,
+     "overtime_hours": 2176.0111644737453,
+     "peak_backlog": 6623.683380141374,
+     "penalised_score": 367704.534784178,
+     "regular_cost": 5280000.0,
+     "surge_cost": 19439.33013157528,
+     "surge_requests": 647.9776710525093,
+     "terminal_backlog": 6423.759377409828,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 335544.00279111846
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 150000.0,
+    "objective_value": 150000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {
+    "surge_available_from_day": {
+     "assumption": "Illustrative one-week delay of the surge contract.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "planning_day",
+     "value": 8
+    }
+   },
+   "binding_constraints": [
+    "capacity (30 days)",
+    "overtime_daily_limit (8 days)"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 220163.2859918281,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 264144.24785426003,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "strict",
+     "request_days_difference": -208604.80371436197,
+     "request_days_difference_at_same_cash": 0.0,
+     "terminal_backlog_difference": -8256.12322469356
+    },
+    {
+     "cash_difference_at_same_backlog": 5.820766091346741e-11,
+     "comparable_on_score": true,
+     "discretionary_cost_difference": 7689.62816440771,
+     "lp_cash_at_policy_backlog": 212473.65782742045,
+     "lp_request_days_at_policy_cash": 60441.58209470798,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "strict",
+     "request_days_difference": -59038.517719845855,
+     "request_days_difference_at_same_cash": -54136.379765035934,
+     "terminal_backlog_difference": -288.36105616528766
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "c2abaa4f4948e3aaf8b4d3fc61d513bc2c6cd4321d13c36ae86dd8a95fccf61c",
+   "demand_total_requests": 333967.7621685283,
+   "demand_total_vs_point_forecast_pct": 0.0,
+   "description": "Surge capacity available only from day 8.",
+   "diagnosis": null,
+   "discretionary_budget_usd": 300000.0,
+   "feasibility": "strict",
+   "frontier": null,
+   "optimal_face": {
+    "bounds_fixed": 60,
+    "dual_threshold": 6.000000000000001e-08,
+    "max_active_distance": 0.0,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 220163.2859918281,
+      "low": 220163.2859918281,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 55539.444139898056,
+      "low": 55539.444139898056,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 3711.6389438347123,
+      "low": 3711.6389438347123,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 3669.388099863802,
+      "low": 3669.388099863802,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 30,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": 331242.17427162424,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 11000.0,
+   "relaxed": null,
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 220163.28599182775,
+     "dual_sign": 0.0,
+     "duality_gap": 3.072501013346488e-08,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 220163.2859918281,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [],
+    "evaluation": {
+     "backlog_penalty": 111078.88827979611,
+     "backlog_request_days": 55539.444139898056,
+     "budget_remaining": 79836.7140081719,
+     "days_with_backlog": 28,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 220163.2859918281,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5500163.285991828,
+     "overtime_cost": 220163.2859918281,
+     "overtime_hours": 3669.388099863802,
+     "peak_backlog": 7223.683380141374,
+     "penalised_score": 331242.1742716242,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 220163.2859918281,
+    "objective_value": 220163.2859918281,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least cash among the optimal plans",
+   "scenario_id": "delayed_surge",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": true,
+    "domain_boundary_or_infeasible_side": 7,
+    "headline": [
+     {
+      "binding": false,
+      "constraint": "overtime_total_limit",
+      "dual_units": "usd_equivalent_per_overtime_hour_allowed",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     },
+     {
+      "binding": false,
+      "constraint": "terminal_backlog",
+      "dual_units": "usd_equivalent_per_request",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     },
+     {
+      "binding": false,
+      "constraint": "budget",
+      "dual_units": "usd_equivalent_per_usd",
+      "fd_backward": 0.0,
+      "fd_forward": 0.0,
+      "fd_status": "locally_unique",
+      "practical_forward_cash_part": 0.0,
+      "practical_forward_penalty_part": 0.0,
+      "solver_dual_subgradient": 0.0
+     }
+    ],
+    "locally_unique": 116,
+    "n": 123
+   },
+   "strict_programme": {
+    "certificate": {
+     "dual_objective": 331242.1742716241,
+     "dual_sign": 0.0,
+     "duality_gap": 7.939767405655396e-09,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 331242.17427162424,
+     "stationarity": 5.4378270593885205e-08
+    },
+    "constraints_not_checked": [],
+    "evaluation": {
+     "backlog_penalty": 111078.88827979611,
+     "backlog_request_days": 55539.444139898056,
+     "budget_remaining": 79836.7140081719,
+     "days_with_backlog": 28,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 220163.2859918281,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5500163.285991828,
+     "overtime_cost": 220163.2859918281,
+     "overtime_hours": 3669.388099863802,
+     "peak_backlog": 7223.683380141374,
+     "penalised_score": 331242.1742716242,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (least discretionary cash among the optimal plans)",
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 60,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "weighted",
+    "objective_recomputed_from_plan": 331242.1742716242,
+    "objective_value": 331242.17427162424,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "terminal_target_changes_optimal_score": false,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 220163.28599182775,
+     "dual_sign": 0.0,
+     "duality_gap": 3.072501013346488e-08,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 220163.2859918281,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 111078.88827979611,
+     "backlog_request_days": 55539.444139898056,
+     "budget_remaining": 79836.7140081719,
+     "days_with_backlog": 28,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 220163.2859918281,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5500163.285991828,
+     "overtime_cost": 220163.2859918281,
+     "overtime_hours": 3669.388099863802,
+     "peak_backlog": 7223.683380141374,
+     "penalised_score": 331242.1742716242,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 3711.6389438347123,
+     "terminal_penalty": 0.0,
+     "total_demand": 333967.7621685283,
+     "total_served": 338256.1232246936
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 220163.2859918281,
+    "objective_value": 220163.2859918281,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": {
+     "assumption": "Illustrative 10 % increase of every cost rate.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.1
+    },
+    "demand_multiplier": {
+     "assumption": "Illustrative demand increase of 5 %.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.05
+    },
+    "discretionary_budget_multiplier": {
+     "assumption": "Illustrative 25 % cut of the discretionary budget.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.75
+    },
+    "regular_hours_multiplier": {
+     "assumption": "Illustrative 5 % loss of regular staff hours.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.95
+    },
+    "surge_available_from_day": {
+     "assumption": "Illustrative one-week delay of the surge contract.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "planning_day",
+     "value": 8
+    }
+   },
+   "binding_constraints": [
+    "budget",
+    "capacity (30 days)",
+    "overtime_daily_limit (8 days)",
+    "terminal_backlog_violated"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 225000.0,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 776851.4602469732,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -201150.00000000012,
+     "request_days_difference_at_same_cash": -1.1641532182693481e-10,
+     "terminal_backlog_difference": -7670.454545454559
+    },
+    {
+     "cash_difference_at_same_backlog": -975.7575757578015,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 0.0,
+     "lp_cash_at_policy_backlog": 224024.2424242422,
+     "lp_request_days_at_policy_cash": 575701.4602469732,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "dominates",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -731.8181818182347,
+     "request_days_difference_at_same_cash": -731.8181818182347,
+     "terminal_backlog_difference": -52.27272727273521
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "bd38de6e22427ab447faeca51a9cc5027975f8d03a9c740452e1b4a276d8a915",
+   "demand_total_requests": 350666.1502769547,
+   "demand_total_vs_point_forecast_pct": 5.000000000000004,
+   "description": "Several moderate stresses together: demand +5 %, regular hours -5 %, costs +10 %, discretionary budget -25 %, surge from day 8.",
+   "diagnosis": {
+    "analytic_bound_exact": false,
+    "analytic_terminal_backlog_lower_bound_requests": {
+     "citywide": 4366.150276954693
+    },
+    "borderline_within_checking_tolerance": false,
+    "diagnostic_budget_shortfall_usd": null,
+    "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd": null,
+    "label": "DIAGNOSTIC: not a plan for the stated constraints",
+    "least_terminal_violation_unlimited_discretionary_cash_requests": 13866.150276954693,
+    "least_terminal_violation_within_budget_requests": 33495.69573150015,
+    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
+     "capacity": 30,
+     "overtime_daily_limit": 15,
+     "overtime_total_limit": 1,
+     "surge_daily_limit": 23,
+     "terminal_backlog_violated": 1
+    },
+    "reasons": [
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 13,866.2 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; surge unavailable on the first 7 days; daily overtime limit reached on 15 days; daily surge limit reached on 23 days)"
+    ],
+    "relaxed_plan": "relaxed_terminal_target"
+   },
+   "discretionary_budget_usd": 225000.0,
+   "feasibility": "relaxed_terminal_target",
+   "frontier": {
+    "convex_ok": true,
+    "least_cash_for_least_penalty": {
+     "dropped": 851400.0,
+     "kept": null
+    },
+    "monotone_ok": true,
+    "on_frontier_check": "not_applicable"
+   },
+   "optimal_face": {
+    "bounds_fixed": 59,
+    "dual_threshold": 6.600000000000001e-08,
+    "max_active_distance": 2.7284841053187847e-12,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 225000.0,
+      "low": 225000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 575701.4602469732,
+      "low": 575701.4602469732,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 37495.69573150015,
+      "low": 37495.69573150015,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 3409.090909090909,
+      "low": 3409.090909090909,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": null,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 10450.0,
+   "relaxed": {
+    "certificate": {
+     "dual_objective": 225000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 3.269119062819547e-08,
+     "primal_objective": 225000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1151402.9204939464,
+     "backlog_request_days": 575701.4602469732,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 225000.0,
+     "discretionary_cost": 225000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5742600.0,
+     "overtime_cost": 225000.0,
+     "overtime_hours": 3409.090909090909,
+     "peak_backlog": 37495.69573150015,
+     "penalised_score": 1376402.9204939464,
+     "regular_cost": 5517600.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 37495.69573150015,
+     "terminal_penalty": 0.0,
+     "total_demand": 350666.1502769547,
+     "total_served": 321170.45454545453
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 225000.0,
+    "objective_value": 225000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 225000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 3.269119062819547e-08,
+     "primal_objective": 225000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1151402.9204939464,
+     "backlog_request_days": 575701.4602469732,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 225000.0,
+     "discretionary_cost": 225000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5742600.0,
+     "overtime_cost": 225000.0,
+     "overtime_hours": 3409.090909090909,
+     "peak_backlog": 37495.69573150015,
+     "penalised_score": 1376402.9204939464,
+     "regular_cost": 5517600.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 37495.69573150015,
+     "terminal_penalty": 0.0,
+     "total_demand": 350666.1502769547,
+     "total_served": 321170.45454545453
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 225000.0,
+    "objective_value": 225000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "scenario_id": "combined_stress",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": false,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [],
+    "locally_unique": 0,
+    "n": 0
+   },
+   "strict_programme": {
+    "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
+    "status": "infeasible"
+   },
+   "terminal_target_changes_optimal_score": null,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 225000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 3.269119062819547e-08,
+     "primal_objective": 225000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1151402.9204939464,
+     "backlog_request_days": 575701.4602469732,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 225000.0,
+     "discretionary_cost": 225000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5742600.0,
+     "overtime_cost": 225000.0,
+     "overtime_hours": 3409.090909090909,
+     "peak_backlog": 37495.69573150015,
+     "penalised_score": 1376402.9204939464,
+     "regular_cost": 5517600.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 37495.69573150015,
+     "terminal_penalty": 0.0,
+     "total_demand": 350666.1502769547,
+     "total_served": 321170.45454545453
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 3.637978807091713e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 225000.0,
+    "objective_value": 225000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {
+    "demand_shift_per_day": {
+     "assumption": "M2 confirmation-period mean error of the recommended model over horizons 1-30 was -255.9 requests per day (under-forecast); applied here as a HYPOTHETICAL stress, not as a correction.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "requests_per_day",
+     "value": 256.0
+    }
+   },
+   "binding_constraints": [
+    "budget",
+    "capacity (30 days)",
+    "overtime_daily_limit (12 days)",
+    "terminal_backlog_violated"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 300000.0,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 383184.24785426003,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -271744.23629819055,
+     "request_days_difference_at_same_cash": 0.0,
+     "terminal_backlog_difference": -11250.000000000005
+    },
+    {
+     "cash_difference_at_same_backlog": -5356.221298417542,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 5.820766091346741e-11,
+     "lp_cash_at_policy_backlog": 294643.7787015824,
+     "lp_request_days_at_policy_cash": 98543.83666248464,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "dominates",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -29304.20823428902,
+     "request_days_difference_at_same_cash": -42200.383127873894,
+     "terminal_backlog_difference": -200.85829869066038
+    }
+   ],
+   "demand_basis": "point_forecast",
+   "demand_sha256": "48525137d4fc99ea2d18fb8bc1cb94def1c593ede9ebaf478ed87a5ac606ad21",
+   "demand_total_requests": 341647.7621685283,
+   "demand_total_vs_point_forecast_pct": 2.2996231582749216,
+   "description": "Demand 256 requests per day above the point forecast: the mean under-forecast of this model in M2's confirmation year, had it persisted.",
+   "diagnosis": {
+    "analytic_bound_exact": false,
+    "analytic_terminal_backlog_lower_bound_requests": {
+     "citywide": 0.0
+    },
+    "borderline_within_checking_tolerance": false,
+    "diagnostic_budget_shortfall_usd": 124432.86505584797,
+    "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd": 424432.865055848,
+    "label": "DIAGNOSTIC: not a plan for the stated constraints",
+    "least_terminal_violation_unlimited_discretionary_cash_requests": 0.0,
+    "least_terminal_violation_within_budget_requests": 4397.762168528267,
+    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
+     "capacity": 30,
+     "overtime_daily_limit": 13,
+     "overtime_total_limit": 1,
+     "surge_daily_limit": 3,
+     "terminal_backlog": 1
+    },
+    "reasons": [
+     "under this deterministic demand path and the HYPOTHETICAL prices, no plan spending less than 424,433 USD on overtime and surge reaches the HYPOTHETICAL terminal-backlog target (124,433 USD above the HYPOTHETICAL budget; DIAGNOSTIC, not a budget request)"
+    ],
+    "relaxed_plan": "relaxed_terminal_target"
+   },
+   "discretionary_budget_usd": 300000.0,
+   "feasibility": "relaxed_terminal_target",
+   "frontier": null,
+   "optimal_face": {
+    "bounds_fixed": 59,
+    "dual_threshold": 6.000000000000001e-08,
+    "max_active_distance": 1.8189894035458565e-12,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 111440.01155606951,
+      "low": 111440.01155606951,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 8397.762168528267,
+      "low": 8397.762168528267,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": null,
+   "problems": [],
+   "quantile": null,
+   "regular_capacity_mean_requests_per_day": 11000.0,
+   "relaxed": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 222880.02311213902,
+     "backlog_request_days": 111440.01155606951,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 29,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 8397.762168528267,
+     "penalised_score": 522880.023112139,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 8397.762168528267,
+     "terminal_penalty": 0.0,
+     "total_demand": 341647.7621685283,
+     "total_served": 341250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 222880.02311213902,
+     "backlog_request_days": 111440.01155606951,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 29,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 8397.762168528267,
+     "penalised_score": 522880.023112139,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 8397.762168528267,
+     "terminal_penalty": 0.0,
+     "total_demand": 341647.7621685283,
+     "total_served": 341250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "scenario_id": "m2_bias_shift",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": false,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [],
+    "locally_unique": 0,
+    "n": 0
+   },
+   "strict_programme": {
+    "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
+    "status": "infeasible"
+   },
+   "terminal_target_changes_optimal_score": null,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 0.0,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 197087.67332496922,
+     "backlog_request_days": 98543.83666248461,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 28,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 9.094947017729282e-13,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 224160.66986842465,
+     "overtime_hours": 3736.0111644737444,
+     "peak_backlog": 8713.759377409831,
+     "penalised_score": 497087.67332496925,
+     "regular_cost": 5280000.0,
+     "surge_cost": 75839.33013157533,
+     "surge_requests": 2527.977671052511,
+     "terminal_backlog": 8713.759377409831,
+     "terminal_penalty": 0.0,
+     "total_demand": 341647.7621685283,
+     "total_served": 340934.00279111846
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  },
+  {
+   "adjustments": {},
+   "binding_constraints": [
+    "budget",
+    "capacity (30 days)",
+    "overtime_daily_limit (12 days)",
+    "terminal_backlog_violated"
+   ],
+   "comparisons": [
+    {
+     "cash_difference_at_same_backlog": 0.0,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 300000.0,
+     "lp_cash_at_policy_backlog": 0.0,
+     "lp_request_days_at_policy_cash": 1085957.6323102308,
+     "policy": "fixed_capacity",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": -272699.9999999999,
+     "request_days_difference_at_same_cash": 2.3283064365386963e-10,
+     "terminal_backlog_difference": -11249.999999999985
+    },
+    {
+     "cash_difference_at_same_backlog": -1349.9999999995925,
+     "comparable_on_score": false,
+     "discretionary_cost_difference": 0.0,
+     "lp_cash_at_policy_backlog": 298650.0000000004,
+     "lp_request_days_at_policy_cash": 796157.6323102306,
+     "policy": "backlog_trigger",
+     "policy_constraints_violated": [
+      "terminal_backlog"
+     ],
+     "relation_of_reported_plan": "tradeoff",
+     "reported_plan": "relaxed_terminal_target",
+     "request_days_difference": 15975.0,
+     "request_days_difference_at_same_cash": -1125.0,
+     "terminal_backlog_difference": -524.9999999999854
+    }
+   ],
+   "demand_basis": "per_day_marginal_quantile_path",
+   "demand_sha256": "995cc4a062a868093c31730cf41f0401e8bae85dd24f0dabac5458f0eeeacbf5",
+   "demand_total_requests": 389861.6725102841,
+   "demand_total_vs_point_forecast_pct": 16.73631909224531,
+   "description": "HYPOTHETICAL stress path: each day's marginal 90 % quantile of the FAILED_CALIBRATION M3 intervals; not a joint scenario and no probability.",
+   "diagnosis": {
+    "analytic_bound_exact": false,
+    "analytic_terminal_backlog_lower_bound_requests": {
+     "citywide": 22861.67251028413
+    },
+    "borderline_within_checking_tolerance": false,
+    "diagnostic_budget_shortfall_usd": null,
+    "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd": null,
+    "label": "DIAGNOSTIC: not a plan for the stated constraints",
+    "least_terminal_violation_unlimited_discretionary_cash_requests": 32361.67251028413,
+    "least_terminal_violation_within_budget_requests": 52611.67251028413,
+    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
+     "capacity": 30,
+     "overtime_daily_limit": 15,
+     "overtime_total_limit": 1,
+     "surge_daily_limit": 30,
+     "terminal_backlog_violated": 1
+    },
+    "reasons": [
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 32,361.7 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)"
+    ],
+    "relaxed_plan": "relaxed_terminal_target"
+   },
+   "discretionary_budget_usd": 300000.0,
+   "feasibility": "relaxed_terminal_target",
+   "frontier": null,
+   "optimal_face": {
+    "bounds_fixed": 59,
+    "dual_threshold": 6.000000000000001e-08,
+    "max_active_distance": 1.8189894035458565e-12,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 813257.6323102306,
+      "low": 813257.6323102306,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 56611.67251028413,
+      "low": 56611.67251028413,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "optimal_score": null,
+   "problems": [],
+   "quantile": 0.9,
+   "regular_capacity_mean_requests_per_day": 11000.0,
+   "relaxed": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 4.458022111860087e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1626515.2646204613,
+     "backlog_request_days": 813257.6323102306,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 56611.67251028413,
+     "penalised_score": 1926515.2646204613,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 56611.67251028413,
+     "terminal_penalty": 0.0,
+     "total_demand": 389861.6725102841,
+     "total_served": 341250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 4.458022111860087e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1626515.2646204613,
+     "backlog_request_days": 813257.6323102306,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 300000.0,
+     "overtime_hours": 5000.0,
+     "peak_backlog": 56611.67251028413,
+     "penalised_score": 1926515.2646204613,
+     "regular_cost": 5280000.0,
+     "surge_cost": 0.0,
+     "surge_requests": 0.0,
+     "terminal_backlog": 56611.67251028413,
+     "terminal_penalty": 0.0,
+     "total_demand": 389861.6725102841,
+     "total_served": 341250.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 1.8189894035458565e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "scenario_id": "m3_marginal_q90_stress",
+   "shadow_prices": {
+    "brackets_ok": true,
+    "breakpoint": 0,
+    "computed": false,
+    "domain_boundary_or_infeasible_side": 0,
+    "headline": [],
+    "locally_unique": 0,
+    "n": 0
+   },
+   "strict_programme": {
+    "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
+    "status": "infeasible"
+   },
+   "terminal_target_changes_optimal_score": null,
+   "without_terminal_target": {
+    "certificate": {
+     "dual_objective": 300000.0,
+     "dual_sign": 0.0,
+     "duality_gap": 0.0,
+     "holds": true,
+     "primal": 4.409392221040902e-08,
+     "primal_objective": 300000.0,
+     "stationarity": 0.0
+    },
+    "constraints_not_checked": [
+     "terminal_backlog"
+    ],
+    "evaluation": {
+     "backlog_penalty": 1592315.2646204613,
+     "backlog_request_days": 796157.6323102306,
+     "budget_remaining": 0.0,
+     "days_with_backlog": 30,
+     "discretionary_budget": 300000.0,
+     "discretionary_cost": 300000.0,
+     "idle_paid_capacity": 0.0,
+     "initial_backlog": 8000.0,
+     "operating_cost": 5580000.0,
+     "overtime_cost": 192000.0,
+     "overtime_hours": 3200.0,
+     "peak_backlog": 57061.67251028413,
+     "penalised_score": 1892315.2646204613,
+     "regular_cost": 5280000.0,
+     "surge_cost": 108000.0,
+     "surge_requests": 3600.0,
+     "terminal_backlog": 57061.67251028413,
+     "terminal_penalty": 0.0,
+     "total_demand": 389861.6725102841,
+     "total_served": 340800.0
+    },
+    "highs_status": 7,
+    "independent_check_passed": true,
+    "iterations": 0,
+    "largest_snap": 0.0,
+    "lexicographic_epsilon_fallback": false,
+    "max_balance_residual": 7.275957614183426e-12,
+    "objective": "discretionary_cash",
+    "objective_recomputed_from_plan": 300000.0,
+    "objective_value": 300000.0,
+    "retried_without_presolve": false,
+    "status": "optimal",
+    "values_snapped_to_bounds": 0
+   }
+  }
+ ],
+ "sensitivity": {
+  "base_scenario": "normal",
+  "monotonicity": [
+   {
+    "compared_pairs": 3,
+    "direction": "up",
+    "holds": true,
+    "parameter": "demand_multiplier",
+    "quantity": "penalised_score",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 6,
+    "direction": "lost",
+    "holds": true,
+    "parameter": "demand_multiplier",
+    "quantity": "feasibility",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 5,
+    "direction": "down",
+    "holds": true,
+    "parameter": "discretionary_budget_multiplier",
+    "quantity": "penalised_score",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 8,
+    "direction": "gained",
+    "holds": true,
+    "parameter": "discretionary_budget_multiplier",
+    "quantity": "feasibility",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 3,
+    "direction": "down",
+    "holds": true,
+    "parameter": "regular_hours_multiplier",
+    "quantity": "penalised_score",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 6,
+    "direction": "gained",
+    "holds": true,
+    "parameter": "regular_hours_multiplier",
+    "quantity": "feasibility",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 3,
+    "direction": "down",
+    "holds": true,
+    "parameter": "productivity_multiplier",
+    "quantity": "penalised_score",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 6,
+    "direction": "gained",
+    "holds": true,
+    "parameter": "productivity_multiplier",
+    "quantity": "feasibility",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 4,
+    "direction": "up",
+    "holds": true,
+    "parameter": "cost_multiplier",
+    "quantity": "penalised_score",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 5,
+    "direction": "lost",
+    "holds": true,
+    "parameter": "cost_multiplier",
+    "quantity": "feasibility",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 6,
+    "direction": "up",
+    "holds": true,
+    "parameter": "backlog_penalty",
+    "quantity": "penalised_score",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 6,
+    "direction": "down",
+    "holds": true,
+    "parameter": "backlog_penalty",
+    "quantity": "backlog_request_days",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 6,
+    "direction": "up",
+    "holds": true,
+    "parameter": "backlog_penalty",
+    "quantity": "cash_plus_terminal_penalty",
+    "worst_violation": 0.0
+   },
+   {
+    "compared_pairs": 6,
+    "direction": "unchanged",
+    "holds": true,
+    "parameter": "backlog_penalty",
+    "quantity": "feasibility",
+    "worst_violation": 0.0
+   }
+  ],
+  "points": [
+   {
+    "backlog_request_days": 17663.62421689709,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 1.0979103620236188,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 0.0,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 35327.24843379418,
+    "parameter": "demand_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 0.0,
+    "unique_optimal_plan": true,
+    "value": 0.9
+   },
+   {
+    "backlog_request_days": 42032.44516667807,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 1.0401256061276387,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 12636.326443746657,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 96701.2167771028,
+    "parameter": "demand_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 99.89641578009105,
+    "unique_optimal_plan": true,
+    "value": 0.95
+   },
+   {
+    "backlog_request_days": 43909.674803750786,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 1.0082850263482213,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 113467.14980350564,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 201286.49941100721,
+    "parameter": "demand_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 1492.5247236468313,
+    "unique_optimal_plan": true,
+    "value": 0.98
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "demand_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.0
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9687444370796635,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 3397.1174118988383,
+    "optimal_score": null,
+    "parameter": "demand_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 1.02
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9410660245916731,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 13416.150276954693,
+    "optimal_score": null,
+    "parameter": "demand_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 1.05
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.8982902962011425,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 30114.53838538113,
+    "optimal_score": null,
+    "parameter": "demand_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 1.1
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 7967.762168528267,
+    "optimal_score": null,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.0
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 5155.262168528267,
+    "optimal_score": null,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.25
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 2342.7621685282666,
+    "optimal_score": null,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.5
+   },
+   {
+    "backlog_request_days": 48893.48272183745,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 224999.99999999988,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322786.96544367477,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": false,
+    "value": 0.75
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.0
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.25
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.5
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 2.0
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "discretionary_budget_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 3.0
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.8893073932391311,
+    "capacity_to_scenario_demand_mean_ratio": 0.8893073932391311,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 29717.762168528272,
+    "optimal_score": null,
+    "parameter": "regular_hours_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.9
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.938713359530194,
+    "capacity_to_scenario_demand_mean_ratio": 0.938713359530194,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 13217.762168528265,
+    "optimal_score": null,
+    "parameter": "regular_hours_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.95
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9683569393048317,
+    "capacity_to_scenario_demand_mean_ratio": 0.9683569393048317,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 3317.7621685282666,
+    "optimal_score": null,
+    "parameter": "regular_hours_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.98
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "regular_hours_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.0
+   },
+   {
+    "backlog_request_days": 44691.73515343257,
+    "capacity_to_point_forecast_mean_ratio": 1.007881712337682,
+    "capacity_to_scenario_demand_mean_ratio": 1.007881712337682,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 112696.61932516145,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 202080.0896320266,
+    "parameter": "regular_hours_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 1540.9435955579938,
+    "unique_optimal_plan": true,
+    "value": 1.02
+   },
+   {
+    "backlog_request_days": 43202.573859661126,
+    "capacity_to_point_forecast_mean_ratio": 1.0375252921123197,
+    "capacity_to_scenario_demand_mean_ratio": 1.0375252921123197,
+    "capacity_within_1pct_of_legacy_demand_percentile": true,
+    "discretionary_cost": 11336.48397587361,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 97741.63169519587,
+    "parameter": "regular_hours_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 220.94359555799383,
+    "unique_optimal_plan": true,
+    "value": 1.05
+   },
+   {
+    "backlog_request_days": 17461.330373399644,
+    "capacity_to_point_forecast_mean_ratio": 1.0869312584033826,
+    "capacity_to_scenario_demand_mean_ratio": 1.0869312584033826,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 0.0,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 34922.66074679929,
+    "parameter": "regular_hours_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 0.0,
+    "unique_optimal_plan": true,
+    "value": 1.1
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.8893073932391311,
+    "capacity_to_scenario_demand_mean_ratio": 0.8893073932391311,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 30842.762168528272,
+    "optimal_score": null,
+    "parameter": "productivity_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.9
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.938713359530194,
+    "capacity_to_scenario_demand_mean_ratio": 0.938713359530194,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 13780.262168528265,
+    "optimal_score": null,
+    "parameter": "productivity_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.95
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9683569393048317,
+    "capacity_to_scenario_demand_mean_ratio": 0.9683569393048317,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 3542.7621685282666,
+    "optimal_score": null,
+    "parameter": "productivity_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 0.98
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "productivity_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.0
+   },
+   {
+    "backlog_request_days": 44583.73515343257,
+    "capacity_to_point_forecast_mean_ratio": 1.007881712337682,
+    "capacity_to_scenario_demand_mean_ratio": 1.007881712337682,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 111192.76404427593,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 200360.23435114106,
+    "parameter": "productivity_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 1540.9435955579938,
+    "unique_optimal_plan": true,
+    "value": 1.02
+   },
+   {
+    "backlog_request_days": 43202.573859661126,
+    "capacity_to_point_forecast_mean_ratio": 1.0375252921123197,
+    "capacity_to_scenario_demand_mean_ratio": 1.0375252921123197,
+    "capacity_within_1pct_of_legacy_demand_percentile": true,
+    "discretionary_cost": 10796.651405593913,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 97201.79912491617,
+    "parameter": "productivity_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 220.94359555799383,
+    "unique_optimal_plan": true,
+    "value": 1.05
+   },
+   {
+    "backlog_request_days": 17461.330373399644,
+    "capacity_to_point_forecast_mean_ratio": 1.0869312584033826,
+    "capacity_to_scenario_demand_mean_ratio": 1.0869312584033826,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 0.0,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 34922.66074679929,
+    "parameter": "productivity_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 0.0,
+    "unique_optimal_plan": true,
+    "value": 1.1
+   },
+   {
+    "backlog_request_days": 38828.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 199420.638017837,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 277076.6464347563,
+    "parameter": "cost_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 2811.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 0.8
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 202748.2177700666,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 300204.2261869859,
+    "parameter": "cost_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 0.9
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "cost_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.0
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 247803.37727452585,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 345259.38569144515,
+    "parameter": "cost_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 1.1
+   },
+   {
+    "backlog_request_days": 49395.51112674052,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 268995.94319019374,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 367786.96544367477,
+    "parameter": "cost_multiplier",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": false,
+    "value": 1.2
+   },
+   {
+    "backlog_request_days": null,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": null,
+    "least_terminal_violation_within_budget": 467.76216852826656,
+    "optimal_score": null,
+    "parameter": "cost_multiplier",
+    "status": "infeasible",
+    "terminal_backlog": null,
+    "unique_optimal_plan": null,
+    "value": 1.5
+   },
+   {
+    "backlog_request_days": 156673.19918014697,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 212473.65782742045,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 212473.65782742045,
+    "parameter": "backlog_penalty",
+    "status": "optimal",
+    "terminal_backlog": 4000.0,
+    "unique_optimal_plan": false,
+    "value": 0.0
+   },
+   {
+    "backlog_request_days": 56241.58209470795,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 214473.65782742045,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 242594.44887477442,
+    "parameter": "backlog_penalty",
+    "status": "optimal",
+    "terminal_backlog": 4000.0,
+    "unique_optimal_plan": true,
+    "value": 0.5
+   },
+   {
+    "backlog_request_days": 55953.71606839288,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 214633.58339759542,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 270587.2994659883,
+    "parameter": "backlog_penalty",
+    "status": "optimal",
+    "terminal_backlog": 4000.0,
+    "unique_optimal_plan": true,
+    "value": 1.0
+   },
+   {
+    "backlog_request_days": 48728.00420845966,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 225275.79752229623,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 322731.8059392155,
+    "parameter": "backlog_penalty",
+    "status": "optimal",
+    "terminal_backlog": 3711.6389438347123,
+    "unique_optimal_plan": true,
+    "value": 2.0
+   },
+   {
+    "backlog_request_days": 34160.24976488091,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 262230.3433457139,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 398871.34240523755,
+    "parameter": "backlog_penalty",
+    "status": "optimal",
+    "terminal_backlog": 2420.943595557994,
+    "unique_optimal_plan": true,
+    "value": 4.0
+   },
+   {
+    "backlog_request_days": 27272.011746288,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 300000.0,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 518176.093970304,
+    "parameter": "backlog_penalty",
+    "status": "optimal",
+    "terminal_backlog": 2255.3906590651586,
+    "unique_optimal_plan": false,
+    "value": 8.0
+   },
+   {
+    "backlog_request_days": 27272.011746288,
+    "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
+    "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
+    "capacity_within_1pct_of_legacy_demand_percentile": false,
+    "discretionary_cost": 300000.0,
+    "least_terminal_violation_within_budget": null,
+    "optimal_score": 736352.187940608,
+    "parameter": "backlog_penalty",
+    "status": "optimal",
+    "terminal_backlog": 2255.3906590651586,
+    "unique_optimal_plan": false,
+    "value": 16.0
+   }
+  ]
+ },
+ "solver": {
+  "highs": "1.12.0",
+  "scipy": "1.18.1",
+  "settings": {
+   "dual_feasibility_tolerance": 1e-09,
+   "maxiter": 10000,
+   "method": "highs-ds",
+   "presolve": true,
+   "primal_feasibility_tolerance": 1e-09
+  }
+ },
+ "structural_assumptions": [
+  "Demand is the daily count of 311 service requests created (intake), not measured workload: one request is one unit of work, whatever its type or agency.",
+  "One city-wide pool: staff and capacity are fully interchangeable across the agencies and request types that the city-wide count mixes. A split by agency with the same total capacity can only leave as much backlog or more, so pooled backlogs are optimistic.",
+  "The repository holds no closures, backlog, staffing, service-level or cost data: every operational parameter, the initial backlog included, is HYPOTHETICAL.",
+  "Quantities are continuous (fractional requests and staff hours); arrivals can be served on the day they arrive; capacity not used on a day is lost.",
+  "Demand is treated as known when planning (a deterministic model of the M2 point forecast or of a labelled stress path), although the forecast's historical error is large and the M3 intervals failed their calibration criteria; no chance constraint and no probability of meeting any target is computed.",
+  "The penalised score adds HYPOTHETICAL notional penalty weights to discretionary cash. It ranks plans for one set of weights; it is not a cost and is never compared as one."
+ ],
+ "units": {
+  "backlog": "requests",
+  "backlog_penalty": "usd_per_request_day",
+  "demand": "requests_per_day",
+  "discretionary_budget": "usd",
+  "initial_backlog": "requests",
+  "overtime_hours": "staff_hours_per_day",
+  "overtime_max_hours": "staff_hours_per_day",
+  "overtime_productivity": "requests_per_staff_hour",
+  "overtime_total_hours": "staff_hours",
+  "overtime_wage": "usd_per_staff_hour",
+  "regular_hours": "staff_hours_per_day",
+  "regular_productivity": "requests_per_staff_hour",
+  "regular_wage": "usd_per_staff_hour",
+  "served": "requests_per_day",
+  "surge": "requests_per_day",
+  "surge_price": "usd_per_request",
+  "surge_total": "requests",
+  "terminal_backlog_max": "requests",
+  "terminal_penalty": "usd_per_request"
+ },
+ "validated_recommendation": false
+}
