@@ -120,7 +120,9 @@ with its "infeasible" code): 7 optimal, 8 infeasible; 9, 10 and 15 (inconclusive
 once without presolve; anything else is an error. Inputs with non-finite values or magnitudes
 of `1e9` or more are rejected. **Amended (R):** right-hand sides of derived analysis rows
 (policy caps on request-days, frontier caps, optimal-face rows), which sum inputs over the
-horizon, are bounded at `1e15` instead.
+horizon, are bounded at `1e15` instead. **Amended (R2):** nonzero matrix coefficients of
+magnitude `1e-9` or less are rejected with a request to rescale: HiGHS drops them silently
+(its `small_matrix_value`), so it would solve a different programme from the one certified.
 
 Nothing the solver returns is trusted:
 
@@ -160,6 +162,41 @@ count as zero). Each stage is checked to keep the earlier optimum; only if the s
 on the face programme is the epsilon cap used; every programme summary in `metrics.json`
 records it as `lexicographic_epsilon_fallback` (none was needed on the reference run).
 
+**Amended (R2).** The second review found that one large objective weight widened the tie
+tolerance of every other column, that a later stage was not checked to keep the earlier
+optimum in every path, and that most fallbacks were recorded nowhere. Now:
+
+- **Per-column and per-row zero tests.** A reduced cost counts as zero when it is within
+  `1e-9 × max(1, |c_j| + Σ_i |a_ij y_i|)`, the scale of its own column in the
+  stationarity check; a row dual when it is within `1e-9 ×` the largest such column scale
+  divided by the row's coefficient, over the columns the row touches.
+- **The face contains the earlier optimum `x*`.** Every row and bound is widened to `x*`'s
+  own activity (tight rows are pinned there), so an optimum that is feasible only to within
+  the solver's tolerance stays on its face. The widening is at most that tolerance, and the
+  plan check still judges every plan against the configured limits.
+- **Every stage keeps the earlier optimum.** A face plan must score the earlier optimum to
+  within `10 ×` the checking tolerance. If it does not (the zero tests let in a plan that
+  scores worse), the stage is re-solved on the face built from exact zeros only
+  (`zero_threshold`). Only if that fails too is the epsilon cap used (`epsilon_cap`).
+- **Every fallback is recorded.** It appears on its stage (`stage_fallback` in the programme
+  summaries), per scenario and sweep point (`stage_fallbacks`), in the run total
+  `checks.stage_fallbacks` of `metrics.json`, and as a WARNING `stage_fallback`. This
+  covers the reported, relaxed and diagnostic plans, the policy comparisons, the frontier,
+  the sweeps, the finite-difference splits and the optimal-face rebuilds (`face_rebuilt`).
+  None was needed on the reference run.
+- **Exact caps first.** The policy comparisons cap the LP at the policy's own cash,
+  request-days and terminal backlog; the frontier at each cash cap. The policy plan sits
+  exactly on its caps, and at large scale HiGHS can call that programme infeasible at its
+  own tolerance. Only then is the programme re-solved with epsilon caps, recorded as
+  `policy_epsilon_cap` or `frontier_epsilon_cap`.
+- **Ties are broken explicitly.** After the optimal score, the reported plan minimises
+  discretionary cash, then the terminal backlog, then request-days, each on the optimal
+  face of the stage before (`plan_selection` in the CSVs names the chain for every plan).
+  Cash, penalty, terminal backlog and request-days of a reported plan therefore do not
+  depend on the vertex HiGHS returns. Its day-by-day schedule, and the split between
+  overtime and surge, can still differ between tied plans; the uniqueness test (section 7)
+  says when.
+
 ## 5. Infeasibility, relaxed plans and diagnostics
 
 When the strict model is infeasible, M4 reports a WARNING and computes, as DIAGNOSTIC
@@ -189,12 +226,23 @@ with three significant digits, never as `0`. The reasons name only the limits th
 the least-violation plan (no fixed text about delayed surge or totals), and say
 "DIAGNOSTIC, not a budget request".
 
+**Amended (R2).** Limits that bind in "the" least-violation plan depend on which of many such
+plans HiGHS returns, and a binding limit need not be a cause. When no amount of cash reaches
+the target, the reasons now name each configured limit whose relaxation **alone** lowers
+the least violation with unlimited cash, with the violation that would remain. The limits
+are the daily overtime limit, the daily surge limit, the surge delay, the overtime total and
+the surge total, per unit. Each relaxation is its own certified programme
+(`least_violation_unlimited_cash_with_one_limit_relaxed_requests` in `metrics.json`). If none
+lowers it alone, the reasons say that the limits and the regular capacity bind together.
+Below 1 USD of shortfall the least spend is printed to nine significant digits instead of
+whole USD (the shortfall keeps three), so the spend no longer appears to be below the budget.
+
 ## 6. Policies and like-for-like comparisons
 
 | Plan | Definition |
 |---|---|
-| `optimized` | the strict LP (or `relaxed_terminal_target` when infeasible). **Amended (R):** the least-cash plan among the optimal plans, so cash, penalty and the comparisons do not depend on the vertex HiGHS returns |
-| `optimized_without_terminal_target` | the LP without the HYPOTHETICAL target: shows what the target forces. **Amended (R):** compared on the optimal score; when the target does not change it, the row shows the reported plan and says `same_optimal_score_target_forces_nothing` |
+| `optimized` | the strict LP (or `relaxed_terminal_target` when infeasible). **Amended (R):** the least-cash plan among the optimal plans. **Amended (R2):** then the least terminal backlog, then the least request-days (section 4), because the least-cash plan alone left terminal backlog and request-days to the vertex HiGHS returns |
+| `optimized_without_terminal_target` | the LP without the HYPOTHETICAL target: shows what the target forces. **Amended (R):** compared on the optimal score; when the target does not change it, the row shows the reported plan and says `same_optimal_score_target_forces_nothing`. **Amended (R2):** only when the tie-broken plan without the target is also the reported plan (`terminal_target_changes_reported_plan` false); a target can leave the score unchanged and still exclude cheaper equally scored plans, and the row then shows the tie-broken plan without the target |
 | `fixed_capacity` | regular staff only: `x[t] = min(b[t-1] + d[t], p·H[t])`, no overtime or surge |
 | `backlog_trigger` | when the backlog would exceed a HYPOTHETICAL trigger, buy the cheaper extra capacity (USD per request; overtime on a tie) up to the daily limits, the remaining totals and the remaining budget; myopic |
 | `lp_same_cash_as_<policy>` | least request-days with at most the policy's discretionary cash (target dropped) |
@@ -221,7 +269,14 @@ score.
   optimal face of cash, request-days, terminal backlog, overtime and surge are reported, and,
   for a non-unique optimum, the range of extra capacity on each day (`plans.csv`). The
   relaxed plan and every sweep point get the same test. A non-unique plan is labelled "one of
-  several equally scored HYPOTHETICAL plans".
+  several equally scored HYPOTHETICAL plans". **Amended (R2):** the distance is measured from
+  the vertex the solver returned for the programme tested (the planning programme, or the
+  relaxed plan's last stage), not from the reported plan. The plan is called unique when no
+  optimal plan lies more than `0.001` (requests or staff hours, summed over the active
+  constraints) from it: the test is exact up to that threshold, not to zero. If a face plan
+  does not score the optimum (the zero tests loosened the face), the face is rebuilt from
+  exact zeros and the rebuild is recorded (`face_rebuilt`); a failed face programme is
+  recorded as an ERROR instead of aborting the run.
 - **Shadow prices** are derivatives of the optimal penalised score with respect to one
   right-hand side: per request of demand on day `t` (balance), per request of free regular
   capacity on day `t` (capacity), per USD of budget, per request of terminal target, per
@@ -241,15 +296,28 @@ score.
   not change when every quantity is scaled (an absolute step gave false breakpoints and
   bracket ERRORs at ×100-×300); every re-solve is certified; the cash/penalty split compares
   the least-cash optimal plans before and after the step; a daily limit of zero (surge not
-  yet available) is flagged `limit_is_zero_unavailable` in `duals.csv`.
+  yet available) is flagged `limit_is_zero_unavailable` in `duals.csv`. **Amended (R2):** the
+  noise allowance divides by the step actually taken (a backward step is cut to the
+  right-hand side when that is smaller), so a right-hand side below the step no longer gives
+  false bracket ERRORs; a slope whose re-solve fails is `solver_failed` (an ERROR, counted
+  in `metrics.json`), not `breakpoint`; the cash/penalty split compares the tie-broken plans
+  before and after the step, each checked to keep its optimum; the slack and `binding` columns
+  of `duals.csv` describe the reported plan (the duals are optimal for every optimal plan, so
+  complementary slackness holds there too), and a zero limit is never `binding`.
 - **Tradeoff frontier** (epsilon constraint): for caps on discretionary cash from 0 to the
   least cash that achieves the least possible penalty, the least notional penalty `w·Σb +
   w_T·b[T]` (then the least cash achieving it), with and without the terminal target, budget
   row dropped. Because the second axis is the penalty actually in the objective, the strict
   optimum must lie on the curve (checked), and the curve must be non-increasing and convex in
   the cap (checked). No point is singled out: it is a HYPOTHETICAL tradeoff, not a budget.
+  **Amended (R2):** each point breaks ties like the reported plan (least cash, then terminal
+  backlog, then request-days), so the values in `frontier.csv` do not depend on the vertex.
+  Each point gets the uniqueness test. `unique_after_tie_breaks` is false where other plans
+  tie on all four values with a different daily schedule, and the ranges of the overtime and
+  surge totals over those plans are reported.
 - **Sensitivity sweeps**, one parameter at a time, with the properties proved for the model
-  checked on the results:
+  checked on the results (**amended (R2):** the values of each point are those of its
+  tie-broken plan):
 
 | Parameter | Proved property (checked) |
 |---|---|
@@ -467,8 +535,12 @@ uv run atlas optimize verify runs/m4                       # byte-identical resu
 Runs are deterministic on one machine (no randomness, no time limit, serial dual simplex) and
 work offline: every input is a committed, hash-verified file. `verify` reports the SciPy and
 HiGHS versions recorded and current; with a different solver build the plan chosen among
-alternative least-cash optima, and so the plan bytes, may differ even when the optimal score
-does not. `verify` fails when the recomputation has a failed check (even if it reproduces
-the recorded bytes) or when the manifest's `complete` flag disagrees with it; `inspect`
-fails when the fingerprinted `metrics.json` records a failed check; `--require-clean`
-also requires the configuration to be a tracked file under `configs/`.
+alternative tie-broken optima (the daily schedule where the plan is not unique), and so the
+plan bytes, may differ even when the optimal score does not. `verify` fails when the
+recomputation has a failed check (even if it reproduces the recorded bytes) or when the
+manifest's `complete` flag disagrees with it; `inspect` fails when the fingerprinted
+`metrics.json` records a failed check; `--require-clean` also requires the configuration to
+be a tracked file under `configs/`. **Amended (R2):** the file is matched literally (a file
+named like a glob no longer matches a tracked one) and its content must equal the blob
+committed at `HEAD` (`git status` misses ignored files and trusts `skip-worktree`). A
+malformed manifest or `metrics.json` is a usage error (exit 2) in `verify` and `inspect`.

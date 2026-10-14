@@ -24,6 +24,7 @@ import atlas.decision_analysis as analysis
 from atlas.cli import main
 from atlas.config import load_settings
 from atlas.decision_analysis import (
+    FrontierPoint,
     analyse_scenario,
     diagnose,
     evaluate_policy,
@@ -34,9 +35,9 @@ from atlas.decision_analysis import (
     solve_problem,
 )
 from atlas.optimization_config import load_optimization_config
-from atlas.optimization_report import render_optimization_report
+from atlas.optimization_report import _tied_points, render_optimization_report
 from atlas.optimization_runner import WITHOUT_TARGET, _plan_rows, load_inputs, m4_outputs
-from atlas.optimizer import Objective, OptimizationError, SolverSettings
+from atlas.optimizer import Objective, OptimizationError, SolverSettings, SolveStatus
 from atlas.planning import PlanningProblem, ServiceUnit
 from atlas.policies import BACKLOG_TRIGGER
 from atlas.runner import load_series
@@ -436,6 +437,41 @@ def test_frontier_points_flag_overtime_and_surge_left_open() -> None:
     assert middle
     assert all(p.unique_after_tie_breaks is False for p in middle)
     assert all(p.overtime_hours_range == pytest.approx((0.0, 5.0)) for p in middle)
+    assert all(p.totals_open() for p in middle)
+
+
+def test_a_frontier_tie_in_the_daily_schedule_alone_leaves_no_total_open() -> None:
+    def point(unique: bool | None, hours: tuple[float, float]) -> FrontierPoint:
+        return FrontierPoint(
+            "kept",
+            1.0,
+            "grid",
+            SolveStatus.OPTIMAL,
+            1.0,
+            1.0,
+            1.0,
+            0.0,
+            hours[0],
+            2.0,
+            unique_after_tie_breaks=unique,
+            overtime_hours_range=hours,
+            surge_requests_range=(2.0, 2.0),
+        )
+
+    assert not point(False, (3.0, 3.0)).totals_open()  # only the timing differs
+    assert point(False, (3.0, 3.1)).totals_open()
+    assert not point(True, (3.0, 3.0)).totals_open()
+    assert not point(None, (3.0, 3.0)).totals_open()
+    text = _tied_points(
+        {"points_not_unique_after_tie_breaks": 6, "points_with_overtime_or_surge_totals_open": 0}
+    )
+    assert "at 6 points other plans tie" in text
+    assert "different daily schedule" in text
+    assert "differ too at 0 of them" in text
+    assert "open" not in text.replace("overtime or surge totals differ", "")
+    assert _tied_points({"points_not_unique_after_tie_breaks": 0}) == (
+        "every point is unique after the tie-breaks"
+    )
 
 
 def test_the_canonical_plan_breaks_ties_on_cash_terminal_backlog_and_request_days() -> None:

@@ -860,6 +860,9 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             "points_not_unique_after_tie_breaks": sum(
                 1 for point in result.frontier.points if point.unique_after_tie_breaks is False
             ),
+            "points_with_overtime_or_surge_totals_open": sum(
+                1 for point in result.frontier.points if point.totals_open()
+            ),
         },
         "problems": list(result.problems),
     }

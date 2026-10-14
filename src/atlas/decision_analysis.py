@@ -17,11 +17,11 @@ objective and the objective recomputed from the plan. A failed check is recorded
   within the budget (soft targets, ``min sum v``), the least discretionary spend that would
   reach the HYPOTHETICAL target, and the analytic lower bound on the terminal backlog. The
   RELAXED plan is the lexicographic optimum: least violation within the budget first, then
-  the planning objective among those plans, then the least cash. It is labelled
-  ``relaxed_terminal_target``.
-* **Optimal face**: a complete uniqueness test (active-set distance, see
-  :func:`optimal_face`) and the ranges of cash, backlog and daily extra capacity over all
-  optimal plans.
+  the planning objective among those plans, then the tie-breaks (least cash, terminal
+  backlog, request-days). It is labelled ``relaxed_terminal_target``.
+* **Optimal face**: a uniqueness test (active-set distance up to
+  :data:`UNIQUENESS_THRESHOLD`, see :func:`optimal_face`) and the ranges of cash, backlog
+  and daily extra capacity over all optimal plans.
 * **Shadow prices**: every dual bracketed by one-sided finite differences of the optimal
   value (convex in every right-hand side, so ``backward <= dual <= forward`` must hold).
 * **Policies**: the fixed-capacity and backlog-trigger rules, plus the LP at the same
@@ -1548,11 +1548,22 @@ class FrontierPoint:
     overtime_hours: float | None
     surge_requests: float | None
     #: Whether the tie-broken plan is the only plan with its penalty, cash, terminal
-    #: backlog and request-days; if not, overtime and surge can still differ, within these
-    #: ranges (over all such plans).
+    #: backlog and request-days; if not, the day-by-day schedule differs between such
+    #: plans, and the overtime and surge totals may too, within these ranges (over all
+    #: such plans).
     unique_after_tie_breaks: bool | None = None
     overtime_hours_range: tuple[float, float] | None = None
     surge_requests_range: tuple[float, float] | None = None
+
+    def totals_open(self) -> bool:
+        """Whether the overtime or surge total differs between the tied plans by more than
+        the uniqueness threshold (only the daily schedule differs otherwise)."""
+        if self.unique_after_tie_breaks is not False:
+            return False
+        return any(
+            span is not None and span[1] - span[0] > UNIQUENESS_THRESHOLD
+            for span in (self.overtime_hours_range, self.surge_requests_range)
+        )
 
 
 @dataclass(frozen=True)

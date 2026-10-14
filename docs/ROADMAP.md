@@ -102,15 +102,18 @@ See [OPTIMIZATION.md](OPTIMIZATION.md).
   simplex), one city-wide unit (the domain model supports several units sharing a budget),
   every operational parameter `HYPOTHETICAL` with an exact unit and assumption.
 - Certified optima (primal and dual feasibility, zero duality gap), a matrix-free check of
-  every plan, labelled relaxed plans and diagnostics for infeasible scenarios, a complete
-  uniqueness test, shadow prices bracketed by finite differences.
+  every plan, labelled relaxed plans and diagnostics for infeasible scenarios, explicit
+  tie-breaks (least cash, then terminal backlog, then request-days), a uniqueness test over
+  the optimal face (no other optimal plan farther than 0.001), shadow prices bracketed by
+  finite differences.
 - Fixed-capacity and backlog-trigger policies under the same assumptions, LP comparisons at
   equal cash and equal backlog, tradeoff frontiers, sensitivity sweeps with the proved
   monotonicity properties checked; nine scenarios including an M2-bias shift and an M3
   marginal-quantile stress path; the M3 calibration status on every result;
   `atlas optimize run|verify|inspect`.
 - An independent six-lens review after the freeze (including a re-implementation and
-  mutation testing); every confirmed defect fixed with a regression test. Reference results:
+  mutation testing), then two further independent reviews of the fixes; every confirmed
+  defect fixed with a regression test. Reference results:
   [`docs/results/atlas-m4-optimization-v1/`](results/atlas-m4-optimization-v1/report.md)
   (OPTIMIZATION.md sections 9-10).
 

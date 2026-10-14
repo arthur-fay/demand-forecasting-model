@@ -180,7 +180,7 @@ labels and the M3 status. The curated reference copy is in
 `docs/results/atlas-m4-optimization-v1/`.
 
 For M4, `--require-clean` also requires the configuration to be a git-tracked file under
-`configs/`. `optimize verify` fails when the recomputation reproduces a failed check (not
+`configs/` whose content equals the blob committed at `HEAD`. `optimize verify` fails when the recomputation reproduces a failed check (not
 only when bytes differ), and `optimize inspect` reads the failed-check count from the
 fingerprinted `metrics.json` as well as the manifest's `complete` flag.
 

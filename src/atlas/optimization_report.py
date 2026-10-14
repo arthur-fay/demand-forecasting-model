@@ -460,6 +460,18 @@ def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
     return lines
 
 
+def _tied_points(frontier: Mapping[str, Any]) -> str:
+    tied = frontier.get("points_not_unique_after_tie_breaks")
+    if not tied:
+        return "every point is unique after the tie-breaks"
+    open_totals = frontier.get("points_with_overtime_or_surge_totals_open")
+    return (
+        f"at {_n(tied)} points other plans tie on penalty, cash, terminal backlog and "
+        f"request-days with a different daily schedule; the overtime or surge totals differ "
+        f"too at {_n(open_totals)} of them"
+    )
+
+
 def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
     lines = [
         "## Tradeoff frontier",
@@ -467,8 +479,9 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         "Least notional backlog penalty achievable for each cap on discretionary cash "
         "(budget row dropped, daily limits and totals kept), with the least cash, then the "
         "least terminal backlog and request-days among the plans that achieve it "
-        "(`frontier.csv`). Overtime and surge can still differ between such plans; "
-        "`frontier.csv` flags those points (`unique_after_tie_breaks`) with their ranges. "
+        "(`frontier.csv`). The day-by-day schedule, and at some points the overtime and "
+        "surge totals, can still differ between such plans; `frontier.csv` flags those "
+        "points (`unique_after_tie_breaks`) with the ranges of the totals. "
         "A HYPOTHETICAL TRADEOFF under HYPOTHETICAL prices and a point forecast; no point on "
         "it is singled out as a budget.",
         "",
@@ -496,8 +509,7 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
             "under this deterministic demand path and the HYPOTHETICAL prices; the "
             f"curve is non-increasing: {_n(f['monotone_ok'])}, convex: {_n(f['convex_ok'])}; "
             f"the strict plan lies on it: {f['on_frontier_check']}; "
-            f"{_n(f.get('points_not_unique_after_tie_breaks'))} points leave overtime and "
-            "surge open. DIAGNOSTIC tradeoff points, not budgets."
+            f"{_tied_points(f)}. DIAGNOSTIC tradeoff points, not budgets."
         )
     lines.append("")
     return lines
