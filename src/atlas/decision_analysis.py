@@ -62,6 +62,7 @@ from atlas.optimizer import (
     dual_values,
     exact_dot,
     exact_matvec,
+    failed_result,
     objective_vector,
     solve_lp,
     to_plan,
@@ -272,28 +273,19 @@ def cap_row(lp_like: LinearProgram, objective: Objective, cap: float, name: str)
     return ExtraRow(Row(name, None, None), c, cap - constant)
 
 
-def face_programme(
-    lp: LinearProgram, result: LPResult, *, zero_threshold: bool = False
-) -> tuple[LinearProgram, float, int, int]:
-    """``lp`` restricted to its optimal face, by complementary slackness with ``result``.
+@dataclass(frozen=True)
+class _FaceTests:
+    """The complementary-slackness tests of :func:`face_programme` (see its docstring)."""
 
-    A feasible plan is optimal if and only if it satisfies complementary slackness with an
-    optimal dual: it sits at every bound whose reduced cost is nonzero and keeps every row
-    with a nonzero dual tight. So the face is the programme with those bounds fixed and
-    those rows turned into equalities; no row parallel to the objective (which leaves the
-    solver a degenerate, near-infeasible programme on near-ties) is needed.
+    column_tau: FloatArray
+    row_tau: FloatArray
+    at_lower: np.ndarray  # bool: bound fixed at the lower bound (nonzero reduced cost)
+    at_upper: np.ndarray  # bool: bound fixed at the (finite) upper bound
+    tight: np.ndarray  # bool: row made an equality (nonzero dual)
 
-    A reduced cost counts as zero when it is within ``FACE_DUAL_REL`` of its column's own
-    stationarity magnitude ``|c_j| + sum_i |a_ij y_i|`` (the certificate's scale), and a row
-    dual when it is within ``FACE_DUAL_REL`` of the largest column scale it couples,
-    divided by the coefficient. A large weight on one column therefore does not widen the
-    tie tolerance of the others. ``zero_threshold`` counts only exact zeros (a smaller
-    face, used when the face with thresholds turns out not to keep the optimum). Every row
-    and bound is widened to the optimum's own activity (tight rows are pinned there), so an
-    optimum that is feasible only to within the solver's tolerance stays on its face.
-    Returns the restricted programme (objective unchanged), the largest threshold, the
-    number of bounds fixed and the number of rows made tight.
-    """
+
+def _face_tests(lp: LinearProgram, result: LPResult, zero_threshold: bool) -> _FaceTests:
+    """Which bounds the optimal face fixes and which rows it makes tight (thresholds included)."""
     if (
         result.x is None
         or result.lower_marginals is None
@@ -313,17 +305,56 @@ def face_programme(
         if zero_threshold
         else (FACE_DUAL_REL * np.maximum(1.0, column_scale))
     )
+    at_lower = result.lower_marginals > column_tau
+    at_upper = ~at_lower & (result.upper_marginals < -column_tau) & np.isfinite(lp.upper)
+    # Columns pinned by an earlier face (equal bounds) are fixed too.
+    free = ~(at_lower | at_upper) & (lp.lower != lp.upper)
     row_tau = np.zeros(len(lp.ub_rows))
     if not zero_threshold:
         for i in range(len(lp.ub_rows)):
             coefficients = np.abs(lp.a_ub[i])
-            support = coefficients > 0
+            # Only the columns the face leaves free tie the row's dual down: a column fixed at
+            # a bound by a nonzero reduced cost absorbs any change of the dual in its bound
+            # multiplier, so its (possibly huge) scale says nothing about this dual.
+            support = (coefficients > 0) & free
             scale = (
                 float(np.max(column_scale[support] / coefficients[support]))
                 if support.any()
                 else 0.0
             )
             row_tau[i] = FACE_DUAL_REL * max(1.0, scale)
+    return _FaceTests(column_tau, row_tau, at_lower, at_upper, y_ub < -row_tau)
+
+
+def face_programme(
+    lp: LinearProgram, result: LPResult, *, zero_threshold: bool = False
+) -> tuple[LinearProgram, float, int, int]:
+    """``lp`` restricted to its optimal face, by complementary slackness with ``result``.
+
+    A feasible plan is optimal if and only if it satisfies complementary slackness with an
+    optimal dual: it sits at every bound whose reduced cost is nonzero and keeps every row
+    with a nonzero dual tight. So the face is the programme with those bounds fixed and
+    those rows turned into equalities; no row parallel to the objective (which leaves the
+    solver a degenerate, near-infeasible programme on near-ties) is needed.
+
+    A reduced cost counts as zero when it is within ``FACE_DUAL_REL`` of its column's own
+    stationarity magnitude ``|c_j| + sum_i |a_ij y_i|`` (the certificate's scale), and a row
+    dual when it is within ``FACE_DUAL_REL`` of the largest such column scale, divided by
+    the coefficient, over the columns of the row that the face leaves free. A column fixed
+    at a bound by a nonzero reduced cost is left out: its bound multiplier absorbs any
+    change of the row dual, so it does not tie the dual down, and its scale (a large
+    capacity dual, say) must not widen the row's tolerance. A large weight on one column
+    therefore does not widen the tie tolerance of the others. ``zero_threshold`` counts
+    only exact zeros (a smaller face, used when the face with thresholds turns out not to
+    keep the optimum). Every row and bound is widened to the optimum's own activity (tight
+    rows are pinned there), so an optimum that is feasible only to within the solver's
+    tolerance stays on its face. Returns the restricted programme (objective unchanged),
+    the largest threshold, the number of bounds fixed and the number of rows made tight.
+    """
+    tests = _face_tests(lp, result, zero_threshold)
+    column_tau, row_tau = tests.column_tau, tests.row_tau
+    if result.x is None:  # pragma: no cover - checked by _face_tests
+        raise AssertionError("optimal result without a solution")
     x = result.x
     # The optimum is feasible only to within the solver's tolerance: widen every bound and
     # row to include it, so the face is never empty (the widening is at most that
@@ -332,13 +363,13 @@ def face_programme(
     upper = np.where(np.isfinite(lp.upper), np.maximum(lp.upper, x), lp.upper)
     fixed = 0
     for j in range(lp.layout.size):
-        if result.lower_marginals[j] > column_tau[j]:
+        if tests.at_lower[j]:
             upper[j] = lower[j]
             fixed += 1
-        elif result.upper_marginals[j] < -column_tau[j] and np.isfinite(upper[j]):
+        elif tests.at_upper[j]:
             lower[j] = upper[j]
             fixed += 1
-    tight = [i for i in range(len(lp.ub_rows)) if y_ub[i] < -row_tau[i]]
+    tight = [i for i in range(len(lp.ub_rows)) if tests.tight[i]]
     b_ub = np.maximum(lp.b_ub, exact_matvec(lp.a_ub, x))
     restricted = replace(
         lp,
@@ -358,12 +389,74 @@ def face_programme(
     return restricted, threshold, fixed, len(tight)
 
 
-def _keeps_optimum(lp: LinearProgram, optimum: float, solution: LPResult | None) -> bool:
-    """Whether ``solution`` scores the optimum of ``lp`` to within the checking tolerance."""
+def _dropped_loss(lp: LinearProgram, earlier: LPResult, x: FloatArray) -> tuple[float, float]:
+    """What ``x`` loses, against the earlier optimum, through the duals the face counts as zero.
+
+    By duality with the earlier optimal duals, ``c'x - c'x*`` is the sum over rows and bounds
+    of dual times the change of slack from ``x*`` to ``x``; on the optimal face every row and
+    bound with a dual above its threshold is pinned, so only the entries whose nonzero dual
+    the thresholds counted as zero contribute. Returns that loss (each entry's term clamped
+    at zero) and ``sum_j |c_j| |x_j - x*_j|``, the magnitude of the score terms that differ
+    between the two plans. The loss is computed from small products, so it is not hidden in
+    the rounding of a large score (an unavoidable ``w_T b[T]`` term, say).
+    """
+    tests = _face_tests(lp, earlier, zero_threshold=False)
+    if (
+        earlier.x is None
+        or earlier.ub_marginals is None
+        or earlier.lower_marginals is None
+        or earlier.upper_marginals is None
+    ):  # pragma: no cover - checked by _face_tests
+        raise AssertionError("optimal result without marginals")
+    star = earlier.x
+    rows = ~tests.tight & (earlier.ub_marginals != 0.0)
+    terms: list[float] = []
+    if rows.any():
+        change = exact_matvec(lp.a_ub[rows], star) - exact_matvec(lp.a_ub[rows], x)
+        terms.extend((-earlier.ub_marginals[rows] * change).tolist())
+    lower = ~tests.at_lower & (earlier.lower_marginals != 0.0)
+    terms.extend((earlier.lower_marginals[lower] * (x[lower] - star[lower])).tolist())
+    upper = ~tests.at_upper & np.isfinite(lp.upper) & (earlier.upper_marginals != 0.0)
+    terms.extend((-earlier.upper_marginals[upper] * (star[upper] - x[upper])).tolist())
+    loss = math.fsum(max(0.0, t) for t in terms)
+    moved = math.fsum(np.abs(lp.c * (x - star)).tolist())
+    return loss, moved
+
+
+def _keeps_optimum(
+    lp: LinearProgram,
+    optimum: float,
+    solution: LPResult | None,
+    earlier: LPResult | None = None,
+) -> bool:
+    """Whether ``solution`` scores the optimum of ``lp`` to within the checking tolerance.
+
+    With ``earlier`` (the optimum the face was built from), the plan must also not lose
+    more than ``10 x`` the checking tolerance of the score terms it changes through duals
+    the face counted as zero (:func:`_dropped_loss`). A tie within the dual tolerance
+    passes; a genuine dual counted as zero, whose loss the score's own tolerance (set by
+    every term of the score, including those no plan on the face can change) would hide,
+    does not.
+    """
     if solution is None or solution.status is not SolveStatus.OPTIMAL or solution.x is None:
         return False
     magnitude = math.fsum(np.abs(lp.c * solution.x).tolist())
-    return abs(lp.value(solution.x) - optimum) <= 10 * tolerance(magnitude, optimum)
+    if abs(lp.value(solution.x) - optimum) > 10 * tolerance(magnitude, optimum):
+        return False
+    if earlier is None or earlier.x is None:
+        return True
+    loss, moved = _dropped_loss(lp, earlier, solution.x)
+    return loss <= 10 * tolerance(moved)
+
+
+def _solve_feasible(lp: LinearProgram, settings: SolverSettings) -> LPResult:
+    """:func:`~atlas.optimizer.solve_lp` for a programme known to contain a feasible point
+    (an optimal face holds the earlier optimum, an epsilon cap too). At large scale HiGHS's
+    presolve can call such a programme infeasible at its absolute tolerance; ``solve_lp``
+    confirms every presolve verdict of infeasibility without presolve and uses a certified
+    optimum of that re-solve (``retried``). A solver error propagates, as from ``solve_lp``.
+    """
+    return solve_lp(lp, settings)
 
 
 def minimise_on_face(
@@ -376,12 +469,16 @@ def minimise_on_face(
 ) -> tuple[LinearProgram, LPResult, str | None]:
     """Minimise ``c @ v + constant`` over the optimal plans of ``lp`` (optimal at ``result``).
 
-    Solved on the optimal face (:func:`face_programme`) and accepted only if the plan keeps
-    the earlier optimum. Otherwise (a face loosened by the zero tests, or a solver failure)
-    the face is rebuilt counting only exact zeros (``"zero_threshold"``), and as a last
-    resort the earlier objective is capped at :func:`lex_cap` of its optimum
-    (``"epsilon_cap"``). The returned flag names the fallback used; the solver error of the
-    last fallback, if any, propagates.
+    Solved on the optimal face (:func:`face_programme`, which holds the earlier optimum, so
+    an infeasible verdict of presolve is confirmed without it: :func:`_solve_feasible`) and
+    accepted only if the plan keeps the earlier optimum (:func:`_keeps_optimum`, including
+    the loss through duals the face counted as zero). Otherwise (a face loosened by the
+    zero tests, or a solver failure) the face is rebuilt counting only exact zeros
+    (``"zero_threshold"``), and as a last resort the earlier objective is capped at
+    :func:`lex_cap` of its optimum (``"epsilon_cap"``). The returned flag names the
+    fallback used. A solver error of the last fallback is returned as a ``FAILED`` result
+    carrying the error (:func:`~atlas.optimizer.failed_result`), never raised: the caller
+    records it.
     """
     if result.x is None:  # pragma: no cover - only optimal results are restricted
         raise AssertionError("optimal result without a solution")
@@ -390,10 +487,10 @@ def minimise_on_face(
         face, _, _, _ = face_programme(lp, result, zero_threshold=zero_threshold)
         restricted = replace(face, objective=objective, c=c, constant=constant)
         try:
-            solution: LPResult | None = solve_lp(restricted, settings)
+            solution: LPResult | None = _solve_feasible(restricted, settings)
         except OptimizationError:
             solution = None
-        if solution is not None and _keeps_optimum(lp, optimum, solution):
+        if solution is not None and _keeps_optimum(lp, optimum, solution, result):
             return restricted, solution, flag
     capped = replace(
         lp,
@@ -404,14 +501,19 @@ def minimise_on_face(
         b_ub=np.append(lp.b_ub, lex_cap(optimum) - lp.constant),
         ub_rows=(*lp.ub_rows, Row(f"cap_{lp.objective}", None, None)),
     )
-    return capped, solve_lp(capped, settings), "epsilon_cap"
+    try:
+        return capped, _solve_feasible(capped, settings), "epsilon_cap"
+    except OptimizationError as error:
+        return capped, failed_result(error), "epsilon_cap"
 
 
 def solve_on_face(previous: Solved, settings: SolverSettings, objective: Objective) -> Attempt:
     """Minimise ``objective`` among the optimal plans of ``previous`` (a lexicographic stage).
 
     Checked like every programme, and also that the earlier objective keeps its optimum. A
-    stage that is not optimal is a problem: the earlier optimum lies on its face.
+    stage that is not optimal is a problem: the earlier optimum lies on its face. A stage
+    the solver failed on (every fallback of :func:`minimise_on_face` included) is a problem
+    too, with the solver's error; it never aborts the run.
     """
     lp = previous.lp
     c, constant = objective_vector(lp.problem, lp.layout, objective)
@@ -426,7 +528,12 @@ def solve_on_face(previous: Solved, settings: SolverSettings, objective: Objecti
         extra_rows=previous.extra_rows,
     )
     extra: list[str] = []
-    if attempt.solved is None:
+    if attempt.solved is None and attempt.status is SolveStatus.FAILED:
+        extra.append(
+            f"lexicographic stage {objective} failed on its face, the face of exact zeros "
+            f"and the epsilon cap: {attempt.message}"
+        )
+    elif attempt.solved is None:
         extra.append(
             f"lexicographic stage {objective} is {attempt.status} although the earlier "
             "optimum lies on its face"
@@ -1081,11 +1188,13 @@ def optimal_face(
 
     Every face programme is certified, its plan is checked against the constraints of the
     programme (:func:`check_plan`) and must score the optimum of ``strict``. If a plan does
-    not (the zero tests loosened the face), the face is rebuilt with exact zero tests only;
-    a solver failure is recorded as a problem instead of aborting the run.
+    not (the zero tests loosened the face), or any face programme fails, the face is
+    rebuilt with exact zero tests only (``rebuilt``, a recorded fallback); the rebuilt
+    face's problems, if any, are reported, and a solver failure is recorded as a problem
+    instead of aborting the run.
     """
     face = _face_test(problem, settings, strict, daily=daily, zero_threshold=False)
-    if face.problems and any("not the optimum" in p for p in face.problems):
+    if face.problems:
         retry = _face_test(problem, settings, strict, daily=daily, zero_threshold=True)
         return replace(retry, rebuilt=True)
     return face
@@ -1107,8 +1216,8 @@ def _face_test(
 
     def extreme(coefficients: FloatArray, sign: float) -> float | None:
         lp = replace(face, objective=Objective.CUSTOM, c=sign * coefficients, constant=0.0)
-        try:
-            result = solve_lp(lp, settings)
+        try:  # the face holds the optimum: presolve's infeasible verdict is confirmed
+            result = _solve_feasible(lp, settings)
         except OptimizationError as error:
             problems.append(f"optimal-face programme failed: {error}")
             return None
@@ -1125,7 +1234,7 @@ def _face_test(
                 "optimal-face plan fails the independent check: "
                 + "; ".join(v.describe() for v in check.violations[:5])
             )
-        if not _keeps_optimum(strict.lp, optimum, result):
+        if not _keeps_optimum(strict.lp, optimum, result, strict.result):
             problems.append(
                 f"optimal-face plan scores {strict.lp.value(result.x)!r}, "
                 f"not the optimum {optimum!r}"
@@ -1369,7 +1478,8 @@ def _least_cash(
         problems.append(f"{what}: least cash: {error}")
         return None, "epsilon_cap"
     if solution.x is None:
-        problems.append(f"{what}: least-cash programme is {solution.status}")
+        detail = f": {solution.message}" if solution.status is SolveStatus.FAILED else ""
+        problems.append(f"{what}: least-cash programme is {solution.status}{detail}")
         return None, fallback
     _certified(restricted, solution, f"{what}: least cash", problems)
     if result.x is not None and not _keeps_optimum(lp, lp.value(result.x), solution):
@@ -1534,9 +1644,16 @@ def stages_under_caps(
     """:func:`solve_stages` under caps ``objective <= value``, exact first.
 
     When the capped values are those of a known feasible plan (a policy's, or the strict
-    plan's own cash), that plan sits exactly on the caps and HiGHS can call the programme
-    infeasible at its tolerance. Only then are the caps loosened to :func:`lex_cap`, and the
-    first stage records ``fallback``.
+    plan's own cash), that plan sits exactly on the caps and HiGHS can call the programme,
+    or a later stage on its face, infeasible at its tolerance, or fail on it. So whenever
+    any stage of the exact chain is not optimal (or the solver raises), the chain is solved
+    again with the caps loosened to :func:`lex_cap`; if that completes, it is used and its
+    first stage records ``fallback``. (Every infeasible verdict of presolve is already
+    confirmed without presolve by ``solve_lp``.) If no chain completes, the one that got
+    furthest is returned,
+    with its failed stage's problem (an infeasible cap keeps the loose verdict, as before).
+    A solver error never propagates: it becomes a ``FAILED`` stage with a problem
+    (:func:`_stages_or_failure`).
     """
     probe = build_lp(problem, terminal=terminal, budget_row=budget_row)
 
@@ -1545,7 +1662,7 @@ def stages_under_caps(
             cap_row(probe, objective, lex_cap(value) if loose else value, name)
             for objective, value, name in caps
         ]
-        return solve_stages(
+        return _stages_or_failure(
             problem,
             settings,
             objectives,
@@ -1554,14 +1671,61 @@ def stages_under_caps(
             extra_rows=rows,
         )
 
-    stages = solve(False)
-    if stages[0].status is not SolveStatus.INFEASIBLE:
-        return stages
-    stages = solve(True)
-    if not stages[0].optimal:
-        return stages
-    first = replace(stages[0], stage_fallback=fallback)
-    return (first, *(first if a is stages[0] else a for a in stages[1:]))
+    def flagged(stages: tuple[Attempt, ...]) -> tuple[Attempt, ...]:
+        if not stages[0].optimal:
+            return stages
+        first = replace(stages[0], stage_fallback=fallback)
+        return (first, *(first if a is stages[0] else a for a in stages[1:]))
+
+    exact = solve(False)
+    if _optimal_stages(exact) == len(exact):
+        return exact
+    loose = solve(True)
+    if _optimal_stages(loose) == len(loose):
+        return flagged(loose)
+    # Neither completes. The loose chain is kept if it gets further, or if the exact first
+    # stage is not optimal either (an infeasible frontier cap, say: the verdict is the same).
+    best = (
+        loose if _optimal_stages(loose) > _optimal_stages(exact) or not exact[0].optimal else exact
+    )
+    return flagged(best) if best is loose else best
+
+
+def _optimal_stages(stages: Sequence[Attempt]) -> int:
+    """The number of leading stages that are optimal."""
+    return next((k for k, attempt in enumerate(stages) if not attempt.optimal), len(stages))
+
+
+def _stages_or_failure(
+    problem: PlanningProblem,
+    settings: SolverSettings,
+    objectives: Sequence[Objective],
+    *,
+    terminal: Terminal,
+    budget_row: bool,
+    extra_rows: Sequence[ExtraRow],
+) -> tuple[Attempt, ...]:
+    """:func:`solve_stages`, with a solver error of the first stage recorded as a ``FAILED``
+    stage (repeated for the remaining ones, like an infeasible stage) and a problem."""
+    try:
+        return solve_stages(
+            problem,
+            settings,
+            objectives,
+            terminal=terminal,
+            budget_row=budget_row,
+            extra_rows=extra_rows,
+        )
+    except OptimizationError as error:
+        caps = ", ".join(row.row.constraint for row in extra_rows) or "no caps"
+        failed = Attempt(
+            objectives[0],
+            SolveStatus.FAILED,
+            str(error),
+            0,
+            problems=(f"programme {objectives[0]} under {caps} failed: {error}",),
+        )
+        return tuple(failed for _ in objectives)
 
 
 def evaluate_policy(
@@ -1727,19 +1891,27 @@ def frontier(
     monotone = convex = True
     fallbacks: list[str] = []
     for variant, terminal in (("kept", Terminal.HARD), ("dropped", Terminal.NONE)):
-        top_stages = solve_stages(
+        top_stages = _stages_or_failure(
             problem,
             settings,
             tie_broken(Objective.PENALTY),
             terminal=terminal,
             budget_row=False,
+            extra_rows=(),
         )
         problems.extend(attempt_problems(top_stages))
         fallbacks.extend(stage_fallbacks(top_stages))
-        if top_stages[-1].solved is None:
+        # The least cash at the least penalty is the cash stage's optimum, which every later
+        # stage keeps: if a later tie-break failed (a recorded problem), the latest optimal
+        # stage from the cash stage on still gives it.
+        cash_stage = tie_broken(Objective.PENALTY).index(Objective.DISCRETIONARY_CASH)
+        top_solved = next(
+            (a.solved for a in reversed(top_stages[cash_stage:]) if a.solved is not None), None
+        )
+        if top_solved is None or not all(a.optimal for a in top_stages[: cash_stage + 1]):
             least_cash[variant] = None
             continue
-        top = top_stages[-1].solved.evaluation.discretionary_cost
+        top = top_solved.evaluation.discretionary_cost
         least_cash[variant] = top
         caps = [(top * i / (points - 1), "grid") for i in range(points)]
         if problem.discretionary_budget is not None and problem.discretionary_budget < top:
@@ -1760,21 +1932,70 @@ def frontier(
             first, last = stages[0], stages[-1]
             problems.extend(attempt_problems(stages))
             fallbacks.extend(stage_fallbacks(stages))
-            if first.solved is None or last.solved is None:
+            if first.solved is not None and last.solved is None:
+                # The cap is feasible (its least penalty is certified) but a tie-break stage
+                # failed after every fallback (its problem is recorded above): the point has
+                # no tie-broken plan, so only the least penalty is reported, and the point is
+                # neither "optimal" nor "infeasible".
+                failed = next(a for a in stages if a.solved is None)
+                penalty = first.solved.objective_value
+                curve.append((cap, penalty))
+                problems.append(
+                    f"frontier point at cap {cap!r} has no tie-broken plan: the cap is "
+                    f"feasible (least penalty {penalty!r}), but tie-break stage "
+                    f"{failed.objective} is {failed.status}"
+                )
+                result.append(
+                    FrontierPoint(
+                        variant,
+                        cap,
+                        marker,
+                        SolveStatus.FAILED,
+                        penalty,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                )
+                continue
+            if first.solved is None and first.status is SolveStatus.FAILED:
+                # The solver gave no verdict on the cap (its error is recorded above): the
+                # point is not called infeasible.
+                result.append(
+                    FrontierPoint(
+                        variant, cap, marker, first.status, None, None, None, None, None, None
+                    )
+                )
+                continue
+            if first.solved is None or last.solved is None:  # the cap is infeasible
                 # Confirm independently: only the target can make a capped plan impossible,
                 # so the cap must lie below the least cash that reaches the target.
                 if terminal is Terminal.NONE:
                     problems.append(f"frontier point at cap {cap!r} infeasible without a target")
                 else:
-                    needed = solve_problem(
-                        problem,
-                        settings,
-                        Objective.DISCRETIONARY_CASH,
-                        terminal=Terminal.HARD,
-                        budget_row=False,
-                    )
-                    problems.extend(needed.problems)
-                    if needed.value is not None and cap >= needed.value + 10 * tolerance(cap):
+                    try:
+                        needed = solve_problem(
+                            problem,
+                            settings,
+                            Objective.DISCRETIONARY_CASH,
+                            terminal=Terminal.HARD,
+                            budget_row=False,
+                        )
+                    except OptimizationError as error:
+                        problems.append(
+                            f"frontier point at cap {cap!r}: the least cash that reaches the "
+                            f"target could not be computed: {error}"
+                        )
+                        needed = None
+                    if needed is not None:
+                        problems.extend(needed.problems)
+                    if (
+                        needed is not None
+                        and needed.value is not None
+                        and cap >= needed.value + 10 * tolerance(cap)
+                    ):
                         problems.append(
                             f"frontier point at cap {cap!r} reported infeasible although "
                             f"{needed.value!r} USD reaches the target"
@@ -1830,10 +2051,19 @@ def frontier(
             and p.penalty is not None
         ]
         own = strict.evaluation.backlog_penalty + strict.evaluation.terminal_penalty
-        ok = bool(at) and abs(at[0] - own) <= 10 * tolerance(own) + LEX_EPS_ABS
-        check = "passed" if ok else "failed"
-        if not ok:
-            problems.append("the strict optimum does not lie on the cash/penalty frontier")
+        if not at:
+            # The point at the strict plan's cash could not be computed (its problem is
+            # recorded): the check could not be carried out, which is not a failed check.
+            check = "not_computed"
+            problems.append(
+                "the frontier point at the strict plan's cash could not be computed, so "
+                "whether the strict optimum lies on the frontier is not checked"
+            )
+        else:
+            ok = abs(at[0] - own) <= 10 * tolerance(own) + LEX_EPS_ABS
+            check = "passed" if ok else "failed"
+            if not ok:
+                problems.append("the strict optimum does not lie on the cash/penalty frontier")
     if not monotone:
         problems.append("frontier penalty increases with the cash cap")
     if not convex:

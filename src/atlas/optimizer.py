@@ -39,7 +39,7 @@ import math
 import re
 import warnings
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Final, Literal
 
@@ -125,8 +125,12 @@ ROW_UNITS: Final = {
 
 
 class SolveStatus(StrEnum):
+    """``FAILED``: the solver gave no verdict (an :class:`OptimizationError` caught by an
+    analysis fallback, see :func:`failed_result`); never a statement about the model."""
+
     OPTIMAL = "optimal"
     INFEASIBLE = "infeasible"
+    FAILED = "solver_failed"
 
 
 @dataclass(frozen=True)
@@ -384,7 +388,8 @@ class LPResult:
 
     ``highs_status`` is the HiGHS model status read from the solver message (7 optimal,
     8 infeasible, ...); ``retried`` is True when an inconclusive status was re-solved
-    without presolve.
+    without presolve, or when presolve's infeasible verdict on a programme known to contain
+    a feasible point was overturned by a re-solve without presolve.
     """
 
     status: SolveStatus
@@ -516,8 +521,67 @@ def _highs_status(result: OptimizeResult) -> int | None:
     return int(match.group(1)) if match else None
 
 
+#: Programmes whose right-hand sides and finite bounds are all at most this (in absolute
+#: value) are solved as built; larger ones are scaled exactly (:func:`scale_factor`). Up to
+#: ``2**21`` (about 2.1e6) HiGHS's absolute tolerance ``1e-9`` still spans at least two
+#: units in the last place (``ulp(2**21)`` is about 4.7e-10); above it, it does not. The
+#: largest value of any programme of the reference run is about 1.09e6.
+SCALE_THRESHOLD: Final = 2.0**21
+#: A scaled programme's largest value is brought into ``[2**(SCALE_EXPONENT - 1),
+#: 2**SCALE_EXPONENT)``, the magnitudes of the reference run's programmes.
+SCALE_EXPONENT: Final = 21
+
+
+def scale_factor(lp: LinearProgram) -> float:
+    """The power of two ``K`` the right-hand sides and finite bounds of ``lp`` are divided by.
+
+    HiGHS's feasibility tolerances (``1e-9``) are absolute. On values of ``1e8``-``1e9`` they
+    are below the rounding error of one floating-point operation, so presolve declares
+    feasible programmes infeasible and the simplex cannot clean up the unscaled solution
+    (status 15). Dividing every right-hand side and finite bound by a power of two is exact
+    in floating point and maps the programme onto an equivalent one: ``x = K x'``, the
+    objective is ``K`` times the scaled one, and every dual (row, equality and bound
+    marginal) is unchanged, since stationarity and complementary slackness do not involve
+    the right-hand sides. ``K = 1`` when the largest value is at most
+    :data:`SCALE_THRESHOLD`; otherwise the smallest power of two that brings it below
+    ``2**SCALE_EXPONENT``. It depends only on the programme's data, so it is deterministic.
+    """
+    values = [
+        np.abs(lp.b_ub),
+        np.abs(lp.b_eq),
+        np.abs(lp.lower[np.isfinite(lp.lower)]),
+        np.abs(lp.upper[np.isfinite(lp.upper)]),
+    ]
+    largest = max((float(np.max(v)) for v in values if v.size), default=0.0)
+    if not math.isfinite(largest) or largest <= SCALE_THRESHOLD:
+        return 1.0
+    _, exponent = math.frexp(largest)  # 2**(exponent - 1) <= largest < 2**exponent
+    return math.ldexp(1.0, max(0, exponent - SCALE_EXPONENT))
+
+
+def _scaled(lp: LinearProgram, factor: float) -> LinearProgram:
+    """``lp`` with every right-hand side and bound divided by ``factor`` (a power of two)."""
+    if factor == 1.0:
+        return lp
+    return replace(
+        lp,
+        b_ub=lp.b_ub / factor,
+        b_eq=lp.b_eq / factor,
+        lower=lp.lower / factor,
+        upper=lp.upper / factor,
+    )
+
+
 def solve_lp(lp: LinearProgram, settings: SolverSettings) -> LPResult:
     """Solve ``lp`` with HiGHS; a solver failure (limits, model error) raises.
+
+    The programme is first scaled exactly by :func:`scale_factor` (``K = 1`` for every
+    programme of ordinary magnitude); the solution is mapped back (``x = K x'``, duals
+    unchanged) and everything downstream (certificate, plan, values) uses the original
+    programme. A scaled solution is accepted only if its certificate holds on the original
+    programme (HiGHS's absolute tolerances act as ``K x 1e-9`` there); if it does not, or if
+    HiGHS fails on the scaled programme, the programme is solved unscaled and the first
+    certified result is used.
 
     The outcome is classified on the HiGHS model status, not only on SciPy's integer
     (SciPy maps a HiGHS model error to its "infeasible" code 2, and inconclusive outcomes
@@ -525,42 +589,100 @@ def solve_lp(lp: LinearProgram, settings: SolverSettings) -> LPResult:
     and 15 (unknown) are re-solved once without presolve; after that 9 counts as
     infeasible, because every programme built here is bounded on its feasible set
     (``x, b <= b[0] + sum d``, ``o`` and ``s`` by their daily limits, violations by the
-    backlog). Anything else raises :class:`OptimizationError`.
+    backlog). Anything else raises :class:`OptimizationError`. Presolve decides
+    feasibility at HiGHS's absolute tolerance, so its infeasible verdict is confirmed by a
+    re-solve without presolve: a certified optimum of that re-solve overturns it
+    (``retried``); otherwise presolve's result is returned unchanged.
     """
     _check_magnitudes(lp)
-    result = _linprog(lp, settings, settings.presolve)
+    factor = scale_factor(lp)
+    try:
+        result = _solve_scaled(lp, settings, factor)
+    except OptimizationError:
+        if factor == 1.0:
+            raise
+        return _solve_scaled(lp, settings, 1.0)
+    if factor == 1.0 or result.status is not SolveStatus.OPTIMAL or certify(lp, result).holds:
+        return result
+    try:
+        unscaled = _solve_scaled(lp, settings, 1.0)
+    except OptimizationError:
+        return result
+    if unscaled.status is SolveStatus.OPTIMAL and certify(lp, unscaled).holds:
+        return replace(unscaled, retried=True)
+    return result
+
+
+def _solve_scaled(lp: LinearProgram, settings: SolverSettings, factor: float) -> LPResult:
+    """One solve of ``lp`` divided by ``factor`` (see :func:`solve_lp`)."""
+    scaled = _scaled(lp, factor)
+    result = _linprog(scaled, settings, settings.presolve)
     highs = _highs_status(result)
     retried = False
     if highs in HIGHS_INCONCLUSIVE and settings.presolve:
-        result = _linprog(lp, settings, presolve=False)
+        result = _linprog(scaled, settings, presolve=False)
         highs = _highs_status(result)
         retried = True
-    code = int(result.status)
-    message = str(result.message)
-    iterations = int(getattr(result, "nit", 0) or 0)
-    if highs == HIGHS_OPTIMAL and code == 0:
-        status = SolveStatus.OPTIMAL
-    elif highs in (HIGHS_INFEASIBLE, HIGHS_UNBOUNDED_OR_INFEASIBLE):
-        status = SolveStatus.INFEASIBLE
-    else:
-        raise OptimizationError(f"HiGHS did not finish (status {code}): {message}")
+    status = _classify(result, highs)
     if status is SolveStatus.INFEASIBLE:
-        return LPResult(status, code, message, iterations, highs, retried)
+        infeasible = LPResult(
+            status,
+            int(result.status),
+            str(result.message),
+            int(getattr(result, "nit", 0) or 0),
+            highs,
+            retried,
+        )
+        if retried or not settings.presolve:
+            return infeasible
+        again = _linprog(scaled, settings, presolve=False)
+        again_highs = _highs_status(again)
+        try:
+            again_status = _classify(again, again_highs)
+        except OptimizationError:
+            return infeasible
+        if again_status is not SolveStatus.OPTIMAL:
+            return infeasible
+        candidate = _solution(lp, again, again_highs, factor, retried=True)
+        return candidate if certify(lp, candidate).holds else infeasible
+    return _solution(lp, result, highs, factor, retried=retried)
+
+
+def _classify(result: OptimizeResult, highs: int | None) -> SolveStatus:
+    code = int(result.status)
+    if highs == HIGHS_OPTIMAL and code == 0:
+        return SolveStatus.OPTIMAL
+    if highs in (HIGHS_INFEASIBLE, HIGHS_UNBOUNDED_OR_INFEASIBLE):
+        return SolveStatus.INFEASIBLE
+    raise OptimizationError(f"HiGHS did not finish (status {code}): {result.message!s}")
+
+
+def _solution(
+    lp: LinearProgram, result: OptimizeResult, highs: int | None, factor: float, *, retried: bool
+) -> LPResult:
+    """The optimal ``result`` of ``lp`` divided by ``factor``, mapped back to ``lp``."""
     has_ub = lp.a_ub.shape[0] > 0
+    x = _array(result.x) * factor
     return LPResult(
-        status,
-        code,
-        message,
-        iterations,
+        SolveStatus.OPTIMAL,
+        int(result.status),
+        str(result.message),
+        int(getattr(result, "nit", 0) or 0),
         highs,
         retried,
-        x=_array(result.x),
-        objective=lp.value(_array(result.x)),
+        x=x,
+        objective=lp.value(x),
         ub_marginals=_array(result.ineqlin.marginals) if has_ub else np.zeros(0),
         eq_marginals=_array(result.eqlin.marginals),
         lower_marginals=_array(result.lower.marginals),
         upper_marginals=_array(result.upper.marginals),
     )
+
+
+def failed_result(error: OptimizationError) -> LPResult:
+    """The result of a programme the solver could not solve (status ``FAILED``, no solution),
+    for analysis fallbacks that record a solver error instead of aborting the run."""
+    return LPResult(SolveStatus.FAILED, -1, str(error), 0)
 
 
 #: Tolerances of the optimality certificate: absolute and relative parts for rows and

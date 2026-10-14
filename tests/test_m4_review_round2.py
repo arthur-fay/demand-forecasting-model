@@ -210,15 +210,17 @@ SEED63_TRIGGER = 7170.043654371727
 
 def test_policy_caps_on_the_policy_values_never_make_the_comparison_infeasible() -> None:
     # The backlog-trigger plan sits exactly on the caps of the same-backlog programme; at
-    # this scale (27 days, ~18,000 requests a day) HiGHS calls the exactly capped programme
-    # infeasible, although the policy plan satisfies it to 1e-11. The caps are then loosened
-    # to lex_cap, and the fallback is recorded.
+    # this scale (27 days, ~18,000 requests a day) HiGHS's presolve calls the exactly capped
+    # programme infeasible, although the policy plan satisfies it to 1e-11. Since round 3
+    # solve_lp confirms that verdict without presolve (and scales the programme exactly),
+    # so the exact caps solve; the loosened caps (lex_cap, recorded as policy_epsilon_cap)
+    # remain the fallback when a stage still fails (tests/test_m4_round3_solver.py).
     problem = PlanningProblem(date(2026, 7, 1), (ServiceUnit(**SEED63_UNIT),), SEED63_BUDGET)
     outcome = evaluate_policy(problem, SETTINGS, BACKLOG_TRIGGER, {"u": SEED63_TRIGGER})
     assert outcome.same_cash.optimal
     assert outcome.same_backlog.optimal
     assert not outcome.problems
-    assert "policy_epsilon_cap" in outcome.fallbacks
+    assert set(outcome.fallbacks) <= {"policy_epsilon_cap"}
 
 
 # --- Face thresholds, kept optimum, tolerance-feasible optima ----------------------------------
