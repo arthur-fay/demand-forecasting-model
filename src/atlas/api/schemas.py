@@ -1095,8 +1095,9 @@ class ResolvedParameter(_Model):
 
 class SimulationData(_Model):
     simulation_id: str = Field(
-        description="SHA-256 of the canonical simulation configuration: equal requests give "
-        "equal ids and equal results."
+        description="SHA-256 of the canonical M4 configuration the request resolved to: equal "
+        "requests give equal ids, and equal results with the same ATLAS and solver versions "
+        "(provenance.atlas_version, GET /api/v1/system)."
     )
     label: str
     horizon_days: int

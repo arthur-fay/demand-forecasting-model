@@ -115,6 +115,14 @@ class ApiSettings:
         return self.api_key is not None
 
 
+def available_cpus() -> int:
+    """CPUs this process may run on (its affinity set, where the platform has one)."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except AttributeError:  # pragma: no cover - platforms without sched_getaffinity
+        return max(1, os.cpu_count() or 1)
+
+
 def _ipv6(host: str) -> bool:
     try:
         ipaddress.IPv6Address(host)
@@ -172,6 +180,13 @@ def load_api_settings(
     hosts = _list(environ.get(ENV_ALLOWED_HOSTS, ""))
     body = _number(environ, ENV_MAX_BODY_BYTES, int)
     slots = _number(environ, ENV_MAX_SIMULATIONS, int)
+    cpus = available_cpus()
+    if slots is not None and int(slots) > cpus:
+        # The deadline is wall-clock time: workers beyond the CPUs slow every simulation.
+        raise ConfigError(
+            f"{ENV_MAX_SIMULATIONS}={int(slots)} exceeds the {cpus} CPUs available to this "
+            "process: each simulation worker needs its own CPU to meet the deadline"
+        )
     timeout = _number(environ, ENV_SIMULATION_TIMEOUT, float)
     docs = _flag(environ, ENV_DOCS)
     return ApiSettings(
@@ -182,7 +197,7 @@ def load_api_settings(
         api_key=environ.get(ENV_API_KEY, "") or None,
         max_body_bytes=defaults.max_body_bytes if body is None else int(body),
         max_concurrent_simulations=(
-            defaults.max_concurrent_simulations if slots is None else int(slots)
+            min(defaults.max_concurrent_simulations, cpus) if slots is None else int(slots)
         ),
         simulation_timeout_seconds=defaults.simulation_timeout_seconds
         if timeout is None

@@ -345,6 +345,8 @@ def test_every_data_response_carries_the_status_guidance(api_store: ReferenceSto
 
 def test_live_docs_render(api_store: ReferenceStore) -> None:
     with client(api_store) as api:
+        # Built during startup: the first /openapi.json never stalls other requests.
+        assert api.app.openapi_schema is not None  # type: ignore[attr-defined]
         assert "swagger" in api.get("/docs").text.lower()
         assert "redoc" in api.get("/redoc").text.lower()
 

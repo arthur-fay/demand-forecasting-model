@@ -61,7 +61,7 @@ value stops startup with exit code 2; it is never replaced by a default.
 | `ATLAS_API_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` | host names and IPv4/IPv6 addresses (IPv6 without brackets); `*.domain.tld` (at least two labels) allowed; bare `*`, `*.com` and malformed labels refused |
 | `ATLAS_API_KEY` | none | ≥ 24 printable characters, no spaces; protects `POST /api/v1/simulations` |
 | `ATLAS_API_MAX_BODY_BYTES` | 16384 | 1024-1048576 |
-| `ATLAS_API_MAX_CONCURRENT_SIMULATIONS` | 2 | 1-16 worker processes |
+| `ATLAS_API_MAX_CONCURRENT_SIMULATIONS` | 2 (at most the CPUs available) | 1-16 worker processes, and no more than the CPUs available to the process: the deadline is wall-clock time, so a worker without its own CPU slows every simulation |
 | `ATLAS_API_SIMULATION_TIMEOUT_SECONDS` | 10 | 1-120 |
 | `ATLAS_API_DOCS` | `true` | `true/false/1/0/yes/no/on/off`; `false` also hides `/openapi.json` |
 | `ATLAS_API_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
@@ -795,9 +795,11 @@ The API inherits every limitation of M2-M4 and adds none of its own claims:
 - Show `limitations` and the parameters' `reference_assumption` with the result.
 
 **Caching.** Responses say `Cache-Control: no-store`. Equal simulation requests give equal
-results: the client may memoise by the canonical request body. `simulation_id` identifies
-the resolved configuration (a value sent explicitly and the same value left to its default
-give different ids, because their assumptions differ).
+results within one deployment: the client may memoise by the canonical request body together
+with `provenance.atlas_version` and the solver versions of `/api/v1/system` (an upgrade may
+change results). `simulation_id` identifies the resolved configuration: a value sent
+explicitly and the same value left to its default give different ids, because their
+assumptions differ; `0` and `-0.0` give the same one.
 
 **Deployment settings for the dashboard**
 - Same origin as the API is simplest. Otherwise set `ATLAS_API_CORS_ORIGINS` to the

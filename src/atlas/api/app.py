@@ -78,6 +78,9 @@ def create_app(
                 "reference data loaded",
                 extra={"event": "startup", "ready": app.state.store.ready},
             )
+        # Build the OpenAPI document now: generated lazily, its first request would stall
+        # the event loop for up to a second.
+        app.openapi()
         if app.state.simulator is None:
             owned = SimulationService(
                 app.state.store,

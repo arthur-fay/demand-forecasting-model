@@ -232,7 +232,8 @@ def _resolve(
             reference_assumption=None,
         )
         return None, resolved
-    value: float | int = int(requested) if unit == "planning_day" else float(requested)
+    # + 0.0 turns -0.0 into 0.0: equal simulations get equal configurations and ids.
+    value: float | int = int(requested) if unit == "planning_day" else float(requested) + 0.0
     resolved = ResolvedParameter(
         name=name,
         value=value,
@@ -287,7 +288,7 @@ def build_configuration(
     adjustments: dict[str, Any] = {}
     if demand.multiplier != 1.0:
         adjustments["demand_multiplier"] = _quantity(demand.multiplier, "ratio", CLIENT_ASSUMPTION)
-    if demand.shift_per_day != 0.0:
+    if demand.shift_per_day != 0.0:  # -0.0 == 0.0: no adjustment
         adjustments["demand_shift_per_day"] = _quantity(
             demand.shift_per_day, "requests_per_day", CLIENT_ASSUMPTION
         )

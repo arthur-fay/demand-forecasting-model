@@ -163,6 +163,19 @@ def test_surge_start_beyond_the_horizon_is_rejected(api_store: ReferenceStore) -
     ]
 
 
+def test_negative_zero_is_the_same_simulation(api_store: ReferenceStore) -> None:
+    zero = prepare(api_store, request(parameters={"terminal_penalty": 0, "initial_backlog": 0}))
+    negative = prepare(
+        api_store,
+        request(parameters={"terminal_penalty": -0.0, "initial_backlog": -0.0}),
+    )
+    assert zero.config.fingerprint() == negative.config.fingerprint()
+    assert "-0.0" not in negative.config_json
+    assert all(str(p.value) != "-0.0" for p in negative.parameters)
+    shifted = prepare(api_store, request(demand={"shift_per_day": -0.0}))
+    assert shifted.config.fingerprint() == prepare(api_store, request()).config.fingerprint()
+
+
 def test_limitations_describe_this_simulation(api_store: ReferenceStore) -> None:
     from atlas.api.simulation import limitations
 

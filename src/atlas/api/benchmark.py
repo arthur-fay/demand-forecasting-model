@@ -57,6 +57,21 @@ SIMULATIONS: Final = {
     "budget_100k_infeasible": {"parameters": {"discretionary_budget": 100_000}},
     "q0.9_stress_path": {"demand": {"basis": "m3_marginal_quantile", "quantile": 0.9}},
     "14_days_no_target": {"horizon_days": 14, "parameters": {"terminal_backlog_max": None}},
+    # Among the slowest valid inputs found in review (about 1 s): 30 days, a non-unique
+    # optimal face (per-day ranges add about 60 solves), extreme but valid values.
+    "slow_corner_case": {
+        "horizon_days": 30,
+        "demand": {"basis": "m3_marginal_quantile", "quantile": 0.75},
+        "parameters": {
+            "regular_hours_per_day": 9627.067,
+            "regular_productivity": 0.1,
+            "surge_max_per_day": 16488.524,
+            "surge_total": None,
+            "terminal_penalty": 357.295,
+            "backlog_trigger": 956255.237,
+            "discretionary_budget": 64260292.089,
+        },
+    },
 }
 STARTUP_TIMEOUT: Final = 120.0
 

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from atlas.api import logs
+from atlas.api import settings as api_settings
 from atlas.api.benchmark import _stats, run_benchmark
 from atlas.api.logs import JsonFormatter, configure_logging
 from atlas.api.server import openapi_document
@@ -21,6 +22,13 @@ from tests.conftest import REPO_ROOT
 from tests.m5_helpers import settings
 
 ENV_ROOT = {"ATLAS_REPO_ROOT": str(REPO_ROOT)}
+REAL_AVAILABLE_CPUS = api_settings.available_cpus
+
+
+@pytest.fixture(autouse=True)
+def eight_cpus(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The worker limit depends on the CPUs available; fix it for these tests."""
+    monkeypatch.setattr(api_settings, "available_cpus", lambda: 8)
 
 
 def test_defaults() -> None:
@@ -86,6 +94,20 @@ def test_environment_overrides() -> None:
 def test_invalid_settings_are_refused(name: str, value: str) -> None:
     with pytest.raises(ConfigError):
         load_api_settings(env={**ENV_ROOT, name: value})
+
+
+def test_simulation_workers_are_limited_to_the_cpus(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api_settings, "available_cpus", lambda: 2)
+    with pytest.raises(ConfigError, match="exceeds the 2 CPUs"):
+        load_api_settings(env={**ENV_ROOT, "ATLAS_API_MAX_CONCURRENT_SIMULATIONS": "4"})
+    two = load_api_settings(env={**ENV_ROOT, "ATLAS_API_MAX_CONCURRENT_SIMULATIONS": "2"})
+    assert two.max_concurrent_simulations == 2
+    monkeypatch.setattr(api_settings, "available_cpus", lambda: 1)
+    assert load_api_settings(env=ENV_ROOT).max_concurrent_simulations == 1  # default capped
+
+
+def test_available_cpus_is_positive() -> None:
+    assert REAL_AVAILABLE_CPUS() >= 1
 
 
 def test_settings_reject_booleans_as_numbers() -> None:
