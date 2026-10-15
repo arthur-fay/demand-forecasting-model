@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import json
-from collections.abc import Iterator
+import socket
+import threading
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +16,7 @@ import pytest
 from atlas.deploy import cli, monitor
 from atlas.deploy.manifest import load_manifest
 from atlas.deploy.monitor import CRITICAL, OK, WARN, Probes, run_checks
-from atlas.deploy.verify import Response, Target, Verification, request, verify
+from atlas.deploy.verify import Response, Target, Verification, request, unix_request, verify
 from tests.m6_helpers import TCP_HEADER, free_port, make_release, meminfo, tcp_line, write
 
 if TYPE_CHECKING:
@@ -38,8 +41,9 @@ def fake_proc(
     write(proc / "net/tcp", TCP_HEADER + tcp_line(0, address, port, 77))
     write(proc / "net/tcp6", TCP_HEADER)
     if cwd is not None:
-        (proc / "4242").mkdir(parents=True)
+        (proc / "4242/fd").mkdir(parents=True)
         (proc / "4242/cwd").symlink_to(cwd)
+        (proc / "4242/fd/3").symlink_to("socket:[77]")  # the listener is the service's
     return proc
 
 
@@ -117,6 +121,243 @@ def test_a_mismatched_release_fails_with_explicit_reasons(tmp_path: Path, api: i
     assert "9.9.9" in text
 
 
+# --- verify: every check, against a scripted API ------------------------------------------------
+
+HEALTHY: dict[str, Any] = {
+    "/health/live": {"status": "alive"},
+    "/health/ready": {"status": "ready", "components": [{"component": "m2", "ready": True}]},
+    "/api/v1/system": {
+        "data": {
+            "atlas_version": "0.6.0",
+            "simulation_workers": {"workers": 1, "alive": 1},
+            "limits": {"simulation_requires_api_key": True},
+        },
+        "provenance": {"data_fingerprint": "f" * 64},
+        "integrity": {
+            "validated_recommendation": False,
+            "point_forecast_validated": False,
+            "uncertainty_interval_status": "failed_calibration",
+            "uncertainty_decision_grade": False,
+        },
+    },
+    "/api/v1/uncertainty/status": {
+        "data": {"interval_status": "failed_calibration", "decision_grade": False},
+        "integrity": {
+            "validated_recommendation": False,
+            "point_forecast_validated": False,
+            "uncertainty_interval_status": "failed_calibration",
+            "uncertainty_decision_grade": False,
+        },
+    },
+    "/api/v1/scenarios": {
+        "integrity": {
+            "validated_recommendation": False,
+            "point_forecast_validated": False,
+            "uncertainty_interval_status": "failed_calibration",
+            "uncertainty_decision_grade": False,
+            "parameter_provenance": "HYPOTHETICAL",
+        }
+    },
+    "simulation": {
+        "data": {"label": "HYPOTHETICAL simulation", "horizon_days": 7, "simulation_id": "s1"},
+        "integrity": {"validated_recommendation": False},
+    },
+}
+SCRIPTED_MANIFEST = {
+    "atlas_version": "0.6.0",
+    "snapshot": {"data_fingerprint": "f" * 64},
+    "scientific_status": {"m3_interval_status": "failed_calibration"},
+}
+
+
+def scripted(
+    answers: dict[str, Any], sent: list[dict[str, str]] | None = None
+) -> Callable[..., Response | None]:
+    def requester(url: str, *, method: str = "GET", headers: Any = None, **_: Any) -> Response:
+        path = url.split("8000", 1)[1]
+        if path == "/api/v1/simulations":
+            if sent is not None:
+                sent.append(dict(headers or {}))
+            if not (headers or {}).get("X-API-Key"):
+                return response(401, {"error": {"code": "unauthorized"}})
+            return response(200, answers["simulation"])
+        return response(200, answers[path])
+
+    return requester
+
+
+def scripted_verify(
+    tmp_path: Path, answers: dict[str, Any], sent: list[dict[str, str]] | None = None
+) -> Verification:
+    target = Target(
+        base_url="http://127.0.0.1:8000",
+        manifest=SCRIPTED_MANIFEST,
+        api_key=KEY,
+        workers=1,
+        main_pid=4242,
+        api_port=8000,
+    )
+    return verify(
+        target,
+        timeout=5,
+        requester=scripted(answers, sent),
+        proc=fake_proc(tmp_path, 8000, cwd=tmp_path),
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "keys", "value", "check"),
+    [
+        ("/api/v1/system", ("integrity", "validated_recommendation"), True, "scientific integrity"),
+        ("/api/v1/system", ("integrity", "point_forecast_validated"), True, "scientific integrity"),
+        (
+            "/api/v1/scenarios",
+            ("integrity", "uncertainty_decision_grade"),
+            True,
+            "scientific integrity",
+        ),
+        (
+            "/api/v1/scenarios",
+            ("integrity", "parameter_provenance"),
+            "VERIFIED",
+            "scientific integrity",
+        ),
+        ("/api/v1/uncertainty/status", ("data", "decision_grade"), True, "scientific integrity"),
+        (
+            "/api/v1/uncertainty/status",
+            ("data", "interval_status"),
+            "calibrated",
+            "scientific integrity",
+        ),
+        ("simulation", ("data", "label"), "a staffing plan", "smoke simulation"),
+        ("simulation", ("integrity", "validated_recommendation"), True, "smoke simulation"),
+        (
+            "/api/v1/system",
+            ("data", "limits", "simulation_requires_api_key"),
+            False,
+            "simulation key required",
+        ),
+    ],
+)
+def test_each_integrity_label_is_checked(
+    tmp_path: Path, path: str, keys: tuple[str, ...], value: Any, check: str
+) -> None:
+    assert scripted_verify(tmp_path, HEALTHY).ok
+    answers = copy.deepcopy(HEALTHY)
+    node = answers[path]
+    for key in keys[:-1]:
+        node = node[key]
+    node[keys[-1]] = value
+    result = scripted_verify(tmp_path / "x", answers)
+    assert not result.ok
+    assert check in names(result, False), result.render()
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/api/v1/system", {"data": None, "provenance": None, "integrity": None}),
+        ("/api/v1/system", {"data": {"simulation_workers": [], "limits": "x"}}),
+        ("/health/ready", {"components": "all"}),
+        ("/api/v1/scenarios", []),
+        ("simulation", {"data": None, "integrity": None}),
+    ],
+)
+def test_malformed_answers_fail_checks_never_the_verification(
+    tmp_path: Path, path: str, body: Any
+) -> None:
+    answers = copy.deepcopy(HEALTHY)
+    answers[path] = body
+    result = scripted_verify(tmp_path, answers)  # no exception
+    assert not result.ok
+
+
+def test_the_key_is_sent_only_to_the_service_itself(tmp_path: Path) -> None:
+    sent: list[dict[str, str]] = []
+    assert scripted_verify(tmp_path / "ok", HEALTHY, sent).ok
+    assert any("X-API-Key" in headers for headers in sent)
+    # Another process holds the port (the service is down; a local account took it).
+    sent.clear()
+    proc = fake_proc(tmp_path / "impostor", 8000, cwd=tmp_path)
+    (proc / "4242/fd/3").unlink()
+    (proc / "4242/fd/3").symlink_to("socket:[99]")
+    target = Target(
+        base_url="http://127.0.0.1:8000",
+        manifest=SCRIPTED_MANIFEST,
+        api_key=KEY,
+        workers=1,
+        main_pid=4242,
+        api_port=8000,
+    )
+    result = verify(target, timeout=5, requester=scripted(HEALTHY, sent), proc=proc)
+    assert not result.ok
+    assert "held by another process" in next(
+        c.detail for c in result.checks if c.name == "smoke simulation"
+    )
+    assert not any("X-API-Key" in headers for headers in sent)  # never sent
+    # Nor to a listener that does not require it.
+    sent.clear()
+    open_answers = copy.deepcopy(HEALTHY)
+
+    def accepts_anything(url: str, **kwargs: Any) -> Response | None:
+        if url.endswith("/api/v1/simulations"):
+            sent.append(dict(kwargs.get("headers") or {}))
+            return response(200, open_answers["simulation"])
+        return scripted(open_answers)(url, **kwargs)
+
+    target_ok = Target(
+        base_url="http://127.0.0.1:8000",
+        manifest=SCRIPTED_MANIFEST,
+        api_key=KEY,
+        workers=1,
+        main_pid=4242,
+        api_port=8000,
+    )
+    result = verify(
+        target_ok,
+        timeout=5,
+        requester=accepts_anything,
+        proc=fake_proc(tmp_path / "o", 8000, cwd=tmp_path),
+    )
+    assert "simulation without key" in names(result, False)
+    assert not any("X-API-Key" in headers for headers in sent)
+
+
+def test_the_proxy_socket_is_checked(tmp_path: Path) -> None:
+    import http.server
+    import socketserver
+
+    class Live(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
+
+    path = Path("/tmp") / f"atlas-verify-{socket.gethostname()[:8]}-{id(tmp_path)}.sock"  # noqa: S108
+    path.unlink(missing_ok=True)
+    server = Server(str(path), Live)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        answer = unix_request(path, "/health/live")
+        assert answer is not None
+        assert answer.status == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+        path.unlink(missing_ok=True)
+    assert unix_request(path, "/health/live") is None
+    target = Target(base_url="http://127.0.0.1:8000", api_socket=path, smoke_simulation=False)
+    result = verify(target, timeout=5, requester=scripted(HEALTHY), proc=fake_proc(tmp_path, 8000))
+    assert "proxy socket" in names(result, False)
+
+
 def test_a_service_that_never_answers(tmp_path: Path) -> None:
     clock = iter(range(0, 1000, 10))
     result = verify(
@@ -186,6 +427,7 @@ def test_a_healthy_run_is_ok_and_keeps_counters() -> None:
     report, state = run_checks(probes(), {}, tls_domain="atlas.example.org")
     assert report.status == OK, report.findings
     assert state["restarts"] == 0
+    assert state["restart_times"] == []
     assert state["crashes"] == 0
     assert state["cpu_ns"] == 5_000_000_000
     payload = report.to_dict()
@@ -242,6 +484,9 @@ def test_cpu_use_is_measured_between_runs() -> None:
         ({}, {"crashes": -1}, WARN, "crashes"),
         ({}, {"timeouts": -1}, WARN, "timeouts"),
         ({}, {"restarts": -1}, WARN, "restarts"),
+        # A slow crash loop: the third automatic restart within an hour is critical.
+        ({}, {"restarts": -1, "restart_times": [100.0, 900.0]}, CRITICAL, "restarts"),
+        ({}, {"restarts": -1, "restart_times": [-3000.0, 900.0]}, WARN, "restarts"),
         (
             {"read": {"/proc/meminfo": meminfo(2048, 60, 0), "/proc/loadavg": "0 0 0"}.get},
             {},

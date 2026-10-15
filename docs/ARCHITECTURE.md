@@ -113,7 +113,8 @@ src/atlas/
   api/settings.py         validated ATLAS_API_* settings
   api/logs.py             JSON-lines logging
   api/server.py           atlas api serve / openapi (loopback unless a key is set; a
-                          request-read deadline per connection; systemd notifications, M6)
+                          request-read deadline per connection; systemd notifications and
+                          --uds, a Unix socket for the reverse proxy, M6)
   api/notify.py           (M6) READY / WATCHDOG / STOPPING for a Type=notify unit
   api/benchmark.py        atlas api bench (measured latency and memory)
 
@@ -308,7 +309,10 @@ operator (sudo)                       server
                                       ─► render units + env + nginx (release templates,
                                          OpenAPI routes) ─► nginx -t, daemon-reload
                                       ─► switch current ─► restart (READY=1) ─► verify
-                                      ─► on failure: previous release back, verified
+                                      ─► verified: kept as the last verified state
+                                      ─► on failure: the last verified state back
+                                         (release + configuration), verified; nothing
+                                         verified: stopped and disabled
   atlas-monitor.timer ──────────────► health, workers, resources, logs, TLS ─► journal
                                       ─► critical: atlas-alert@ (operator hook)
 ```
@@ -322,6 +326,8 @@ operator (sudo)                       server
 | Releases immutable, root-owned, fingerprinted | A failed deployment cannot alter research outputs; any altered file is refused before activation |
 | Verification includes the scientific-integrity labels | A deployment that served unlabelled or "validated" results would be rolled back |
 | The key as a systemd credential, added by nginx | Never in an environment, a unit property, a browser or a log |
+| nginx reaches the API through a Unix socket in the service's runtime directory | No other local account can stand in for the API (and receive the key) while it restarts; the loopback port stays for tunnels and checks |
+| Only a verified state is ever restored | A rollback never returns to a release (or configuration) that did not pass verification |
 
 ### Extending to new snapshots
 

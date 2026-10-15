@@ -9,11 +9,35 @@ ConditionFileIsExecutable={{alert_hook}}
 [Service]
 Type=oneshot
 ExecStart={{alert_hook}} %i
+# A transient unprivileged account; it may read the journal (to include the monitor's
+# report) and reach the network (to send the alert), nothing else.
 DynamicUser=yes
 SupplementaryGroups=systemd-journal
 TimeoutStartSec=60
+MemoryMax=128M
+TasksMax=32
+UMask=0077
 NoNewPrivileges=yes
+CapabilityBoundingSet=
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
 InaccessiblePaths=-{{credentials}} -{{nginx_dir}} -{{state}}

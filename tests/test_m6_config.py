@@ -212,6 +212,20 @@ def test_unsafe_key_files_are_refused(
         load_api_settings(env={**ENV_ROOT, ENV_API_KEY_FILE: str(path)})
 
 
+def test_group_read_is_accepted_for_the_root_group_only(tmp_path: Path) -> None:
+    """A systemd credential shows as 0440 group root (its ACL mask); a key file another
+    group could read is refused."""
+    path = key_file(tmp_path, mode=0o440)
+    if os.geteuid() == 0:
+        os.chown(path, -1, 0)
+        assert read_api_key_file(path) == KEY
+        os.chown(path, -1, 1)
+    elif os.getegid() == 0:  # pragma: no cover - a non-root user in group root
+        pytest.skip("the test user's group is root")
+    with pytest.raises(ConfigError, match="by its group"):
+        read_api_key_file(path)
+
+
 def test_key_file_errors_never_echo_the_content(tmp_path: Path) -> None:
     secret = "s3cr3t s3cr3t s3cr3t s3cr3t"  # invalid: contains spaces  # noqa: S105
     path = key_file(tmp_path, secret)

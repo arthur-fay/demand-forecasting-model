@@ -168,7 +168,9 @@ def check_release_tree(
             if stat.S_ISLNK(info.st_mode):
                 target = str(path.readlink())
                 absolute = (
-                    (path.parent / target).resolve() if not target.startswith("/") else Path(target)
+                    (path.parent / target).resolve()
+                    if not target.startswith("/")
+                    else Path(os.path.normpath(target))  # no /usr/lib/../../etc escape
                 )
                 inside = absolute == resolved_release or resolved_release in absolute.parents
                 if not inside and not str(absolute).startswith(targets):

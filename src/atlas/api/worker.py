@@ -46,6 +46,7 @@ PONG: Final = ("ok", "pong")
 #: The OOM score adjustment of a worker process (the server keeps its own, lower one).
 WORKER_OOM_SCORE_ADJ: Final = 500
 OOM_SCORE_ADJ: Final = Path("/proc/self/oom_score_adj")
+OOM_SCORE_MAX: Final = 1000
 
 
 @dataclass(frozen=True)
@@ -127,17 +128,18 @@ class _Lifetime:
 
 
 def prefer_oom_kill(path: Path = OOM_SCORE_ADJ, score: int = WORKER_OOM_SCORE_ADJ) -> bool:
-    """Raise this process's OOM score adjustment to ``score`` (best effort; Linux only).
+    """Raise this process's OOM score adjustment by ``score`` above the one it inherited
+    from the server (at most 1000, the kernel's maximum), so the kernel picks a worker
+    before the server whatever the server's own adjustment (best effort; Linux only).
 
-    Any process may raise its own adjustment; lowering it needs privileges, so a value
-    already above ``score`` is kept. Returns whether the adjustment is now at least
-    ``score``.
+    Any process may raise its own adjustment (lowering it needs privileges). Returns
+    whether the adjustment was raised (or already is the maximum).
     """
     try:
-        current = int(path.read_text(encoding="ascii").strip() or "0")
-        if current >= score:
-            return True
-        path.write_text(f"{score}\n", encoding="ascii")
+        inherited = int(path.read_text(encoding="ascii").strip() or "0")
+        target = min(OOM_SCORE_MAX, inherited + score)
+        if target > inherited:
+            path.write_text(f"{target}\n", encoding="ascii")
     except (OSError, ValueError):
         return False
     return True

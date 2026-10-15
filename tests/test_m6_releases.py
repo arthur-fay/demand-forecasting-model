@@ -63,11 +63,22 @@ class FakeHost:
         self.calls.append("enable")
         return True, ""
 
+    def disable(self, unit: str) -> tuple[bool, str]:
+        self.calls.append("disable")
+        return True, ""
+
     def reset_failed(self, unit: str) -> tuple[bool, str]:
         self.calls.append("reset-failed")
         return True, ""
 
+    def start(self, unit: str) -> tuple[bool, str]:
+        self.calls.append(f"start {unit}")
+        return True, ""
+
     def restart(self, unit: str) -> tuple[bool, str]:
+        if unit != "atlas.service":
+            self.calls.append(f"restart {unit}")
+            return True, ""
         self.calls.append(f"restart {self.current()}")
         ok = self.current() not in self.fail_restart
         return ok, "" if ok else "Job for atlas.service failed"
@@ -149,9 +160,28 @@ def test_a_first_activation(tmp_path: Path) -> None:
     record = deploy.activate(name(A))
     assert record["outcome"] == ACTIVATED, record
     assert deploy.current() == name(A)
-    assert host.calls == ["daemon-reload", "enable", "reset-failed", f"restart {name(A)}"]
+    assert host.calls == [
+        "daemon-reload",
+        "enable",
+        "start atlas-monitor.timer",  # enabled is not running: monitoring starts now
+        "restart systemd-journald.service",  # the journal limits apply now
+        "reset-failed",
+        f"restart {name(A)}",
+    ]
     assert (tmp_path / "etc/systemd/system/atlas.service").is_file()
-    assert [r["outcome"] for r in deploy.history()] == [IN_PROGRESS, ACTIVATED]
+    history = deploy.history()
+    assert [r["outcome"] for r in history] == [IN_PROGRESS, ACTIVATED]
+    assert history[0]["op"] == history[1]["op"]
+    good = deploy.good_state()
+    assert good is not None
+    assert good["release"] == name(A)
+    assert good["deploy_env"] == ""
+    assert (tmp_path / "var/lib/atlas/deploy/last-good.json").stat().st_mode & 0o777 == 0o600
+    # Again: the journal is not restarted (its drop-in is unchanged), the timer is started.
+    calls = len(host.calls)
+    deploy.activate(name(A))
+    assert "restart systemd-journald.service" not in host.calls[calls:]
+    assert "start atlas-monitor.timer" in host.calls[calls:]
     assert not (tmp_path / "opt/atlas/.current.new").exists()
 
 
@@ -196,7 +226,9 @@ def test_a_failed_first_deployment_is_stopped(tmp_path: Path) -> None:
     make_release(tmp_path, commit=A)
     record = deploy.activate(name(A))
     assert record["outcome"] == STOPPED
-    assert host.calls[-1] == "stop"
+    # Stopped and disabled: a release that never verified does not start at boot either.
+    assert host.calls[-2:] == ["stop", "disable"]
+    assert deploy.good_state() is None
 
 
 def test_a_failed_restoration_is_reported_and_the_service_stopped(tmp_path: Path) -> None:
@@ -207,13 +239,135 @@ def test_a_failed_restoration_is_reported_and_the_service_stopped(tmp_path: Path
     host.fail_restart = {name(A), name(B)}
     record = deploy.activate(name(B))
     assert record["outcome"] == ROLLBACK_FAILED
+    assert host.calls[-2:] == ["stop", "disable"]  # the restore failed too: nothing serves
     # A previous release that no longer passes its checks is not restored at all.
     (tmp_path / "opt/atlas/releases" / name(A) / "uv.lock").write_text("tampered")
     host.fail_restart = set()
     record = deploy.activate(name(B))
     assert record["outcome"] == ROLLBACK_FAILED
     assert any("cannot restore" in line for line in record["detail"])
-    assert host.calls[-1] == "stop"
+    assert host.calls[-2:] == ["stop", "disable"]
+
+
+def test_a_failure_returns_to_the_last_verified_release_not_to_the_previous_link(
+    tmp_path: Path,
+) -> None:
+    """B never verified (its activation stopped the service); C then fails: A, the last
+    verified release, is restored, not B."""
+    deploy, _ = deployment(tmp_path, broken={name(B), name(C)})
+    for commit in (A, B, C):
+        make_release(tmp_path, commit=commit)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    assert deploy.activate(name(B))["outcome"] == ROLLED_BACK
+    deploy.switch(name(B))  # as if an operator had pointed the link at B by hand
+    record = deploy.activate(name(C))
+    assert record["outcome"] == ROLLED_BACK, record
+    assert record["previous"] == name(B)
+    assert record["restored"] == name(A)
+    assert deploy.current() == name(A)
+
+
+def test_a_failed_configuration_change_restores_the_verified_configuration(
+    tmp_path: Path,
+) -> None:
+    """Re-activating the current release applies a deploy.env change; if it fails, the
+    same release comes back with the files rendered from the verified configuration."""
+    deploy, host = deployment(tmp_path)
+    make_release(tmp_path, commit=A)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    runtime = tmp_path / "etc/atlas/atlas.env"
+    verified = runtime.read_text()
+    write(tmp_path / "etc/atlas/deploy.env", "ATLAS_DEPLOY_LOG_LEVEL=DEBUG\n", 0o644)
+    deploy.verifier = verifier({name(A)})  # the new configuration does not verify
+    calls = len(host.calls)
+    restarts: list[str] = []
+
+    def recovered(target: Target) -> Verification:
+        restarts.append(runtime.read_text())
+        return verifier({name(A)} if len(restarts) == 1 else set())(target)
+
+    deploy.verifier = recovered
+    record = deploy.activate(name(A))
+    assert record["outcome"] == ROLLED_BACK, record
+    assert record["restored"] == name(A)
+    assert "ATLAS_API_LOG_LEVEL=DEBUG" in restarts[0]  # the change was tried
+    assert runtime.read_text() == verified  # and undone: the verified files are back
+    assert any("the state verified at" in line for line in record["detail"])
+    assert host.calls[calls:].count(f"restart {name(A)}") == 2
+    # deploy.env keeps the operator's edit (to fix and apply again).
+    assert "DEBUG" in (tmp_path / "etc/atlas/deploy.env").read_text()
+
+
+def test_an_interrupted_activation_blocks_other_changes_until_recovered(tmp_path: Path) -> None:
+    deploy, _ = deployment(tmp_path, broken={name(B)})
+    make_release(tmp_path, commit=A)
+    make_release(tmp_path, commit=B)
+    deploy.activate(name(A))
+    # The activation of B dies after the switch (a lost SSH session).
+    deploy.record("activate", IN_PROGRESS, op="op-b", release=name(B), previous=name(A))
+    deploy.switch(name(B))
+    # Later records (a refused typo, a status) do not hide it ...
+    assert deploy.activate("0.0.0-typo")["outcome"] == REFUSED
+    assert deploy.pending() is not None
+    assert deploy.pending()["op"] == "op-b"
+    # ... and nothing else may change the deployment meanwhile.
+    refused = deploy.activate(name(A))
+    assert refused["outcome"] == REFUSED
+    assert "atlas-deploy recover" in refused["detail"][0]
+    with pytest.raises(DeployError, match="recover"):
+        deploy.prune()
+    record = deploy.recover()
+    assert record["outcome"] == ROLLED_BACK
+    assert record["op"] == "op-b"
+    assert record["restored"] == name(A)
+    assert deploy.pending() is None
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+
+
+def test_prune_waits_for_a_running_build(tmp_path: Path) -> None:
+    import fcntl
+
+    deploy, _ = deployment(tmp_path)
+    make_release(tmp_path, commit=A)
+    deploy.activate(name(A))
+    lock = tmp_path / "var/lib/atlas/deploy/build.lock"
+    with lock.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        with pytest.raises(DeployError, match="build is running"):
+            deploy.prune()
+    assert deploy.prune() == []
+
+
+def test_unexpected_errors_in_the_restoration_stop_the_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deploy, host = deployment(tmp_path, broken={name(B)})
+    make_release(tmp_path, commit=A)
+    make_release(tmp_path, commit=B)
+    deploy.activate(name(A))
+
+    def broken_point(*args: Any) -> Any:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(deploy, "_restore_point", broken_point)
+    record = deploy.activate(name(B))
+    assert record["outcome"] == ROLLBACK_FAILED
+    assert any("the restoration failed: OSError" in line for line in record["detail"])
+    assert host.calls[-2:] == ["stop", "disable"]
+    assert deploy.pending() is None  # the operation has its outcome
+
+
+def test_unsafe_directories_and_tls_keys_are_refused(tmp_path: Path) -> None:
+    deploy, _ = deployment(tmp_path, DEPLOY_ENV_PRIVATE)
+    make_release(tmp_path, commit=A)
+    key = tmp_path / "etc/letsencrypt/live/atlas.example.org/privkey.pem"
+    key.chmod(0o644)
+    releases = tmp_path / "opt/atlas/releases"
+    releases.chmod(0o777)
+    problems, _ = deploy.check(name(A))
+    releases.chmod(0o755)
+    assert any("privkey.pem has mode 0644" in p for p in problems), problems
+    assert any("/opt/atlas/releases" in p and "chmod go-w" in p for p in problems), problems
 
 
 @pytest.mark.parametrize(
@@ -467,6 +621,8 @@ class ProcessHost(FakeHost):
         self.process: subprocess.Popen[bytes] | None = None
 
     def restart(self, unit: str) -> tuple[bool, str]:
+        if unit != "atlas.service":
+            return super().restart(unit)
         self.stop(unit)
         self.calls.append(f"restart {self.current()}")
         current = self.layout.local(self.layout.current)
@@ -477,8 +633,20 @@ class ProcessHost(FakeHost):
             "ATLAS_API_MAX_CONCURRENT_SIMULATIONS": "1",
             "ATLAS_API_DOCS": "false",
         }
+        socket_path = self.layout.local(self.layout.api_socket)
+        socket_path.parent.mkdir(parents=True, exist_ok=True)  # systemd's RuntimeDirectory
         self.process = subprocess.Popen(  # noqa: S603
-            [sys.executable, "-m", "atlas", "api", "serve", "--port", str(self.port)],
+            [
+                sys.executable,
+                "-m",
+                "atlas",
+                "api",
+                "serve",
+                "--port",
+                str(self.port),
+                "--uds",
+                str(socket_path),
+            ],
             cwd=current,
             env=env,
             stdout=subprocess.DEVNULL,
@@ -612,7 +780,7 @@ def test_a_repeated_activation_is_not_blocked_by_the_start_limit(tmp_path: Path)
     make_release(tmp_path, commit=A)
     for _ in range(6):
         assert deploy.activate(name(A))["outcome"] == ACTIVATED
-    restarts = [i for i, call in enumerate(host.calls) if call.startswith("restart")]
+    restarts = [i for i, call in enumerate(host.calls) if call == f"restart {name(A)}"]
     assert len(restarts) == 6
     assert all(host.calls[i - 1] == "reset-failed" for i in restarts)
 

@@ -12,15 +12,21 @@ runs whichever release ``/opt/atlas/current`` points to. Activating a release:
    templates, and checks nginx's configuration before using it;
 4. records the activation as in progress, switches the link atomically, restarts the
    service (which reports ready only after verifying its data) and reloads nginx;
-5. verifies the running deployment (:mod:`atlas.deploy.verify`);
-6. on any failure, switches back to the previous release, renders its files again,
-   restarts and verifies it. A first deployment that fails is stopped instead.
+5. verifies the running deployment (:mod:`atlas.deploy.verify`) and, if it passes, keeps
+   that state (the release and the ``deploy.env`` it was verified with) as the last
+   verified state;
+6. on any failure, restores the last verified state: its release, with the files rendered
+   from the configuration it was verified with (so a failed configuration change on the
+   same release is undone too), restarted and verified. With no verified state to return
+   to, or if that fails too, the service is stopped and disabled: nothing unverified serves,
+   not even after a reboot.
 
 Nothing here deletes or edits a release: a failed deployment cannot alter the research
 artifacts of any release. Each step is appended to ``/var/lib/atlas/deploy/history.jsonl``;
 an activation interrupted half-way (a lost SSH session) leaves an ``in_progress`` record
-that :func:`recover` completes. Every host action goes through :class:`Host`, so the tests
-replace systemd and nginx with fakes.
+(with an operation id) that only :func:`recover` completes; until then every other
+change is refused. Every host action goes through :class:`Host`, so the tests replace
+systemd and nginx with fakes.
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from secrets import token_hex
 from typing import Any, Final, Protocol
 
 from atlas.deploy.credentials import SecretStore
@@ -48,7 +55,14 @@ from atlas.deploy.layout import (
 )
 from atlas.deploy.manifest import ManifestError, check_release, load_manifest
 from atlas.deploy.permissions import check_not_writable_by_others, check_release_tree
-from atlas.deploy.render import Rendered, Renderer, disable_site, enable_site, write_files
+from atlas.deploy.render import (
+    JOURNAL_DROPIN,
+    Rendered,
+    Renderer,
+    disable_site,
+    enable_site,
+    write_files,
+)
 from atlas.deploy.siteconfig import DeployConfig, DeployConfigError, load_config
 from atlas.deploy.verify import Target, Verification
 
@@ -74,7 +88,9 @@ class Host(Protocol):
 
     def daemon_reload(self) -> tuple[bool, str]: ...
     def enable(self, *units: str) -> tuple[bool, str]: ...
+    def disable(self, unit: str) -> tuple[bool, str]: ...
     def reset_failed(self, unit: str) -> tuple[bool, str]: ...
+    def start(self, unit: str) -> tuple[bool, str]: ...
     def restart(self, unit: str) -> tuple[bool, str]: ...
     def stop(self, unit: str) -> tuple[bool, str]: ...
     def main_pid(self, unit: str) -> int | None: ...
@@ -110,8 +126,14 @@ class SystemHost:
     def enable(self, *units: str) -> tuple[bool, str]:
         return _run(["systemctl", "enable", *units], 60)
 
+    def disable(self, unit: str) -> tuple[bool, str]:
+        return _run(["systemctl", "disable", unit], 60)
+
     def reset_failed(self, unit: str) -> tuple[bool, str]:
         return _run(["systemctl", "reset-failed", unit], 30)
+
+    def start(self, unit: str) -> tuple[bool, str]:
+        return _run(["systemctl", "start", unit], 60)
 
     def restart(self, unit: str) -> tuple[bool, str]:
         # Blocks until the unit reports ready (Type=notify) or fails (TimeoutStartSec).
@@ -212,6 +234,49 @@ class Deployment:
             os.fsync(handle.fileno())
         return entry
 
+    def _operation(self) -> str:
+        """An id tying an activation's ``in_progress`` record to its outcome."""
+        return f"{self.now().strftime('%Y%m%dT%H%M%S')}-{token_hex(4)}"
+
+    def _deploy_env_text(self) -> str | None:
+        try:
+            return self.layout.local(self.layout.deploy_env).read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    def _save_good(self, release_id: str, deploy_env: str | None) -> list[str]:
+        """Keep the verified state (atomically); a note if it could not be kept."""
+        if deploy_env is None:
+            return ["the verified configuration could not be read; it was not kept"]
+        path = self.layout.local(self.layout.good_state)
+        entry = {
+            "release": release_id,
+            "deploy_env": deploy_env,
+            "ts": self.now().isoformat(timespec="seconds"),
+        }
+        temporary = path.with_name(f".{path.name}.new")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps(entry, sort_keys=True) + "\n", encoding="utf-8")
+            temporary.chmod(0o600)
+            temporary.replace(path)
+        except OSError as exc:
+            return [f"the verified state could not be kept: {exc}"]
+        return []
+
+    def good_state(self) -> dict[str, Any] | None:
+        """The last verified state, if it is readable and its release is still on disk."""
+        try:
+            entry = json.loads(self.layout.local(self.layout.good_state).read_text("utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(entry, dict) or not isinstance(entry.get("deploy_env"), str):
+            return None
+        release = entry.get("release")
+        if not isinstance(release, str) or release not in self.releases():
+            return None
+        return entry
+
     def last_good(self, exclude: str | None = None) -> str | None:
         """The most recently activated release (other than ``exclude``) still on disk."""
         on_disk = set(self.releases())
@@ -259,8 +324,11 @@ class Deployment:
     def owner_gid(self) -> int:
         return 0 if self.owner == 0 else os.getegid()
 
-    def check(self, release_id: str) -> tuple[list[str], DeployConfig | None]:
-        """Everything that must hold before ``release_id`` may serve (empty: it may)."""
+    def check(
+        self, release_id: str, config: DeployConfig | None = None
+    ) -> tuple[list[str], DeployConfig | None]:
+        """Everything that must hold before ``release_id`` may serve (empty: it may), with
+        ``config`` (by default the one in ``deploy.env``)."""
         if not valid_release_id(release_id):
             return [f"invalid release id {release_id!r}"], None
         release = self.release_path(release_id)
@@ -268,19 +336,23 @@ class Deployment:
             return [f"release {release_id} is not in {self.layout.releases}"], None
         problems = check_release(release)
         problems += [str(p) for p in check_release_tree(release, owner=self.owner)]
-        config: DeployConfig | None = None
-        try:
-            config = self.config()
-        except DeployConfigError as exc:
-            problems += [f"deploy.env: {p}" for p in exc.problems]
-        problems += [
-            str(p)
-            for p in check_not_writable_by_others(
-                self.layout.local(self.layout.deploy_env),
-                owner=self.owner,
-                shown=str(self.layout.deploy_env),
-            )
-        ]
+        if config is None:
+            try:
+                config = self.config()
+            except DeployConfigError as exc:
+                problems += [f"deploy.env: {p}" for p in exc.problems]
+        # What root reads, and the directories above it: nobody else may replace them.
+        guarded = [self.layout.install, self.layout.releases, self.layout.config]
+        guarded.append(self.layout.deploy_env)
+        if config is not None and config.exposed:
+            guarded.append(self.layout.nginx)
+        for path in guarded:
+            problems += [
+                str(p)
+                for p in check_not_writable_by_others(
+                    self.layout.local(path), owner=self.owner, shown=str(path)
+                )
+            ]
         if config is not None:
             problems += [
                 str(p)
@@ -292,6 +364,9 @@ class Deployment:
                 for path in (config.tls_cert, config.tls_key):
                     if not self.layout.local(path).exists():
                         problems.append(f"{path} is missing (obtain the certificate first)")
+                problems += _check_tls_key(
+                    self.layout.local(config.tls_key), config.tls_key, owner=self.owner
+                )
         return problems, config
 
     # --- Rendering ----------------------------------------------------------------------------
@@ -316,19 +391,18 @@ class Deployment:
             self._restore(files, backups, groups)
             return False, f"the rendered files could not be written: {exc}"
         changed = [str(r.path) for r in results if r.changed]
-        units_changed = any(path.startswith(str(self.layout.systemd)) for path in changed)
         if config.exposed:
             enable_site(self.layout)
             ok, output = self.host.nginx_test()
             if not ok:
                 self._restore(files, backups, groups, site)
                 return False, f"nginx refused the rendered site: {output}"
-        if units_changed:
-            ok, output = self.host.daemon_reload()
-            if not ok:
-                self._restore(files, backups, groups, site)
-                self.host.daemon_reload()
-                return False, f"systemctl daemon-reload failed: {output}"
+        # Always: units written by `render --apply` (or by hand) must be loaded too.
+        ok, output = self.host.daemon_reload()
+        if not ok:
+            self._restore(files, backups, groups, site)
+            self.host.daemon_reload()
+            return False, f"systemctl daemon-reload failed: {output}"
         if not config.exposed and site != (None, None):
             # The profile no longer exposes the API: an earlier profile's site must stop
             # serving now, not linger in nginx (removed, checked, reloaded if running).
@@ -338,12 +412,20 @@ class Deployment:
                 ok, output = self.host.nginx_reload_if_running()
             if not ok:
                 self._restore(files, backups, groups, site)
-                if units_changed:
-                    self.host.daemon_reload()
+                self.host.daemon_reload()
                 return False, f"nginx refused the configuration without the ATLAS site: {output}"
             changed.append(f"{self.layout.nginx_site} (removed: the profile is not exposed)")
         self.host.enable(SERVICE, MONITOR_TIMER)
-        return True, "changed: " + (", ".join(changed) or "nothing")
+        notes = []
+        ok, output = self.host.start(MONITOR_TIMER)  # enabled is not running: start it now
+        if not ok:
+            notes.append(f"{MONITOR_TIMER} did not start: {output}")
+        if str(self.layout.journald / JOURNAL_DROPIN) in changed:
+            # journald reads its limits at start: apply the new ones now, not at the reboot.
+            ok, output = self.host.restart("systemd-journald.service")
+            if not ok:
+                notes.append(f"systemd-journald did not restart: {output}")
+        return True, "; ".join(["changed: " + (", ".join(changed) or "nothing"), *notes])
 
     def _site_state(self) -> tuple[bytes | None, str | None]:
         """The nginx site's file and its ``sites-enabled`` link, to put back on failure."""
@@ -410,6 +492,7 @@ class Deployment:
             release_dir=self.release_path(release_id),
             main_pid=self.host.main_pid(SERVICE),
             api_port=config.api_port,
+            api_socket=self.layout.local(self.layout.api_socket),
         )
 
     def _start(self, release_id: str, config: DeployConfig) -> tuple[bool, list[str]]:
@@ -425,11 +508,12 @@ class Deployment:
             raise NotSwitched(f"installing the files failed: {type(exc).__name__}: {exc}") from exc
         if not ok:
             raise NotSwitched(detail)
-        self.switch(release_id)
         try:
-            return self._serve(release_id, config)
+            self.switch(release_id)
+            ok, lines = self._serve(release_id, config)
         except Exception as exc:  # never leave a switched release without a verdict
             return False, [f"unexpected error after the switch: {type(exc).__name__}: {exc}"]
+        return ok, [*lines, detail]
 
     def _serve(self, release_id: str, config: DeployConfig) -> tuple[bool, list[str]]:
         """Restart the service on the switched release, reload nginx, verify."""
@@ -453,124 +537,257 @@ class Deployment:
     # --- Operations ----------------------------------------------------------------------------
 
     def activate(self, release_id: str, *, action: str = "activate") -> dict[str, Any]:
-        """Activate ``release_id``; on failure restore the previous release (module docstring)."""
+        """Activate ``release_id``; on failure restore the last verified state (module
+        docstring)."""
         with self.locked():
-            problems, config = self.check(release_id)
-            previous = self.current()
-            if problems or config is None:
-                return self.record(
-                    action, REFUSED, release=release_id, previous=previous, detail=problems[:30]
-                )
-            self.record(action, IN_PROGRESS, release=release_id, previous=previous)
-            try:
-                ok, detail = self._start(release_id, config)
-            except NotSwitched as exc:
-                # Refused before the switch: the running release and its files are as they were.
-                return self.record(
-                    action, REFUSED, release=release_id, previous=previous, detail=[str(exc)]
-                )
-            if ok:
-                return self.record(
-                    action, ACTIVATED, release=release_id, previous=previous, detail=detail
-                )
-            return self._fail(action, release_id, previous, detail, config)
+            return self._activate(release_id, action)
+
+    def _activate(self, release_id: str, action: str) -> dict[str, Any]:
+        previous = self.current()
+        interrupted = self.pending()
+        if interrupted is not None:
+            return self.record(
+                action,
+                REFUSED,
+                release=release_id,
+                previous=previous,
+                detail=[
+                    f"the {interrupted.get('action')} of {interrupted.get('release')} at "
+                    f"{interrupted.get('ts')} was interrupted: run `atlas-deploy recover` first"
+                ],
+            )
+        deploy_env = self._deploy_env_text()
+        problems, config = self.check(release_id)
+        if problems or config is None:
+            return self.record(
+                action, REFUSED, release=release_id, previous=previous, detail=problems[:30]
+            )
+        op = self._operation()
+        self.record(action, IN_PROGRESS, op=op, release=release_id, previous=previous)
+        try:
+            ok, detail = self._start(release_id, config)
+        except NotSwitched as exc:
+            # Refused before the switch: the running release and its files are as they were.
+            return self.record(
+                action, REFUSED, op=op, release=release_id, previous=previous, detail=[str(exc)]
+            )
+        except Exception as exc:  # pragma: no cover - _start returns every other failure
+            ok, detail = False, [f"unexpected error: {type(exc).__name__}: {exc}"]
+        if ok:
+            detail += self._save_good(release_id, deploy_env)
+            return self.record(
+                action, ACTIVATED, op=op, release=release_id, previous=previous, detail=detail
+            )
+        return self._fail(action, op, release_id, previous, detail, config)
+
+    def _halt(self) -> list[str]:
+        """Stop the service and keep it from starting at boot: nothing unverified serves.
+        (The next activation enables it again.)"""
+        notes = []
+        for name, (ok, output) in (
+            ("stop", self.host.stop(SERVICE)),
+            ("disable", self.host.disable(SERVICE)),
+        ):
+            if not ok:
+                notes.append(f"systemctl {name} {SERVICE} failed: {output}")
+        return notes
+
+    def _restore_point(
+        self, release_id: str, config: DeployConfig
+    ) -> tuple[str | None, DeployConfig, str]:
+        """What to return to after ``release_id`` failed with ``config``: the last verified
+        state (its release and configuration) if it differs from the failed one, otherwise
+        the last verified other release with the current configuration."""
+        good = self.good_state()
+        if good is not None:
+            with contextlib.suppress(DeployConfigError):
+                good_config = load_config(good["deploy_env"], self.layout)
+                if good["release"] != release_id or good_config != config:
+                    return (
+                        str(good["release"]),
+                        good_config,
+                        f"the state verified at {good.get('ts')}",
+                    )
+        return self.last_good(exclude=release_id), config, "the current deploy.env"
 
     def _fail(
         self,
         action: str,
+        op: str,
         release_id: str,
         previous: str | None,
         detail: list[str],
         config: DeployConfig,
     ) -> dict[str, Any]:
-        restore = (
-            previous
-            if previous is not None and previous != release_id
-            else self.last_good(exclude=release_id)
-        )
-        if restore is None:
-            self.host.stop(SERVICE)
-            return self.record(
-                action, STOPPED, release=release_id, previous=previous, detail=detail
-            )
-        restore_problems, _ = self.check(restore)
-        if restore_problems:
-            self.host.stop(SERVICE)
+        try:
+            return self._restore_good(action, op, release_id, previous, detail, config)
+        except Exception as exc:  # the restoration itself broke: nothing unverified serves
             return self.record(
                 action,
                 ROLLBACK_FAILED,
+                op=op,
+                release=release_id,
+                previous=previous,
+                detail=[
+                    *detail,
+                    f"the restoration failed: {type(exc).__name__}: {exc}",
+                    *self._halt(),
+                ],
+            )
+
+    def _restore_good(
+        self,
+        action: str,
+        op: str,
+        release_id: str,
+        previous: str | None,
+        detail: list[str],
+        config: DeployConfig,
+    ) -> dict[str, Any]:
+        restore, restore_config, source = self._restore_point(release_id, config)
+        if restore is None:
+            return self.record(
+                action,
+                STOPPED,
+                op=op,
+                release=release_id,
+                previous=previous,
+                detail=[
+                    *detail,
+                    "no verified state to return to: the service is stopped and disabled",
+                    *self._halt(),
+                ],
+            )
+        restore_problems, _ = self.check(restore, restore_config)
+        if restore_problems:
+            return self.record(
+                action,
+                ROLLBACK_FAILED,
+                op=op,
                 release=release_id,
                 previous=previous,
                 restored=restore,
-                detail=detail + [f"cannot restore {restore}: {p}" for p in restore_problems[:10]],
+                detail=[
+                    *detail,
+                    *(f"cannot restore {restore}: {p}" for p in restore_problems[:10]),
+                    *self._halt(),
+                ],
             )
         try:
-            ok, restore_detail = self._start(restore, config)
+            ok, restore_detail = self._start(restore, restore_config)
         except NotSwitched as exc:
             ok, restore_detail = False, [str(exc)]
-        outcome = ROLLED_BACK if ok else ROLLBACK_FAILED
+        lines = [
+            *detail,
+            f"restoring {restore} with {source}",
+            *(f"restore of {restore}: {d}" for d in restore_detail),
+        ]
+        if not ok:
+            lines += self._halt()
+        elif restore_config is config:  # a new verified state (the current deploy.env)
+            lines += self._save_good(restore, self._deploy_env_text())
         return self.record(
             action,
-            outcome,
+            ROLLED_BACK if ok else ROLLBACK_FAILED,
+            op=op,
             release=release_id,
             previous=previous,
             restored=restore,
-            detail=detail + [f"restore of {restore}: {d}" for d in restore_detail],
+            detail=lines,
         )
 
     def rollback(self, to: str | None = None) -> dict[str, Any]:
         """Activate ``to``, or the last release that was active before the current one."""
-        current = self.current()
-        target = to or self.last_good(exclude=current)
-        if target is None:
-            raise DeployError("no previous release to roll back to")
-        return self.activate(target, action="rollback")
+        with self.locked():
+            current = self.current()
+            target = to or self.last_good(exclude=current)
+            if target is None:
+                raise DeployError("no previous release to roll back to")
+            return self._activate(target, "rollback")
 
     def pending(self) -> dict[str, Any] | None:
-        """The activation left in progress, if the last record of the history is one."""
-        records = self.history()
-        if records and records[-1].get("outcome") == IN_PROGRESS:
-            return records[-1]
-        return None
+        """The latest activation left in progress: an ``in_progress`` record that no later
+        record of the same operation completed, whatever else ran since. Its ``op`` is
+        the id :meth:`recover` completes it with."""
+        unfinished: dict[str, dict[str, Any]] = {}
+        for entry in self.history():
+            if entry.get("outcome") == IN_PROGRESS:
+                op = entry.get("op") or f"{entry.get('action')}@{entry.get('ts')}"
+                unfinished.pop(str(op), None)
+                unfinished[str(op)] = {**entry, "op": str(op)}
+            elif entry.get("op") is not None:
+                unfinished.pop(str(entry["op"]), None)
+        return list(unfinished.values())[-1] if unfinished else None
 
     def recover(self) -> dict[str, Any]:
         """Complete an interrupted activation: keep the current release if it verifies,
-        otherwise restore the release that was active before it."""
-        entry = self.pending()
-        if entry is None:
-            return {"outcome": "nothing_to_recover"}
-        release = str(entry.get("release"))
+        otherwise restore the last verified state."""
         with self.locked():
+            entry = self.pending()
+            if entry is None:
+                return {"outcome": "nothing_to_recover"}
+            op, release = str(entry["op"]), str(entry.get("release"))
+            raw_previous = entry.get("previous")
+            previous = raw_previous if isinstance(raw_previous, str) else None
+            deploy_env = self._deploy_env_text()
             problems, config = self.check(release)
-            if config is not None and not problems and self.current() == release:
+            if config is None:  # stays pending: fix deploy.env, then recover again
+                return self.record("recover", REFUSED, release=release, detail=problems[:30])
+            if not problems and self.current() == release:
                 verification = self.verifier(self.target(release, config))
                 if verification.ok:
                     return self.record(
                         "recover",
                         ACTIVATED,
+                        op=op,
                         release=release,
-                        previous=entry.get("previous"),
-                        detail=["verified after an interrupted activation"],
+                        previous=previous,
+                        detail=[
+                            "verified after an interrupted activation",
+                            *self._save_good(release, deploy_env),
+                        ],
                     )
-            if config is None:
-                return self.record("recover", REFUSED, release=release, detail=problems[:30])
-            previous = entry.get("previous")
+                problems = [f"{c.name}: {c.detail}" for c in verification.failures]
             return self._fail(
                 "recover",
+                op,
                 release,
-                previous if isinstance(previous, str) else None,
-                problems or ["the interrupted release did not verify"],
+                previous,
+                problems or ["the interrupted release is not the current one"],
                 config,
             )
 
+    @contextlib.contextmanager
+    def _no_build(self) -> Iterator[None]:
+        """Hold the build lock: no release is being written meanwhile."""
+        path = self.layout.local(self.layout.build_lock)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a+") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise DeployError("a release build is running; prune after it finishes") from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def prune(self, keep: int = 3) -> list[str]:
         """Delete old releases, keeping ``keep`` (at least 2) complete releases, always
-        including the current one and the rollback target; incomplete releases (no
-        manifest; a build that failed) are deleted unless current."""
+        including the current one, the rollback target and the last verified state's;
+        incomplete releases (no manifest; a build that failed) are deleted unless current.
+        Refused while a build runs or an activation is unfinished."""
         keep = max(2, keep)
-        with self.locked():
+        with self.locked(), self._no_build():
+            if self.pending() is not None:
+                raise DeployError("an activation was interrupted: run `atlas-deploy recover` first")
             current = self.current()
-            protected = {current, self.last_good(exclude=current)}
+            good = self.good_state()
+            protected = {
+                current,
+                self.last_good(exclude=current),
+                None if good is None else str(good["release"]),
+            }
             complete = self.releases()
             kept = set(complete[-keep:]) | {p for p in protected if p}
             removed: list[str] = []
@@ -627,6 +844,9 @@ class Deployment:
                 "research_fingerprint": manifest.get("research_artifacts", {}).get("fingerprint"),
             },
             "service": service,
+            "last_verified": None
+            if (good := self.good_state()) is None
+            else {"release": good["release"], "ts": good.get("ts")},
             "pending_activation": self.pending(),
             "history": self.history()[-5:],
         }
@@ -669,6 +889,24 @@ class Deployment:
             f"atlas-deploy rollback --to {current}" if current else "atlas-deploy status",
         ]
         return plan
+
+
+def _check_tls_key(path: Path, shown: Any, *, owner: int) -> list[str]:
+    """The TLS private key: owned by root, not readable or writable by other users
+    (Let's Encrypt keys are 0600; a group may read it)."""
+    try:
+        info = path.resolve().stat()
+    except OSError:
+        return []  # reported as missing above
+    problems = []
+    if info.st_uid != owner:
+        problems.append(f"{shown} is owned by uid {info.st_uid} (chown root {shown})")
+    if info.st_mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IWGRP):
+        problems.append(
+            f"{shown} has mode {stat.S_IMODE(info.st_mode):04o}: other users could read "
+            f"or replace the private key (chmod 0600 {shown})"
+        )
+    return problems
 
 
 def compare_manifests(old: Mapping[str, Any], new: Mapping[str, Any]) -> dict[str, Any]:

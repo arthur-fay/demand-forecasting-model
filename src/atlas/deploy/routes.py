@@ -8,8 +8,10 @@ contract changes and the proxy configuration is rendered again: never by acciden
 Each operation has an access class, from its ``x-atlas-cost``:
 
 ``liveness``   ``GET /health/live``: the process answers (no detail).
-``readiness``  ``GET /health/ready``: component readiness, with failure details.
-``read``       precomputed GET endpoints: committed research outputs.
+``readiness``  ``GET /health/ready`` and ``GET /api/v1/system``: component readiness with
+               failure details, the simulation workers' state, limits and versions
+               (operational detail, although the contract marks ``/system`` precomputed).
+``read``       the other precomputed GET endpoints: committed research outputs.
 ``compute``    ``POST /api/v1/simulations``: one bounded simulation (CPU-bound).
 
 The ``private`` profile routes every class behind authentication. The ``public-demo``
@@ -37,6 +39,10 @@ PROFILE_ACCESS: Final[dict[str, frozenset[str]]] = {
 }
 
 _PARAMETER: Final = re.compile(r"\{([a-z_]+)\}")
+#: A contract path nginx may embed: lowercase segments and named parameters, nothing else.
+_SAFE_PATH: Final = re.compile(r"(/([a-z0-9_-]+|\{[a-z_]+\}))+")
+#: Operational detail: never routed without authentication (see the module docstring).
+OPERATIONAL: Final = frozenset({"/health/ready", "/api/v1/system"})
 #: Path parameter patterns nginx may embed (a conservative character set: no quote, no
 #: brace other than a repetition count, no whitespace).
 _SAFE_PATTERN: Final = re.compile(r"\^?[a-z0-9_\[\]{},\-]+\$?")
@@ -65,7 +71,7 @@ def _access(path: str, method: str, cost: str) -> str:
         return COMPUTE
     if path == "/health/live":
         return LIVENESS
-    if path == "/health/ready":
+    if path in OPERATIONAL:
         return READINESS
     if cost == "precomputed" and method == "GET":
         return READ
@@ -73,10 +79,10 @@ def _access(path: str, method: str, cost: str) -> str:
 
 
 def _location(path: str, operation: Mapping[str, Any]) -> str:
+    if not _SAFE_PATH.fullmatch(path):
+        raise RouteError(f"{path!r}: unexpected characters for an nginx location")
     names = _PARAMETER.findall(path)
     if not names:
-        if not re.fullmatch(r"/[a-z0-9/_-]*", path):
-            raise RouteError(f"{path}: unexpected characters for an nginx location")
         return f"= {path}"
     patterns: dict[str, str] = {}
     for parameter in operation.get("parameters", []):

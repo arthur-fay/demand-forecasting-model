@@ -18,8 +18,9 @@ log_format atlas_json escape=json '{"ts":"$time_iso8601","request_id":"$request_
     '"upstream_time":"$upstream_response_time"}';
 
 upstream atlas_api {
-    # The API listens on loopback only (systemd also denies it any other address).
-    server {{api_host}}:{{api_port}};
+    # The API's Unix socket, in the service's own runtime directory: no other account can
+    # create it, so none can stand in for the API while it restarts and receive the key.
+    server unix:{{api_socket}};
 }
 
 # Any other host name: no answer on HTTP, no certificate on HTTPS.

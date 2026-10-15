@@ -48,6 +48,9 @@ say() { printf '==> %s\n' "$*"; }
 die() { printf 'build-release: %s\n' "$*" >&2; exit 1; }
 
 [[ $COMMIT =~ ^[0-9a-f]{40}$ ]] || die "give the full 40-character commit SHA (lowercase hex)"
+# A repository URL or path, never something git could read as an option.
+[[ $REPO_URL =~ ^(https://|file:///|/)[^[:space:]]*$ ]] ||
+    die "--repo must be an https:// or file:/// URL or an absolute path"
 ((EUID == 0)) || die "run as root (sudo)"
 [[ -x $UV ]] || die "$UV is missing: run deploy/scripts/bootstrap-host.sh --apply first"
 [[ -x $PYTHON ]] || die "$PYTHON is missing (apt install python3.12 python3.12-venv)"
@@ -83,7 +86,7 @@ done
 
 say "Fetching $COMMIT from $REPO_URL"
 "${clean_env[@]}" HOME="$STAGE" git -C "$STAGE" init -q
-"${clean_env[@]}" HOME="$STAGE" git -C "$STAGE" fetch -q --depth 1 --no-tags "$REPO_URL" "$COMMIT"
+"${clean_env[@]}" HOME="$STAGE" git -C "$STAGE" fetch -q --depth 1 --no-tags -- "$REPO_URL" "$COMMIT"
 fetched=$(git -C "$STAGE" rev-parse FETCH_HEAD)
 [[ $fetched == "$COMMIT" ]] || die "fetched $fetched instead of $COMMIT"
 
@@ -95,7 +98,8 @@ target="$RELEASES/$RELEASE_ID"
 
 if [[ -f $target/release.json ]]; then
     say "Release $RELEASE_ID exists: checking it against its manifest"
-    "$target/.venv/bin/atlas-deploy" manifest check "$target" || die "$RELEASE_ID differs from its manifest; inspect it before deleting it"
+    PYTHONDONTWRITEBYTECODE=1 "$target/.venv/bin/atlas-deploy" manifest check "$target" ||
+        die "$RELEASE_ID differs from its manifest; inspect it before deleting it"
     COMPLETE=1
     echo "$RELEASE_ID"
     exit 0
@@ -120,6 +124,12 @@ uv_version=$("$UV" --version | awk '{print $2}')
         UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_NO_PROGRESS=1 UV_NO_CONFIG=1 \
         "$UV" sync --locked --no-dev --python "$PYTHON" --project "$RELEASE_DIR"
 )
+# The project itself is installed editable (its code is the release's src/): compile it
+# now, so that no later run (root's atlas-deploy included) writes bytecode into the release.
+"$RELEASE_DIR/.venv/bin/python" -I -m compileall -q -j 0 "$RELEASE_DIR/src" >/dev/null ||
+    die "compiling src/ failed"
+# The cache keeps what later builds reuse; drop what nothing references any more.
+UV_CACHE_DIR="$CACHE" UV_NO_CONFIG=1 "$UV" cache prune -q 2>/dev/null || true
 
 say "Making the release root-owned and read-only (group atlas may read)"
 chown -R root:atlas -- "$RELEASE_DIR"
@@ -160,11 +170,11 @@ checks+=("api contract")
 say "Writing release.json"
 manifest_args=()
 for check in "${checks[@]}"; do manifest_args+=(--check "$check"); done
-"$RELEASE_DIR/.venv/bin/atlas-deploy" manifest write "$RELEASE_DIR" \
+PYTHONDONTWRITEBYTECODE=1 "$RELEASE_DIR/.venv/bin/atlas-deploy" manifest write "$RELEASE_DIR" \
     --commit "$COMMIT" --uv-version "$uv_version" "${manifest_args[@]}" >/dev/null
 chown root:atlas -- "$RELEASE_DIR/release.json"
 chmod 0440 -- "$RELEASE_DIR/release.json"
-"$RELEASE_DIR/.venv/bin/atlas-deploy" manifest check "$RELEASE_DIR" >/dev/null ||
+PYTHONDONTWRITEBYTECODE=1 "$RELEASE_DIR/.venv/bin/atlas-deploy" manifest check "$RELEASE_DIR" >/dev/null ||
     die "the new release does not match its own manifest"
 
 COMPLETE=1

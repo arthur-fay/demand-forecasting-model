@@ -48,9 +48,15 @@ server {
     proxy_hide_header Content-Security-Policy;
     proxy_hide_header Cache-Control;
 
-    # Ambiguous request targets (encoded slashes, backslashes or dots, empty or dot
-    # segments) are refused before any route is matched.
-    if ($request_uri ~ "(%2[Ff]|%5[Cc]|%2[Ee]|//|/\.)") { return 400; }
+    # Everything ATLAS (or nginx for it) answers is JSON.
+    default_type application/json;
+
+    # Ambiguous request targets (encoded slashes, backslashes, dots, line breaks or NUL,
+    # empty or dot segments, a fragment) are refused before any route is matched. The
+    # body is given here: an error_page would run this check again and fall back to HTML.
+    if ($request_uri ~ "(%2[Ff]|%5[Cc]|%2[Ee]|%0[AaDd0]|//|/\.|#)") {
+        return 400 '{{bad_request_body}}';
+    }
 
     proxy_http_version 1.1;
     proxy_connect_timeout 3s;
@@ -65,7 +71,7 @@ server {
     proxy_next_upstream off;
 
     # Errors made by nginx itself use the API's error body.
-    error_page 400 = @atlas_400;
+    error_page 400 /.atlas-error-400;
     error_page 401 = @atlas_401;
     error_page 403 = @atlas_403;
     error_page 404 = @atlas_404;
@@ -76,7 +82,10 @@ server {
 {{error_locations}}
     # The routes of the committed OpenAPI contract that this profile exposes; nothing else.
 {{locations}}
+    # Anything else: 404, answered after the allow-list, authentication and rate limits
+    # (a `return` would answer before them).
     location / {
-        return 404;
+        root /nonexistent;
+        try_files /.atlas-not-routed =404;
     }
 }

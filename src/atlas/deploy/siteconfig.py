@@ -94,8 +94,8 @@ class Resources:
 
 
 RESOURCE_PROFILES: Final = {
-    # Measured under systemd with the release venv (docs/DEPLOYMENT.md, section 13):
-    # server 165-180 MiB, each worker 120-130 MiB, the resource tracker 12 MiB.
+    # Measured under systemd with the release venv (docs/DEPLOYMENT.md, section 3):
+    # server 180-184 MiB, each worker 120-126 MiB, the resource tracker 12 MiB.
     "low": Resources("low", 1, "400M", "512M", 96, "10r/s", 40, "12r/m", 3, 16),
     "standard": Resources("standard", 2, "640M", "768M", 128, "10r/s", 40, "30r/m", 6, 16),
 }
@@ -128,9 +128,10 @@ class DeployConfig:
 
     @property
     def allowed_hosts(self) -> tuple[str, ...]:
-        """The ``Host`` names the API accepts: the domain (via nginx) and loopback."""
+        """The ``Host`` names the API accepts: the domain (via nginx, when the profile
+        exposes it) and loopback."""
         local = ("127.0.0.1", "localhost", "::1")
-        return (self.domain, *local) if self.domain else local
+        return (self.domain, *local) if self.domain and self.exposed else local
 
 
 def parse_env_text(text: str, *, source: str = "deploy.env") -> dict[str, str]:

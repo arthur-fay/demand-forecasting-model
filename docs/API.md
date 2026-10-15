@@ -61,7 +61,7 @@ value stops startup with exit code 2; it is never replaced by a default.
 | `ATLAS_API_CORS_ORIGINS` | none (no cross-origin access) | comma-separated `http(s)://host[:port]`; no `*`, no path |
 | `ATLAS_API_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` | host names and IPv4/IPv6 addresses (IPv6 without brackets); `*.domain.tld` (at least two labels) allowed; bare `*`, `*.com` and malformed labels refused |
 | `ATLAS_API_KEY` | none | ≥ 24 printable characters, no spaces; protects `POST /api/v1/simulations` |
-| `ATLAS_API_KEY_FILE` | none | (M6) a file holding the key (one line); refused unless only its owner can read it and nobody else can write it (0600/0400); exclusive with `ATLAS_API_KEY` |
+| `ATLAS_API_KEY_FILE` | none | (M6) a file holding the key (one line); refused if others can read it, a group other than root can read it, or its group can write it (use 0600/0400; a systemd credential shows as 0440 group root, its ACL); exclusive with `ATLAS_API_KEY` |
 | `ATLAS_API_MAX_BODY_BYTES` | 16384 | 1024-1048576 |
 | `ATLAS_API_MAX_CONCURRENT_SIMULATIONS` | 2 (at most the CPUs available) | 1-16 worker processes, and no more than the CPUs available to the process: the deadline is wall-clock time, so a worker without its own CPU slows every simulation |
 | `ATLAS_API_SIMULATION_TIMEOUT_SECONDS` | 10 | 1-120 |
@@ -851,11 +851,13 @@ unlimited (`surge_total: null`) gives the same id with a different parameter `so
 ## 13. Readiness for M6 deployment
 
 > **M6 phase A** implements what this section asked for: see
-> [DEPLOYMENT.md](DEPLOYMENT.md). It also added three things to the API: `ATLAS_API_KEY_FILE`
+> [DEPLOYMENT.md](DEPLOYMENT.md). It also added five things to the API: `ATLAS_API_KEY_FILE`
 > (the key as a systemd credential), systemd readiness and watchdog notifications in
 > `atlas api serve` (`READY=1` after startup, `WATCHDOG=1` from the event loop; inert
-> outside a `Type=notify` unit), and workers that raise their own OOM score. The section is
-> kept as written for M5.
+> outside a `Type=notify` unit), workers that raise their own OOM score, the replacement of
+> a worker that died while idle (by the readiness check, logged as `worker_died_idle`), and
+> `atlas api serve --uds PATH`, which also listens on a Unix socket (nginx's way in). The
+> section is kept as written for M5.
 
 What is in place:
 - one process to supervise: `atlas api serve`, with `uvicorn` and a graceful shutdown;

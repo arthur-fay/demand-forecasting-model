@@ -157,6 +157,8 @@ class Renderer:
             "api_key": str(layout.api_key),
             "api_host": API_HOST,
             "api_port": str(config.api_port),
+            "api_socket": str(layout.api_socket),
+            "runtime_dir_name": layout.runtime_dir.name,
             "credentials": str(layout.credentials),
             "nginx_dir": str(layout.nginx),
             "state": str(layout.state),
@@ -260,6 +262,7 @@ class Renderer:
             "simulation_timeout": f"{config.simulation_timeout_seconds:g}",
             "proxy_read_timeout": str(int(config.simulation_timeout_seconds) + 20),
             "access_control": self._access_control(),
+            "bad_request_body": error_body(*NGINX_ERRORS[0][1:]),
             "error_locations": self._error_locations(),
             "locations": "\n".join(self._location(route) for route in exposed) + "\n",
         }
@@ -297,7 +300,13 @@ class Renderer:
         entries.append(("503", *UPSTREAM_ERROR))
         for status, code, message in entries:
             name = "upstream" if code == UPSTREAM_ERROR[0] else status
-            lines = [f"    location @atlas_{name} {{", "        allow all;"]
+            if status == "400":
+                # A request nginx cannot parse (a NUL byte, ``OPTIONS *``, a lowercase
+                # method) has no URI: a named location cannot answer it, an internal URI can.
+                lines = ["    location = /.atlas-error-400 {", "        internal;"]
+                lines.append("        allow all;")
+            else:
+                lines = [f"    location @atlas_{name} {{", "        allow all;"]
             if private:
                 lines.append("        auth_basic off;")
             # (A 401 keeps the WWW-Authenticate challenge set by auth_basic.)
@@ -314,35 +323,35 @@ class Renderer:
 
     def _proxy_headers(self, *, with_key: bool) -> list[str]:
         """The request headers sent to the API, in every location: nginx does not inherit
-        ``proxy_set_header`` into a location that sets any of its own."""
+        ``proxy_set_header`` into a location that sets any of its own.
+
+        An allow-list: no client header is passed on (``proxy_pass_request_headers off``),
+        so credentials, cookies, client-supplied keys and every forwarding header
+        (``X-Forwarded-*``, ``Forwarded``, ``X-Real-IP``, ...) never reach the API. nginx
+        itself still sends the body's length.
+        """
         domain = self.config.domain or ""
         lines = [
+            "proxy_pass_request_headers off;",
             # A fixed Host: the API's allow-list sees only the configured name.
             f"proxy_set_header Host {safe('domain', domain)};",
             # nginx's own request id: the API reuses it, so both logs share one id.
             "proxy_set_header X-Request-ID $request_id;",
             'proxy_set_header Connection "close";',
-            # Never forwarded: the proxy's credentials, client-supplied keys, cookies and
-            # forwarding headers (the API trusts none of them).
-            'proxy_set_header Authorization "";',
-            'proxy_set_header Cookie "";',
-            'proxy_set_header X-Forwarded-For "";',
-            'proxy_set_header X-Forwarded-Host "";',
-            'proxy_set_header X-Real-IP "";',
-            'proxy_set_header Forwarded "";',
+            "proxy_set_header Content-Type $content_type;",
+            "proxy_set_header Accept $http_accept;",
         ]
         if with_key:
             # The simulation key, added by the proxy for authenticated users only (the
             # file holds one proxy_set_header line and is readable by root only).
             lines.append(f"include {self.layout.nginx_key};")
-        else:
-            lines.append('proxy_set_header X-API-Key "";')
         return lines
 
     def _location(self, route: Route) -> str:
         resources = self.config.resources
         methods = "|".join(route.methods)
         lines = [
+            # (route paths are checked by atlas.deploy.routes: segments and parameters only)
             f"    # {route.method} {route.path} ({route.access})",
             f"    location {route.location} {{",
             f"        if ($request_method !~ ^({methods})$) {{ return 405; }}",

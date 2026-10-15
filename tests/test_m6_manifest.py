@@ -99,6 +99,16 @@ def test_added_and_removed_files_are_refused(tmp_path: Path) -> None:
     assert any("research artifact missing: configs/optimization/smoke.json" in p for p in problems)
 
 
+def test_bytecode_written_later_does_not_alter_the_release(tmp_path: Path) -> None:
+    """Root running the release's Python writes ``__pycache__``: derived, not identity."""
+    release = make_release(tmp_path)
+    for relative in ("src/atlas/__pycache__/cli.cpython-312.pyc", ".venv/lib/x/__pycache__/y.pyc"):
+        write(release / relative, "bytecode")
+    assert check_release(release) == []
+    write(release / "src/atlas/__pycache__/planted.py", "import os\n")  # not bytecode
+    assert any("planted.py" in p for p in check_release(release))
+
+
 def test_manifest_errors(tmp_path: Path) -> None:
     release = make_release(tmp_path)
     renamed = release.with_name("9.9.9-bbbbbbbbbbbb")

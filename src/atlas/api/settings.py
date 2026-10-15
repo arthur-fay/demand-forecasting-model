@@ -183,8 +183,10 @@ def read_api_key_file(path: Path) -> str:
     """The API key stored in ``path``: one line, its final line break removed.
 
     The file must be a regular file that no other user can read and only its owner can
-    write (for example mode 0600, or a systemd credential, mode 0400). A key file anyone
-    could read or replace would not protect anything, so it is refused, never used.
+    write (for example mode 0600, or a systemd credential). Group read is accepted only for
+    the root group: systemd grants the service user read access to a credential through an
+    ACL, which ``stat`` shows as group read (0440, group root). A key file anyone could read
+    or replace would not protect anything, so it is refused, never used.
     """
     try:
         info = path.stat()
@@ -194,10 +196,12 @@ def read_api_key_file(path: Path) -> str:
         ) from exc
     if not stat.S_ISREG(info.st_mode):
         raise ConfigError(f"{ENV_API_KEY_FILE} must name a regular file, not {path}")
-    if info.st_mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IWGRP):
+    group_read = info.st_mode & stat.S_IRGRP and info.st_gid != 0
+    if info.st_mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IWGRP) or group_read:
         raise ConfigError(
-            f"{ENV_API_KEY_FILE} {path} is readable by other users or writable by its group "
-            f"(mode {stat.S_IMODE(info.st_mode):04o}); use mode 0600 or 0400"
+            f"{ENV_API_KEY_FILE} {path} is readable by other users or by its group, or "
+            f"writable by its group (mode {stat.S_IMODE(info.st_mode):04o}); use mode 0600 "
+            "or 0400"
         )
     if info.st_size > MAX_API_KEY_FILE_BYTES:
         raise ConfigError(f"{ENV_API_KEY_FILE} {path} is too large to be a key file")

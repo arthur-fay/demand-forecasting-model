@@ -188,16 +188,20 @@ See [DEPLOYMENT.md](DEPLOYMENT.md).
   profile (`low`, `standard`).
 - nginx (Ubuntu) as the only entry point: TLS (certbot), HSTS, HTTP Basic accounts on every
   route, a route allow-list generated from the committed OpenAPI contract, per-client
-  request, connection and simulation limits, read deadlines and body limits, JSON errors;
-  the simulation key added by the proxy only. Private-first profiles (`tunnel`, `private`);
-  a `public-demo` profile separated from computation, refused without a security review.
+  request, connection and simulation limits, read deadlines and body limits, JSON errors, a
+  header allow-list; the simulation key added by the proxy only, on a Unix socket only the
+  service can create. Private-first profiles (`tunnel`, `private`); a `public-demo` profile
+  separated from computation and operational detail, refused without a security review.
 - A read-only preflight (standard library only) that refuses unsuitable servers with
   actions, including the x86-64-v2 requirement of the locked NumPy and the lock's wheels.
 - Immutable releases built from an exact commit with the locked dependencies, checked as
   the service user (snapshot, M4 reproduction byte for byte, contract), described by a
   manifest of fingerprints; activation with verification (health, identity, scientific
-  integrity, access control, exposure) and automatic rollback; recovery, pruning, upgrade
-  plans; secrets as systemd credentials.
+  integrity, access control, exposure) and automatic return to the last verified state
+  (release and configuration); recovery, pruning, upgrade plans; secrets as systemd
+  credentials.
+- An independent three-lens review (security, reliability, documentation and tests); every
+  confirmed finding fixed (DEPLOYMENT.md section 20).
 - Lightweight monitoring (a systemd timer) with an optional alert hook; persistent, capped
   logs without secrets.
 - Tests with real nginx, openssl and systemd-analyze, real API processes, and an end-to-end

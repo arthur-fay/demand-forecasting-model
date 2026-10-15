@@ -9,15 +9,23 @@ protected deployment (M6), never for an unauthenticated public bind.
 Under a ``Type=notify`` systemd unit (``deploy/``), :class:`SupervisedServer` tells the
 service manager when the API is ready, pings its watchdog from the event loop and reports
 the readiness summary (:mod:`atlas.api.notify`); elsewhere it behaves as uvicorn's server.
+
+With ``--uds PATH`` the same server also listens on a Unix socket: the M6 reverse proxy
+connects there, in a directory only the service can create, so no other local account can
+stand in for the API (and receive the simulation key nginx adds) while it restarts. The
+loopback TCP port stays for SSH tunnels, verification and the monitor.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import json
 import socket
+import stat
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Final, TextIO
 
 import h11
@@ -175,20 +183,55 @@ def server_config(app: Any, host: str, port: int) -> uvicorn.Config:
     )
 
 
-def serve(settings: ApiSettings, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
-    """Run the API until interrupted (blocking)."""
+def bind_unix(path: str, backlog: int = 2048) -> socket.socket:
+    """A listening Unix socket at ``path`` (an absolute path; a stale socket left by an
+    earlier run is replaced, any other file is refused). Anyone who can reach the path may
+    connect, as anyone may connect to the loopback port: what matters is who can create
+    the path, which its directory decides."""
+    target = Path(path)
+    if not target.is_absolute():
+        raise ConfigError(f"the Unix socket path must be absolute, got {path!r}")
+    with contextlib.suppress(FileNotFoundError):
+        if not stat.S_ISSOCK(target.lstat().st_mode):
+            raise ConfigError(f"{path} exists and is not a socket; refusing to replace it")
+        target.unlink()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(path)
+        target.chmod(0o666)  # connecting is not the boundary (see above)
+        sock.listen(backlog)
+    except OSError as exc:
+        sock.close()
+        raise ConfigError(f"cannot listen on {path}: {exc}") from exc
+    sock.set_inheritable(True)
+    return sock
+
+
+def serve(
+    settings: ApiSettings,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    uds: str | None = None,
+) -> None:
+    """Run the API until interrupted (blocking); also on the Unix socket ``uds``."""
     check_bind(host, port, settings)
     configure_logging(settings.log_level)
     app = create_app(settings)
+    config = server_config(app, host, port)
+    sockets = None if uds is None else [config.bind_socket(), bind_unix(uds)]
     server = SupervisedServer(
-        server_config(app, host, port),
+        config,
         ServiceNotifier.from_environment(),
         lambda: readiness_summary(app),
     )
     try:
-        server.run()
+        server.run(sockets=sockets)
     except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C after its graceful shutdown
         return
+    finally:
+        if uds is not None:
+            with contextlib.suppress(OSError):
+                Path(uds).unlink()
 
 
 def openapi_document(settings: ApiSettings) -> dict[str, Any]:

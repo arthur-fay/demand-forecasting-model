@@ -18,7 +18,11 @@ NotifyAccess=main
 User={{service_user}}
 Group={{service_group}}
 WorkingDirectory={{current}}
-ExecStart={{executable}} api serve --host {{api_host}} --port {{api_port}}
+ExecStart={{executable}} api serve --host {{api_host}} --port {{api_port}} --uds {{api_socket}}
+# The socket nginx connects to: created by systemd for this service only, removed when it
+# stops (/run is root's: no other account can create this directory meanwhile).
+RuntimeDirectory={{runtime_dir_name}}
+RuntimeDirectoryMode=0755
 EnvironmentFile={{runtime_env}}
 Environment=ATLAS_REPO_ROOT={{current}}
 Environment=ATLAS_API_KEY_FILE=%d/api-key

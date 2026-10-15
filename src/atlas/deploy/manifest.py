@@ -30,7 +30,7 @@ import importlib
 import json
 import re
 from collections.abc import Iterable, Mapping
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Final
 
 from atlas.deploy.layout import RELEASE_MANIFEST, valid_release_id
@@ -69,13 +69,21 @@ def research_files(release_dir: Path) -> dict[str, str]:
     return dict(sorted(files.items()))
 
 
+def _bytecode(relative: PurePath) -> bool:
+    """Compiled bytecode is derived from the fingerprinted sources and may be (re)written
+    by any root run of Python; it is not part of a release's identity. (The release tree
+    check still requires every file, bytecode included, to be root's and read-only.)"""
+    return relative.suffix in (".pyc", ".pyo")
+
+
 def source_files(release_dir: Path) -> dict[str, str]:
-    """SHA-256 of every file of the exported commit (everything except the environment and
-    the manifest itself): code, templates, configuration and research artifacts."""
+    """SHA-256 of every file of the exported commit (everything except the environment,
+    the manifest itself and bytecode): code, templates, configuration and research
+    artifacts."""
     files: dict[str, str] = {}
     for path in sorted(release_dir.rglob("*")):
         relative = path.relative_to(release_dir)
-        if relative.parts[0] in (".venv", RELEASE_MANIFEST):
+        if relative.parts[0] in (".venv", RELEASE_MANIFEST) or _bytecode(relative):
             continue
         if path.is_symlink() or path.is_file():
             files[relative.as_posix()] = (
@@ -85,10 +93,13 @@ def source_files(release_dir: Path) -> dict[str, str]:
 
 
 def environment_fingerprint(release_dir: Path) -> str:
-    """One fingerprint of the installed environment (``.venv``: files and links)."""
+    """One fingerprint of the installed environment (``.venv``: files and links; bytecode
+    excluded)."""
     files: dict[str, str] = {}
     base = release_dir / ".venv"
     for path in sorted(base.rglob("*")):
+        if _bytecode(path.relative_to(release_dir)):
+            continue
         relative = path.relative_to(release_dir).as_posix()
         if path.is_symlink():
             files[relative] = "symlink:" + str(path.readlink())

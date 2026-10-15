@@ -98,8 +98,12 @@ def test_the_service_unit_is_least_privilege_and_loopback_only() -> None:
     assert service["User"] == "atlas"
     assert service["Group"] == "atlas"
     assert service["ExecStart"] == (
-        "/opt/atlas/current/.venv/bin/atlas api serve --host 127.0.0.1 --port 8000"
+        "/opt/atlas/current/.venv/bin/atlas api serve --host 127.0.0.1 --port 8000 "
+        "--uds /run/atlas/api.sock"
     )
+    # nginx's way in: the service's own runtime directory, which only systemd creates.
+    assert service["RuntimeDirectory"] == "atlas"
+    assert service["RuntimeDirectoryMode"] == "0755"
     assert service["Type"] == "notify"
     assert service["NotifyAccess"] == "main"
     assert service["LoadCredential"] == "api-key:/etc/atlas/credentials/api-key"
@@ -202,16 +206,27 @@ def test_systemd_accepts_the_units(tmp_path: Path) -> None:
     assert "Unknown" not in result.stdout + result.stderr  # no misspelt or unsupported key
 
 
-def test_the_service_sandbox_scores_safe(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("name", "most"),
+    [
+        ("atlas.service", 1.5),  # 0.9 measured
+        ("atlas-monitor.service", 1.5),  # 1.3 measured
+        # The operator's alert hook keeps the network and the journal: 1.3 measured.
+        ("atlas-alert@.service", 1.5),
+    ],
+)
+def test_every_sandbox_scores_low(tmp_path: Path, name: str, most: float) -> None:
     need_tools("systemd-analyze")
     units = _units_with_local_paths(tmp_path)
-    result = run(
-        ["systemd-analyze", "security", "--offline=yes", "--no-pager", str(units / "atlas.service")]
-    )
-    match = re.search(r"Overall exposure level for atlas\.service: ([0-9.]+)", result.stdout)
+    if name.endswith("@.service"):  # a template is scored through one of its instances
+        instance = units / name.replace("@.", "@x.")
+        instance.write_text((units / name).read_text())
+        name = instance.name
+    result = run(["systemd-analyze", "security", "--offline=yes", "--no-pager", str(units / name)])
+    match = re.search(rf"Overall exposure level for {re.escape(name)}: ([0-9.]+)", result.stdout)
     if match is None:  # pragma: no cover - systemd older than 250 (no --offline)
         pytest.skip(result.stdout + result.stderr)
-    assert float(match.group(1)) <= 1.5, result.stdout
+    assert float(match.group(1)) <= most, result.stdout
 
 
 # --- Routes ------------------------------------------------------------------------------------
@@ -227,16 +242,19 @@ def test_routes_are_exactly_the_contract() -> None:
     assert access["/api/v1/simulations"] == COMPUTE
     assert access["/health/live"] == LIVENESS
     assert access["/health/ready"] == READINESS
+    # Operational detail (workers, limits, component details): never public.
+    assert access["/api/v1/system"] == READINESS
     assert {
         a
         for p, a in access.items()
-        if p not in ("/api/v1/simulations", "/health/live", "/health/ready")
+        if p not in ("/api/v1/simulations", "/health/live", "/health/ready", "/api/v1/system")
     } == {READ}
     scenario = next(r for r in routes if "{" in r.path)
     assert scenario.location == '~ "^/api/v1/scenarios/[a-z][a-z0-9_]{0,63}$"'
     public = {r.path for r in routed(routes, "public-demo")}
     assert "/api/v1/simulations" not in public
     assert "/health/ready" not in public
+    assert "/api/v1/system" not in public
     assert "/api/v1/forecasts" in public
     assert "/health/live" in public
 
@@ -279,7 +297,9 @@ def test_the_private_site_routes_the_contract_behind_authentication() -> None:
     site = renderer().nginx()
     assert 'auth_basic "ATLAS private research deployment";' in site
     assert "auth_basic_user_file /etc/nginx/atlas/htpasswd;" in site
-    assert site.count("location = ") + site.count('location ~ "') == len(load_routes(REPO_ROOT))
+    # Every route, and the internal location answering unparsable requests with JSON.
+    assert site.count("location = ") + site.count('location ~ "') == len(load_routes(REPO_ROOT)) + 1
+    assert "    location = /.atlas-error-400 {\n        internal;" in site
     assert "location = /docs" not in site
     assert "openapi.json" not in site
     # The key is added in the simulation location only, and nowhere else.
@@ -287,17 +307,22 @@ def test_the_private_site_routes_the_contract_behind_authentication() -> None:
     with_key = [b for b in blocks if "include /etc/nginx/atlas/simulation-key.conf;" in b]
     assert len(with_key) == 1
     assert with_key[0].startswith("POST /api/v1/simulations")
-    # Every location sets the full header set (nginx does not inherit proxy_set_header).
+    # Every location sends an allow-list of headers (nginx does not inherit
+    # proxy_set_header): no client header is passed on.
     for block in re.findall(r"location (?:= |~ )[^{]*\{(.*?)\n    \}", site, re.S):
         if "proxy_pass" in block:
+            assert "proxy_pass_request_headers off;" in block
             for header in (
                 "Host atlas.example.org",
                 "X-Request-ID $request_id",
-                'Authorization ""',
-                'X-Forwarded-For ""',
+                "Content-Type $content_type",
+                "Accept $http_accept",
             ):
                 assert f"proxy_set_header {header};" in block
-    assert "server 127.0.0.1:8000;" in site
+    assert "server unix:/run/atlas/api.sock;" in site
+    assert "127.0.0.1:8000" not in site
+    # Unknown paths are answered after authentication and the rate limits, not before.
+    assert "location / {\n        root /nonexistent;\n        try_files" in site
     assert "ssl_protocols TLSv1.2 TLSv1.3;" in site
     assert 'Strict-Transport-Security "max-age=31536000"' in site
 
@@ -308,6 +333,7 @@ def test_the_public_demo_site_routes_no_computation() -> None:
     assert "/api/v1/simulations;" not in site.replace("/api/v1/simulations/parameters", "")
     assert "simulation-key.conf" not in site
     assert "location = /health/ready" not in site
+    assert "location = /api/v1/system" not in site
     assert "review-2026-11-01" in site
 
 

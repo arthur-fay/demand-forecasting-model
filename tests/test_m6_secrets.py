@@ -225,7 +225,9 @@ def test_release_trees_must_be_writable_by_root_only(tmp_path: Path) -> None:
     (release / "src/atlas/__init__.py").chmod(0o664)
     (release / ".venv/bin/atlas").chmod(0o4755)
     (release / "escape").symlink_to("/etc/shadow")
+    (release / "dotdot").symlink_to("/usr/lib/../../etc/shadow")  # an allowed prefix, escaped
     problems = [str(p) for p in check_release_tree(release, owner=UID)]
+    assert any("dotdot" in p and "outside the release" in p for p in problems)
     assert any("src/atlas/__init__.py" in p and "writable" in p for p in problems)
     assert any(".venv/bin/atlas" in p and "set-id" in p for p in problems)
     assert any("escape" in p and "outside the release" in p for p in problems)

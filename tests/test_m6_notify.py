@@ -180,12 +180,18 @@ def test_serve_uses_the_supervised_server(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_workers_raise_their_own_oom_score(tmp_path: Path) -> None:
-    path = write(tmp_path / "oom_score_adj", "0\n")
+    path = write(tmp_path / "oom_score_adj", "0\n")  # a server with no adjustment
     assert prefer_oom_kill(path) is True
     assert path.read_text() == f"{WORKER_OOM_SCORE_ADJ}\n"
-    write(path, "900\n")
+    write(path, "300\n")  # a server already adjusted: the worker stays above it
     assert prefer_oom_kill(path) is True
-    assert path.read_text() == "900\n"
+    assert path.read_text() == "800\n"
+    write(path, "900\n")  # capped at the kernel's maximum
+    assert prefer_oom_kill(path) is True
+    assert path.read_text() == "1000\n"
+    write(path, "1000\n")
+    assert prefer_oom_kill(path) is True
+    assert path.read_text() == "1000\n"
     assert prefer_oom_kill(tmp_path / "missing") is False
     write(path, "garbage\n")
     assert prefer_oom_kill(path) is False
@@ -195,17 +201,20 @@ def test_workers_raise_their_own_oom_score(tmp_path: Path) -> None:
 def test_running_workers_are_the_preferred_oom_victims(api_simulator: SimulationService) -> None:
     pids = api_simulator.worker_pids()
     assert pids
+    # The server's own adjustment (0 under systemd; some CI runners start jobs at 500).
+    server = int(Path("/proc/self/oom_score_adj").read_text())
+    expected = min(1000, server + WORKER_OOM_SCORE_ADJ)
     deadline = time.monotonic() + 30
     for pid in pids:
         while True:
             value = int(Path(f"/proc/{pid}/oom_score_adj").read_text())
-            if value >= WORKER_OOM_SCORE_ADJ or time.monotonic() > deadline:
+            if value >= expected or time.monotonic() > deadline:
                 break
             time.sleep(0.1)
-        assert value >= WORKER_OOM_SCORE_ADJ
+        assert value == expected
+        assert value > server or server == 1000
         environ = Path(f"/proc/{pid}/environ").read_bytes()
         assert b"NOTIFY_SOCKET=" not in environ
-    assert int(Path("/proc/self/oom_score_adj").read_text()) < WORKER_OOM_SCORE_ADJ
 
 
 def test_a_worker_that_dies_while_idle_is_replaced_by_the_readiness_check(

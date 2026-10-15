@@ -13,16 +13,23 @@ check passes:
    intervals are not decision-grade, M4 values are ``HYPOTHETICAL`` and nothing is a
    validated recommendation;
 5. **access control**: a simulation without the key is refused (401) and, with it, one
-   bounded smoke simulation answers 200 with its HYPOTHETICAL label;
-6. **exposure**: the API listens on loopback addresses only.
+   bounded smoke simulation answers 200 with its HYPOTHETICAL label. The key is sent only
+   to the service itself: the socket listening on the API port must belong to the
+   service's main process (any local account could listen there while it is down), and
+   the request without the key must have been refused;
+6. **exposure**: the API listens on loopback addresses only;
+7. **proxy socket**: the Unix socket nginx connects to answers ``/health/live``.
 
 The HTTP client is the standard library's, never configured with a proxy, and reads at
-most 1 MiB per response.
+most 1 MiB per response. Answers are untrusted: a malformed body fails a check, never the
+verification itself.
 """
 
 from __future__ import annotations
 
+import http.client
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -128,6 +135,42 @@ def _ms(started: float) -> float:
     return round(1000 * (time.perf_counter() - started), 1)
 
 
+class _UnixConnection(http.client.HTTPConnection):
+    def __init__(self, path: str, timeout: float) -> None:
+        super().__init__("localhost", timeout=timeout)
+        self._path = path
+
+    def connect(self) -> None:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        try:
+            sock.connect(self._path)
+        except OSError:
+            sock.close()
+            raise
+        self.sock = sock
+
+
+def unix_request(path: Path, url_path: str, *, timeout: float = 10.0) -> Response | None:
+    """``GET url_path`` over the Unix socket ``path``; ``None`` if no answer."""
+    started = time.perf_counter()
+    connection = _UnixConnection(str(path), timeout)
+    try:
+        connection.request("GET", url_path, headers={"Host": "localhost"})
+        answer = connection.getresponse()
+        payload = answer.read(MAX_BODY)
+        return Response(answer.status, payload, dict(answer.headers), _ms(started))
+    except (OSError, http.client.HTTPException):
+        return None
+    finally:
+        connection.close()
+
+
+def _obj(value: Any) -> dict[str, Any]:
+    """``value`` if it is a JSON object, else an empty one (answers are untrusted)."""
+    return value if isinstance(value, dict) else {}
+
+
 Requester = Callable[..., "Response | None"]
 
 
@@ -144,6 +187,8 @@ class Target:
     main_pid: int | None = None
     api_port: int = 8000
     smoke_simulation: bool = True
+    #: The Unix socket nginx connects to (checked when set).
+    api_socket: Path | None = None
 
 
 def wait_live(
@@ -200,8 +245,11 @@ def verify(
         target,
     )
     if target.smoke_simulation:
-        _simulation(verification, base, target.api_key, requester)
+        owner = _listener_owner(target, proc)
+        _simulation(verification, base, target.api_key, requester, owner)
     _exposure(verification, target.api_port, proc)
+    if target.api_socket is not None:
+        _proxy_socket(verification, target.api_socket)
     for name, answer in (("system", system),):
         if answer is not None:
             verification.timings_ms[name] = answer.elapsed_ms
@@ -210,7 +258,8 @@ def verify(
 
 def _readiness(verification: Verification, answer: Response | None) -> None:
     body = answer.json() if answer is not None else None
-    components = body.get("components", []) if isinstance(body, dict) else []
+    components = _obj(body).get("components")
+    components = components if isinstance(components, list) else []
     missing = [
         f"{c.get('component')} ({c.get('detail')})"
         for c in components
@@ -237,8 +286,8 @@ def _identity(
     if answer is None or answer.status != 200 or not isinstance(body, dict):
         verification.add("identity", False, "/api/v1/system did not answer 200")
         return
-    data = body.get("data", {})
-    provenance = body.get("provenance", {})
+    data = _obj(body.get("data"))
+    provenance = _obj(body.get("provenance"))
     manifest = target.manifest
     if manifest is not None:
         expected_version = manifest.get("atlas_version")
@@ -248,7 +297,7 @@ def _identity(
             f"running {data.get('atlas_version')}, release {expected_version}",
             "The service is not running the activated release; check the current link.",
         )
-        expected_data = manifest.get("snapshot", {}).get("data_fingerprint")
+        expected_data = _obj(manifest.get("snapshot")).get("data_fingerprint")
         verification.add(
             "data fingerprint",
             provenance.get("data_fingerprint") == expected_data,
@@ -256,7 +305,7 @@ def _identity(
             f"{str(expected_data)[:16]}...",
             "The served data is not the release's committed snapshot.",
         )
-    workers = data.get("simulation_workers") or {}
+    workers = _obj(data.get("simulation_workers"))
     if target.workers is not None:
         verification.add(
             "simulation workers",
@@ -265,7 +314,7 @@ def _identity(
             f"{target.workers} configured",
             "journalctl -u atlas | grep worker",
         )
-    limits = data.get("limits") or {}
+    limits = _obj(data.get("limits"))
     if target.api_key is not None:
         verification.add(
             "simulation key required",
@@ -312,7 +361,7 @@ def _integrity(
         if answer is None or answer.status != 200 or not isinstance(body, dict):
             problems.append(f"{name} did not answer 200")
             continue
-        integrity = body.get("integrity", {})
+        integrity = _obj(body.get("integrity"))
         if integrity.get("validated_recommendation") is not False:
             problems.append(f"{name}: validated_recommendation is not false")
         if integrity.get("point_forecast_validated") is not False:
@@ -327,7 +376,7 @@ def _integrity(
         if name == "scenarios" and integrity.get("parameter_provenance") != "HYPOTHETICAL":
             problems.append("scenarios: M4 values are not labelled HYPOTHETICAL")
         if name == "uncertainty/status":
-            data = body.get("data", {})
+            data = _obj(body.get("data"))
             if data.get("interval_status") != expected or data.get("decision_grade") is not False:
                 problems.append("uncertainty/status: the M3 status differs from the committed one")
     verification.add(
@@ -340,8 +389,40 @@ def _integrity(
     )
 
 
+def _listener_owner(target: Target, proc: Path) -> str | None:
+    """Why the API port's listener is not provably the service (``None``: it is)."""
+    if target.main_pid is None:
+        return "the service's main process is unknown"
+
+    def read(name: str) -> str | None:
+        try:
+            return (proc / "net" / name).read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    inodes = {
+        item.inode
+        for item in parse_listeners(read("tcp"), read("tcp6"))
+        if item.port == target.api_port
+    }
+    if not inodes:
+        return f"nothing listens on port {target.api_port}"
+    try:
+        descriptors = list((proc / str(target.main_pid) / "fd").iterdir())
+        held = {str(d.readlink()) for d in descriptors if d.is_symlink()}
+    except OSError as exc:
+        return f"the main process's sockets cannot be read ({type(exc).__name__})"
+    if not all(f"socket:[{inode}]" in held for inode in inodes):
+        return f"port {target.api_port} is held by another process than {target.main_pid}"
+    return None
+
+
 def _simulation(
-    verification: Verification, base: str, key: str | None, requester: Requester
+    verification: Verification,
+    base: str,
+    key: str | None,
+    requester: Requester,
+    not_owned: str | None = None,
 ) -> None:
     url = f"{base}/api/v1/simulations"
     if key is None:
@@ -353,26 +434,35 @@ def _simulation(
         )
         return
     refused = requester(url, method="POST", body=SMOKE_REQUEST)
+    without_key = refused is not None and refused.status == 401
     verification.add(
         "simulation without key",
-        refused is not None and refused.status == 401,
+        without_key,
         "refused with 401"
-        if refused is not None and refused.status == 401
+        if without_key
         else f"answered {None if refused is None else refused.status}",
         "The simulation endpoint must require the key.",
     )
+    if not_owned is not None or not without_key:
+        verification.add(
+            "smoke simulation",
+            False,
+            "not run: the key is not sent to "
+            + (not_owned or "a listener that does not require it"),
+            "Check what listens on the API port: ss -ltnp; systemctl status atlas",
+        )
+        return
     answer = requester(
         url, method="POST", body=SMOKE_REQUEST, headers={"X-API-Key": key}, timeout=60.0
     )
     body = answer.json() if answer is not None else None
-    data = body.get("data", {}) if isinstance(body, dict) else {}
+    data = _obj(_obj(body).get("data"))
     label = str(data.get("label", ""))
     ok = (
         answer is not None
         and answer.status == 200
         and "HYPOTHETICAL" in label
-        and isinstance(body, dict)
-        and body.get("integrity", {}).get("validated_recommendation") is False
+        and _obj(_obj(body).get("integrity")).get("validated_recommendation") is False
     )
     if answer is not None:
         verification.timings_ms["simulation"] = answer.elapsed_ms
@@ -380,7 +470,7 @@ def _simulation(
         "smoke simulation",
         ok,
         f"{data.get('horizon_days')}-day simulation {str(data.get('simulation_id', ''))[:12]}..., "
-        f"{data.get('outcome', {}).get('feasibility')}"
+        f"{_obj(data.get('outcome')).get('feasibility')}"
         if ok
         else f"answered {None if answer is None else answer.status}",
         "journalctl -u atlas | grep simulation",
@@ -403,4 +493,14 @@ def _exposure(verification: Verification, port: int, proc: Path) -> None:
         "The API must bind 127.0.0.1 only; check ExecStart in the unit."
         if public
         else "Is the service running?",
+    )
+
+
+def _proxy_socket(verification: Verification, path: Path) -> None:
+    answer = unix_request(path, "/health/live")
+    verification.add(
+        "proxy socket",
+        answer is not None and answer.status == 200,
+        f"{path}: /health/live answered " + ("nothing" if answer is None else str(answer.status)),
+        "nginx reaches the API through this socket; check RuntimeDirectory and --uds in the unit",
     )

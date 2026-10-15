@@ -3,7 +3,7 @@
 ::
 
     /opt/atlas/                         root:root   0755
-        releases/<id>/                  root:atlas  0750  immutable: checkout + .venv + release.json
+        releases/<id>/                  root:atlas  0550  immutable: checkout + .venv + release.json
         current -> releases/<id>        the active release (an atomically replaced link)
         tools/uv/                       root:root   0755  the hash-pinned uv used to build
     /etc/atlas/                         root:root   0755
@@ -14,7 +14,8 @@
     /etc/nginx/atlas/                   root:www-data 0750
         htpasswd                        root:www-data 0640  HTTP Basic users (strong hashes only)
         simulation-key.conf             root:root   0600  the key nginx adds to simulations
-    /var/lib/atlas/deploy/              root:root   0700  deployment history and lock
+    /var/lib/atlas/deploy/              root:root   0700  history, locks, the last verified state
+    /run/atlas/                         atlas:atlas 0755  the API's socket for nginx (api.sock)
     /var/cache/atlas/uv/                root:root   0700  download cache of release builds
     /var/www/atlas-acme/                root:root   0755  ACME HTTP-01 challenge files
 
@@ -68,6 +69,7 @@ class Layout:
     journald: PurePosixPath = field(default=_P("/etc/systemd/journald.conf.d"))
     acme: PurePosixPath = field(default=_P("/var/www/atlas-acme"))
     letsencrypt: PurePosixPath = field(default=_P("/etc/letsencrypt/live"))
+    run: PurePosixPath = field(default=_P("/run/atlas"))
 
     def local(self, host: PurePosixPath) -> Path:
         """Where the tooling reads or writes the host path ``host``."""
@@ -149,6 +151,28 @@ class Layout:
     @property
     def lock(self) -> PurePosixPath:
         return self.state / "lock"
+
+    @property
+    def build_lock(self) -> PurePosixPath:
+        """Held by ``build-release.sh`` while it writes a release."""
+        return self.state / "build.lock"
+
+    @property
+    def good_state(self) -> PurePosixPath:
+        """The last verified state: its release and the ``deploy.env`` it was verified with."""
+        return self.state / "last-good.json"
+
+    # --- Runtime --------------------------------------------------------------------------
+
+    @property
+    def runtime_dir(self) -> PurePosixPath:
+        """The service's own runtime directory (systemd ``RuntimeDirectory=atlas``)."""
+        return self.run
+
+    @property
+    def api_socket(self) -> PurePosixPath:
+        """nginx reaches the API here: only the service can create this path."""
+        return self.runtime_dir / "api.sock"
 
     def unit(self, name: str) -> PurePosixPath:
         return self.systemd / name

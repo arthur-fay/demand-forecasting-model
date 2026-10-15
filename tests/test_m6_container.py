@@ -389,6 +389,14 @@ def test_the_first_activation(server: Server) -> None:
         "MainPID --value atlas) | sort -u"
     )
     assert users == "atlas"
+    # Monitoring runs from the first activation on, not from the first reboot.
+    assert server.out("systemctl is-active atlas-monitor.timer") == "active"
+    # nginx's way in: the service's own socket, in a directory only systemd creates.
+    assert server.out("stat -c '%U %a %F' /run/atlas") == "atlas 755 directory"
+    assert server.out("stat -c '%U %F' /run/atlas/api.sock") == "atlas socket"
+    assert server.out("curl -s --unix-socket /run/atlas/api.sock http://localhost/health/live")
+    status = json.loads(server.out(f"{DEPLOY} status"))
+    assert status["last_verified"]["release"] == server.release
 
 
 def test_no_secret_is_exposed(server: Server) -> None:
@@ -584,6 +592,10 @@ def test_an_interrupted_activation_is_recovered(server: Server) -> None:
         f'"2026-10-15T00:00:00+00:00"}}\' >> /var/lib/atlas/deploy/history.jsonl && '
         f"ln -sfn releases/{broken} /opt/atlas/current && systemctl restart atlas"
     )
+    # Nothing else may change the deployment until the interrupted activation is completed.
+    blocked = server.sh(f"{DEPLOY} activate {server.release}", check=False, timeout=600)
+    assert blocked.returncode != 0
+    assert "atlas-deploy recover" in blocked.stdout
     result = server.sh(f"{DEPLOY} recover", check=False, timeout=600)
     assert "rolled_back" in result.stdout, result.stdout
     assert server.out("readlink /opt/atlas/current") == f"releases/{server.release}"

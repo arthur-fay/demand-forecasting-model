@@ -4,7 +4,7 @@
 It needs no agent, no database and no outbound network. Each run checks:
 
 * **process availability**: ``atlas.service`` active, its main process, restarts since the
-  last run (``NRestarts``);
+  last run (``NRestarts``; three automatic restarts within an hour are critical);
 * **API health**: liveness and readiness, with their latency;
 * **simulation workers**: workers alive, and simulations that timed out or lost their
   worker since the last run (from ``/api/v1/system``);
@@ -39,6 +39,9 @@ from atlas.deploy.verify import Response, request
 
 OK: Final = "ok"
 WARN: Final = "warn"
+#: Automatic restarts within an hour that make the monitor critical (and alert).
+RESTARTS_CRITICAL: Final = 3
+RESTART_WINDOW_SECONDS: Final = 3600.0
 CRITICAL: Final = "critical"
 _RANK: Final = {OK: 0, WARN: 1, CRITICAL: 2}
 SHOW_PROPERTIES: Final = (
@@ -246,10 +249,23 @@ def _service(
         new["restarts"] = restarts
         report.metrics["restarts_total"] = restarts
         before = state.get("restarts")
+        # Restarts seen in the last hour (kept across runs): a slow crash loop, below the
+        # unit's start limit, is critical too, not only a run of warnings.
+        recent = [
+            float(ts)
+            for ts in state.get("restart_times", [])
+            if isinstance(ts, int | float) and now - float(ts) < RESTART_WINDOW_SECONDS
+        ]
         if isinstance(before, int) and restarts > before:
+            recent += [now] * min(restarts - before, RESTARTS_CRITICAL)
+            level = CRITICAL if len(recent) >= RESTARTS_CRITICAL else WARN
             report.add(
-                WARN, "restarts", f"{restarts - before} automatic restart(s) since the last run"
+                level,
+                "restarts",
+                f"{restarts - before} automatic restart(s) since the last run, "
+                f"{len(recent)} in the last hour",
             )
+        new["restart_times"] = recent
     memory = _int(shown.get("MemoryCurrent"))
     limit = _int(shown.get("MemoryMax"))
     if memory is not None:
