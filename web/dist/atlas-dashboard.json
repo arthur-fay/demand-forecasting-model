@@ -1,0 +1,83 @@
+{
+  "format": "atlas-dashboard/1",
+  "version": "0.7.0",
+  "entry": "index.html",
+  "routes": [
+    "/",
+    "/forecasting",
+    "/uncertainty",
+    "/decisions",
+    "/simulator",
+    "/provenance"
+  ],
+  "files": {
+    "assets/BarChart-C-NbQAGp.js": {
+      "sha256": "5d3caaf3b831e28db26faf25e1af85fe21ca1d91e81f2381c40233bf1b7eebc1",
+      "bytes": 2170
+    },
+    "assets/Decisions-BPCM7_FD.js": {
+      "sha256": "0577d4310e31c07488bf1f087168329fd1818e58210a64c776ae01fc9dd07130",
+      "bytes": 11219
+    },
+    "assets/Forecasting-G1B6Z2kr.js": {
+      "sha256": "5f43fe5d83f5cdad64a07da4e7c97ed786f2e435a9304c5a1b0befc09dd8a882",
+      "bytes": 13099
+    },
+    "assets/Overview--TyPDXFo.js": {
+      "sha256": "f52f712086a77b43e793ea4d69d1322f1a1e351c170c6473c34a3760eca9475a",
+      "bytes": 8259
+    },
+    "assets/Panel-Bpuh7aDJ.js": {
+      "sha256": "fda8d9a0a412811b8c500d400836a9ed49a9997ff5f9a0a86a2c3c9e3c4888ec",
+      "bytes": 567
+    },
+    "assets/Provenance-B125mVjp.js": {
+      "sha256": "24f961e8c49bdd304aa2392c481a0a0e89919b9a292827ca4c78130d70838b26",
+      "bytes": 2456
+    },
+    "assets/Provenance-D0pwjNjX.js": {
+      "sha256": "9e883ca0286c543950b3518b3829613006c7dc77572c8f00fb9f07b033d5c8fb",
+      "bytes": 8022
+    },
+    "assets/Simulator-DVQm27Vg.js": {
+      "sha256": "68dab5cff6ed9f2dc856d8f50503ad789e04220c27afb00ef9f0c3de81203804",
+      "bytes": 17503
+    },
+    "assets/Uncertainty-CV603pSl.js": {
+      "sha256": "6177d9fe296557d65c46f8e3f467760f59441fd67b65375b5206bdb8d3c99e59",
+      "bytes": 12813
+    },
+    "assets/band-BzVyGBoy.js": {
+      "sha256": "cf9a6b9de392663da03bcf3404839e145262adf5dea0b4db3c847dd9f57341b0",
+      "bytes": 2406
+    },
+    "assets/data-BWIafJln.js": {
+      "sha256": "adf8c1d3ea62b239dd5fdfd8ac02129f3e9a96611168effcdbffdacd09c49b72",
+      "bytes": 56891
+    },
+    "assets/index-Baw9Q_GZ.css": {
+      "sha256": "9376248bee4a081d036768eb9c1126abbd468f598ba294ced86be24e8afded45",
+      "bytes": 20785
+    },
+    "assets/index-DX5ODTqB.js": {
+      "sha256": "536c58eeff6317e26f797ea6d1b39fd4fdf1ef1d2ba1aec16b33b42180b2939d",
+      "bytes": 272134
+    },
+    "assets/inter-latin-wght-normal-Dx4kXJAl.woff2": {
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+      "bytes": 48256
+    },
+    "assets/plan-C1yiPiwI.js": {
+      "sha256": "f3a7ae8cfe99a2592739e62f97c6b19185a6485c2f62f36574375d548fa40e1a",
+      "bytes": 11804
+    },
+    "favicon.svg": {
+      "sha256": "55a7435d8d177adbd53a8e87403d62fe025ff5093949d8a20fcaeaf9ae7e05cf",
+      "bytes": 365
+    },
+    "index.html": {
+      "sha256": "1ea80a01e1fc526097952958e5057b804042e3dd4a363026cffeb21d5eeecfbd",
+      "bytes": 1024
+    }
+  }
+}

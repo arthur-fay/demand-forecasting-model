@@ -34,6 +34,7 @@ from atlas.api.context import (
 from atlas.api.logs import truncated_path
 from atlas.api.problems import ErrorCode, error_payload
 from atlas.api.settings import API_KEY_HEADER, api_key_matches
+from atlas.dashboard import DASHBOARD_HEADERS
 
 LOGGER: Final = logging.getLogger("atlas.api")
 
@@ -126,8 +127,12 @@ class RequestContextMiddleware:
         cors_origins: Sequence[str] = (),
         api_key: str | None = None,
         protected: Sequence[tuple[str, str]] = (),
+        dashboard_paths: frozenset[str] = frozenset(),
     ) -> None:
         self.app = app
+        #: (M7) The dashboard's exact paths: they get the dashboard's headers (its own
+        #: Content-Security-Policy for HTML) and keep their cache policy.
+        self.dashboard_paths = dashboard_paths
         self.api_key = api_key
         self.protected = frozenset(protected)
         self.cors_origins = frozenset(cors_origins)
@@ -147,6 +152,7 @@ class RequestContextMiddleware:
         scope.setdefault("state", {})["request_id"] = request_id
         token = set_request_id(request_id)
         path = str(scope.get("path", ""))
+        dashboard = path in self.dashboard_paths
         origin = headers.get("origin")
         cors_origin = origin if origin in self.cors_origins else None
         started = time.perf_counter()
@@ -158,8 +164,12 @@ class RequestContextMiddleware:
                 state["started"] = True
                 response_headers = MutableHeaders(scope=message)
                 for name, value in SECURITY_HEADERS.items():
-                    response_headers[name] = value
-                if path not in self.docs_paths:
+                    if not (dashboard and name.lower() in response_headers):
+                        response_headers[name] = value
+                if dashboard:
+                    for name, value in DASHBOARD_HEADERS.items():
+                        response_headers[name] = value
+                elif path not in self.docs_paths:
                     response_headers["Content-Security-Policy"] = API_CSP
                 response_headers[REQUEST_ID_HEADER] = request_id
                 if cors_origin and "access-control-allow-origin" not in response_headers:

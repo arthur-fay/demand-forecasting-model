@@ -44,6 +44,8 @@ ENV_MAX_BODY_BYTES: Final = "ATLAS_API_MAX_BODY_BYTES"
 ENV_MAX_SIMULATIONS: Final = "ATLAS_API_MAX_CONCURRENT_SIMULATIONS"
 ENV_SIMULATION_TIMEOUT: Final = "ATLAS_API_SIMULATION_TIMEOUT_SECONDS"
 ENV_DOCS: Final = "ATLAS_API_DOCS"
+#: (M7) Whether the API also serves the committed dashboard build (web/dist) at ``/``.
+ENV_DASHBOARD: Final = "ATLAS_API_DASHBOARD"
 ENV_LOG_LEVEL: Final = "ATLAS_API_LOG_LEVEL"
 
 #: The pinned M4 reference configuration: every input the API serves is named by it.
@@ -82,6 +84,7 @@ class ApiSettings:
     simulation_timeout_seconds: float = SIMULATION_TIMEOUT_SECONDS[0]
     docs_enabled: bool = True
     log_level: str = "INFO"
+    dashboard_enabled: bool = True
 
     def __post_init__(self) -> None:
         for origin in self.cors_origins:
@@ -254,6 +257,7 @@ def load_api_settings(
         )
     timeout = _number(environ, ENV_SIMULATION_TIMEOUT, float)
     docs = _flag(environ, ENV_DOCS)
+    dashboard = _flag(environ, ENV_DASHBOARD)
     return ApiSettings(
         repo_root=base.repo_root,
         snapshot_id=base.snapshot_id,
@@ -269,4 +273,5 @@ def load_api_settings(
         else timeout,
         docs_enabled=defaults.docs_enabled if docs is None else docs,
         log_level=environ.get(ENV_LOG_LEVEL, "").strip().upper() or defaults.log_level,
+        dashboard_enabled=defaults.dashboard_enabled if dashboard is None else dashboard,
     )

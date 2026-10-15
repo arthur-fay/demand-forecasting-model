@@ -1,0 +1,123 @@
+/*
+ * ATLAS design tokens. One sans (Inter, self-hosted, latin subset), a recessive neutral
+ * chrome, three validated categorical series colours (dataviz reference palette, slots 1-3,
+ * all-pairs CVD-checked in both modes) and a status palette reserved for evidence status.
+ * Every text token clears WCAG AA (4.5:1) on both the page and the panel surface.
+ */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+    format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  color-scheme: light dark;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-hero: 2.5rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --sidebar-width: 264px;
+  --content-max: 1240px;
+
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Light (default). */
+  --page: #f6f5f1;
+  --surface: #fcfcfb;
+  --surface-sunken: #f0efea;
+  --ink: #0b0b0b;
+  --ink-secondary: #52514e;
+  --ink-muted: #6b6a65;
+  --hairline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --accent: #1c5cab;
+  --accent-wash: #e6effb;
+  --focus: #1c5cab;
+
+  --series-1: #2a78d6; /* observed; reported plan */
+  --series-2: #eb6834; /* projected; comparison */
+  --series-3: #1baf7a; /* third series */
+  --series-1-wash: rgba(42, 120, 214, 0.1);
+  --series-2-wash: rgba(235, 104, 52, 0.12);
+  --series-2-wash-strong: rgba(235, 104, 52, 0.22);
+  --neutral-mark: #a6a59c;
+
+  /* Status: never a series colour; always with an icon and a label. */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --good-ink: #006300;
+  --warning-ink: #7a4b00;
+  --serious-ink: #9a3f12;
+  --critical-ink: #b42323;
+  --good-wash: #e8f5e8;
+  --warning-wash: #fdf3dc;
+  --serious-wash: #fcebe3;
+  --critical-wash: #fbeaea;
+
+  --shadow-panel: 0 1px 0 rgba(11, 11, 11, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-sunken: #141413;
+    --ink: #f0efec;
+    --ink-secondary: #c3c2b7;
+    --ink-muted: #9e9d96;
+    --hairline: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --accent: #86b6ef;
+    --accent-wash: #16243a;
+    --focus: #86b6ef;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-1-wash: rgba(57, 135, 229, 0.16);
+    --series-2-wash: rgba(217, 89, 38, 0.18);
+    --series-2-wash-strong: rgba(217, 89, 38, 0.32);
+    --neutral-mark: #6f6e68;
+
+    --good-ink: #4cc94c;
+    --warning-ink: #fab219;
+    --serious-ink: #ec835a;
+    --critical-ink: #f08a8a;
+    --good-wash: #102410;
+    --warning-wash: #2a2108;
+    --serious-wash: #2d1a12;
+    --critical-wash: #301414;
+
+    --shadow-panel: none;
+  }
+}

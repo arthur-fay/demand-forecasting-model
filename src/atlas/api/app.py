@@ -17,6 +17,7 @@ from typing import Final
 from fastapi import FastAPI
 
 from atlas import __version__
+from atlas.api.dashboard import DashboardMiddleware, try_load_dashboard
 from atlas.api.errors import install_error_handlers
 from atlas.api.middleware import (
     DOCS_PATHS,
@@ -132,6 +133,14 @@ def create_app(
         allow_credentials=False,
         max_age=600,
     )
+    # (M7) The committed dashboard build, verified and held in memory, at its exact paths.
+    dashboard = (
+        try_load_dashboard(resolved.repo_root, simulations_enabled=resolved.api_key is None)
+        if resolved.dashboard_enabled
+        else None
+    )
+    app.state.dashboard = dashboard
+    app.add_middleware(DashboardMiddleware, dashboard=dashboard)
     # Added last, so it is the outermost middleware: it sees every request and response.
     app.add_middleware(
         RequestContextMiddleware,
@@ -141,5 +150,6 @@ def create_app(
         cors_origins=resolved.cors_origins,
         api_key=resolved.api_key,
         protected=[("POST", f"{API_PREFIX}/simulations")],
+        dashboard_paths=dashboard.paths if dashboard is not None else frozenset(),
     )
     return app
