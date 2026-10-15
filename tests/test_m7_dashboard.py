@@ -93,6 +93,19 @@ def test_the_build_evaluates_no_strings() -> None:
     assert "eval(" not in "\n".join(scripts)
 
 
+def test_the_build_sends_no_credential() -> None:
+    """The browser never holds or sends a key or token: no credential header is ever set
+    by the dashboard (private deployments use the browser's own Basic session, and nginx
+    adds the simulation key)."""
+    build = load_build(BUILD)
+    text = [f for f in build.files if f.suffix in (".html", ".js", ".css", ".svg")]
+    shipped = "\n".join((BUILD / f.path).read_text("utf-8") for f in text)
+    for header in ("x-api-key", "authorization", "bearer "):
+        assert header not in shipped.lower(), header
+    for credentials in ("credentials:`include`", "credentials:'include'", 'credentials:"include"'):
+        assert credentials not in shipped
+
+
 # --- The manifest parser -----------------------------------------------------------------------
 
 
@@ -278,6 +291,39 @@ def test_compression_conditional_requests_and_head(api_store: ReferenceStore) ->
         assert head.headers["content-security-policy"] == DASHBOARD_CSP
 
 
+@pytest.mark.parametrize(
+    ("value", "accepted"),
+    [
+        ("gzip", True),
+        ("gzip, deflate, br", True),
+        ("br;q=1.0, gzip;q=0.8", True),
+        ("x-gzip", True),
+        ("*", True),
+        ("gzip;q=0", False),
+        ("gzip;q=0.0, identity", False),
+        ("*;q=0", False),
+        ("gzip;q=0, *", False),
+        ("identity", False),
+        ("", False),
+        ("gzip;q=x", False),
+        ("deflate, br", False),
+    ],
+)
+def test_gzip_only_for_clients_that_accept_it(value: str, accepted: bool) -> None:
+    from atlas.api.dashboard import accepts_gzip
+
+    assert accepts_gzip(value) is accepted
+
+
+def test_a_client_refusing_gzip_gets_the_plain_body(api_store: ReferenceStore) -> None:
+    build = load_build(BUILD)
+    script = next(f for f in build.files if f.path.endswith(".js") and f.size > 2000)
+    with client(api_store) as test_client:
+        plain = test_client.get(script.url, headers={"Accept-Encoding": "gzip;q=0, identity"})
+    assert "content-encoding" not in plain.headers
+    assert hashlib.sha256(plain.content).hexdigest() == script.sha256
+
+
 def test_the_compressed_bodies_are_deterministic() -> None:
     from atlas.api.dashboard import load_dashboard
 
@@ -296,6 +342,8 @@ def test_the_dashboard_is_read_only(api_store: ReferenceStore) -> None:
             assert answer.status_code == 405, method
             assert answer.headers["allow"] == "GET, HEAD"
             assert answer.json()["error"]["code"] == "method_not_allowed"
+            # JSON answers on dashboard paths are the API's: its policy, not the page's.
+            assert answer.headers["content-security-policy"] == API_CSP
 
 
 @pytest.mark.parametrize(
@@ -343,6 +391,10 @@ def test_the_descriptor_says_whether_a_browser_may_simulate(
         answer = test_client.get(DESCRIPTOR_PATH)
     assert answer.status_code == 200
     assert answer.headers["cache-control"] == "no-store"
+    assert answer.headers["content-security-policy"] == API_CSP
+    # The ETag names this body: another key setting gives another tag.
+    assert answer.headers["etag"] != '"descriptor"'
+    assert answer.headers["etag"].strip('"') == hashlib.sha256(answer.content).hexdigest()[:16]
     assert answer.json() == {
         "format": "atlas-deployment/1",
         "operational_detail": True,

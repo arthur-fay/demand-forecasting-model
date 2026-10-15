@@ -1,9 +1,9 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. M0-M5 are merged. M6 phase A (the deployment
-package) is implemented on `feature/atlas-m6-deployment` and awaits review; M6 phase B (a
-real deployment) needs separate authorisation (DEPLOYMENT.md section 18). Nothing from M7
-onward is implemented.
+Each milestone requires separate approval. M0-M6 phase A are merged; M6 phase B (a real
+deployment) needs separate authorisation (DEPLOYMENT.md section 18). M7 (the web dashboard)
+is implemented on `feature/atlas-m7-dashboard` and awaits review. Nothing from M8 onward is
+implemented.
 
 ## M0: Foundation (merged)
 
@@ -177,7 +177,7 @@ Deliberately not done in M5:
 - **User accounts:** one optional shared key protects the only computing endpoint; GET
   endpoints serve committed research outputs.
 
-## M6: Secure deployment, phase A (implemented; awaiting approval)
+## M6: Secure deployment, phase A (merged)
 
 See [DEPLOYMENT.md](DEPLOYMENT.md).
 
@@ -215,10 +215,54 @@ Deliberately not done in M6 phase A:
 - **A metrics stack (Prometheus, Grafana):** the timer-driven monitor covers the needs.
 - **Public exposure:** the public-demo profile exists, refused until a security review.
 
+## M7: Interactive web dashboard (implemented; awaiting approval)
+
+See [DASHBOARD.md](DASHBOARD.md).
+
+- A static single-page application in `web/` (React 19, TypeScript strict, Vite), built
+  reproducibly into the committed `web/dist` with a manifest of every file's SHA-256; the
+  production server needs no Node.js. Charts are the dashboard's own SVG (d3-scale and
+  d3-shape only), each a keyboard control with a data table.
+- Six pages: Overview, Forecasting, Uncertainty and risk, Decision optimisation, the
+  Simulator, Methods and provenance. Every number is a field of a validated API answer;
+  the integrity statements sit next to the numbers they qualify (M2 not significant after
+  Holm, M3 FAILED_CALIBRATION, M4 HYPOTHETICAL, archived projections, exploratory
+  simulations), with provenance on every panel.
+- API integration from the contract: generated types, runtime schemas checked against them
+  at compile time, typed errors (network, timeout, HTTP, contract, integrity), a refusal of
+  any answer claiming validation, no fallback numbers; component tests on fixtures that a
+  Python test keeps byte-identical to the API's answers.
+- The simulator: a form built from the API's ranges, validation on both sides, only changed
+  inputs sent, cancel, every server error explained; disabled with a reason in the public
+  demo, behind an API key, or when the deployment cannot be read.
+- Security: a strict Content-Security-Policy for HTML (self only, Trusted Types, no inline
+  code); no credential in the browser; a static route class serving exact file names only
+  (in the API from memory, in nginx from a verified per-release copy with
+  `disable_symlinks on`, its own rate zone, behind the same accounts); profiles kept
+  distinct by a deployment descriptor.
+- Deployment: the build in every release manifest, published and verified at activation
+  before the site points to it, checked by `atlas-deploy verify`, moved with the API by
+  every rollback, pruned with its release.
+- Accessibility (WCAG 2.2 AA target: axe, keyboard, reduced motion, forced colours, 320 px
+  reflow), light and dark themes, measured size budgets enforced in CI.
+- Tests: Vitest, Python (manifest, API mount, nginx, deployment), Playwright against the real
+  API and both nginx profiles, the disposable-server end-to-end test; CI job `dashboard`.
+
+Deliberately not done in M7:
+
+- **A model card and a data card as separate documents:** the Methods and provenance page
+  links each milestone's documentation and shows the snapshot's provenance; formal cards are
+  left for M8.
+- **User accounts, roles, saved simulations:** no storage of any kind in the browser or the
+  server.
+- **Simulations in the browser through the SSH tunnel:** the API requires a key there, and a
+  browser must never hold one.
+- **Live data:** the dashboard shows the committed, archived outputs only.
+
 ## Later milestones (deferred, outline only)
 
-- **M7:** lightweight dashboard, model card and data card (DEPLOYMENT.md section 19 lists
-  what the deployment needs from it).
+- **M8:** not started; needs its own approval (DASHBOARD.md section 15 lists the risks M7
+  leaves for it).
 
 ## Known M0 limitations
 

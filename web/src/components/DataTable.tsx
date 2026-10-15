@@ -22,38 +22,45 @@ export function DataTable<Row>({
   highlight?: (row: Row) => boolean;
 }) {
   return (
-    // A scrollable region must be reachable by keyboard and named.
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-    <div className="table-wrap" tabIndex={0} role="region" aria-label={caption}>
-      <table className="data-table">
-        <caption>{caption}</caption>
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column.key} scope="col" className={column.numeric ? 'num' : undefined}>
-                {column.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={rowKey(row)} data-highlight={highlight?.(row) === true ? 'true' : undefined}>
-              {columns.map((column) =>
-                column.rowHeader ? (
-                  <th key={column.key} scope="row" className={column.numeric ? 'num' : undefined}>
-                    {column.cell(row)}
-                  </th>
-                ) : (
-                  <td key={column.key} className={column.numeric ? 'num' : undefined}>
-                    {column.cell(row)}
-                  </td>
-                ),
-              )}
+    <div className="table-block">
+      {/* The caption is shown above the scrolling region, so a wide table on a phone never
+          clips it; assistive technology reads the table's own caption instead. */}
+      <p className="table-caption" aria-hidden="true">
+        {caption}
+      </p>
+      {/* A scrollable region must be reachable by keyboard and named. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
+      <div className="table-wrap" tabIndex={0} role="region" aria-label={caption}>
+        <table className="data-table">
+          <caption className="visually-hidden">{caption}</caption>
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <th key={column.key} scope="col" className={column.numeric ? 'num' : undefined}>
+                  {column.header}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={rowKey(row)} data-highlight={highlight?.(row) === true ? 'true' : undefined}>
+                {columns.map((column) =>
+                  column.rowHeader ? (
+                    <th key={column.key} scope="row" className={column.numeric ? 'num' : undefined}>
+                      {column.cell(row)}
+                    </th>
+                  ) : (
+                    <td key={column.key} className={column.numeric ? 'num' : undefined}>
+                      {column.cell(row)}
+                    </td>
+                  ),
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

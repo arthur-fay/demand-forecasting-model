@@ -22,8 +22,13 @@ import {
 export const API = '/api/v1';
 /** Served next to the dashboard by whatever serves it (the API itself, or nginx). */
 export const DEPLOYMENT_DESCRIPTOR = '/atlas-deployment.json';
-/** The client deadline of a simulation: above the server's (10 s by default) and nginx's. */
-export const SIMULATION_TIMEOUT_MS = 45_000;
+/**
+ * The client deadline of a simulation: above every deadline the server can have, so the
+ * server's own answer (504 at its deadline) always arrives first. The API accepts at most
+ * 120 s (`ATLAS_API_SIMULATION_TIMEOUT_SECONDS`); the deployment at most 60 s, with nginx
+ * waiting 20 s more.
+ */
+export const SIMULATION_TIMEOUT_MS = 150_000;
 
 type Options = Pick<RequestOptions, 'signal' | 'timeoutMs'>;
 

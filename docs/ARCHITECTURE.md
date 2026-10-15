@@ -329,6 +329,29 @@ operator (sudo)                       server
 | nginx reaches the API through a Unix socket in the service's runtime directory | No other local account can stand in for the API (and receive the key) while it restarts; the loopback port stays for tunnels and checks |
 | Only a verified state is ever restored | A rollback never returns to a release (or configuration) that did not pass verification |
 
+### M7 dashboard flow
+
+```
+development:  web/src ─► tsc + vite build ─► web/dist (hashed files) + atlas-dashboard.json
+              (committed; CI rebuilds it and fails on any difference)
+browser:      page ─► index.html (dashboard CSP) ─► /assets/<name>-<hash>.js|css|woff2
+              ─► /atlas-deployment.json (profile, simulations allowed?)
+              ─► /api/v1/... (same origin) ─► schema + integrity checks ─► view
+served by:    atlas api serve ─► DashboardMiddleware (verified build, from memory) ─► API
+              nginx (private, public-demo) ─► /opt/atlas/dashboard/<release id>
+                                              (copy published and verified at activation)
+```
+
+| M7 decision | Reason |
+|---|---|
+| A static build, committed and reproducible | No Node.js on the server; the release contains exactly what was reviewed; CI proves the build is the source's |
+| One manifest of the build read by the API, the renderer, the publisher and the verifier | Every server routes exactly the built files; an altered or added file is refused everywhere |
+| The dashboard selects and formats, never computes | One implementation of the science (M2-M4); the numbers shown are the API's |
+| Responses validated against the contract; validation claims refused | A changed or wrong answer shows an error, never misleading numbers |
+| Its own Content-Security-Policy, no third-party origin, Trusted Types | Script injection has no sink; the dashboard cannot leak to or load from elsewhere |
+| A deployment descriptor instead of guessing | The interface says when and why simulations are unavailable; the server enforces it regardless |
+| A per-release copy for nginx, switched with the site | Rollback restores the dashboard built with the restored API |
+
 ### Extending to new snapshots
 
 A new snapshot needs:

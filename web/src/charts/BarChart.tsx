@@ -151,7 +151,25 @@ export function BarChart({
                 </g>
               );
             })}
-            <line className="axis-baseline" x1={x(0)} x2={x(0)} y1={0} y2={height - 8} />
+            {narrow ? (
+              // On a phone the category sits above its bar: the zero line spans the bars
+              // only, so it never runs through a label.
+              rows.map((row) => {
+                const top = (band(row.id) ?? 0) + labelBand + (ROW - BAR) / 2;
+                return (
+                  <line
+                    key={`zero:${row.id}`}
+                    className="axis-baseline"
+                    x1={x(0)}
+                    x2={x(0)}
+                    y1={top - 3}
+                    y2={top + BAR + 3}
+                  />
+                );
+              })
+            ) : (
+              <line className="axis-baseline" x1={x(0)} x2={x(0)} y1={0} y2={height - 8} />
+            )}
           </>
         )}
       </ChartSurface>

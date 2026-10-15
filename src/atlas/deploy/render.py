@@ -66,11 +66,13 @@ STAGES: Final = ("acme", "tls")
 _PLACEHOLDER: Final = re.compile(r"\{\{([a-z0-9_]+)\}\}")
 _SAFE: Final = re.compile(r"[A-Za-z0-9._:/,@+=%\-\[\]]*")
 NGINX_LOG_DIR: Final = "/var/log/nginx"
-#: (M7) Per-client limit of the dashboard's static files (its own zone: a first load is
-#: about twenty files at once, which the API's read limit would refuse; they are cheap
-#: and immutable). Their connections still count against the per-client connection cap.
-STATIC_RATE: Final = "50r/s"
-STATIC_BURST: Final = 200
+#: (M7) Per-client limit of the dashboard's static files, in their own zone so that loading
+#: the dashboard (about ten files at once, more with several tabs) never uses up the API's
+#: read limit. nginx applies limits before authentication, so this is also the rate at which
+#: a client without an account can try passwords on these paths: twice the API's, no more.
+#: Their connections still count against the per-client connection cap.
+STATIC_RATE: Final = "20r/s"
+STATIC_BURST: Final = 60
 JOURNAL_DROPIN: Final = "60-atlas.conf"
 JOURNAL_MAX_USE: Final = {"low": "200M", "standard": "500M"}
 
@@ -438,7 +440,8 @@ class Renderer:
                     "    }",
                     "    location @atlas_descriptor {",
                     "        default_type application/json;",
-                    *dashboard_headers(8, hsts, descriptor_route.cache_control),
+                    # JSON, like the API's answers: their headers and policy (no-store).
+                    *security_headers(8, hsts),
                     f"        return 200 '{descriptor_for(self.config.profile)}';",
                     "    }",
                 ]

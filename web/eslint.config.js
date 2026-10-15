@@ -53,7 +53,8 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
   },
   {
-    files: ['eslint.config.js'],
+    // Plain Node scripts (no TypeScript project): linted without type information.
+    files: ['eslint.config.js', 'scripts/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
   },
 );

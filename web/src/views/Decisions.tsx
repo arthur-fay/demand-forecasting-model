@@ -8,7 +8,7 @@ import { DataTable } from '../components/DataTable';
 import { Panel } from '../components/Panel';
 import { Evidence, ProvenanceFooter } from '../components/Provenance';
 import { Async, Loading } from '../components/States';
-import { DiagnosticTag, HypotheticalTag, Tag } from '../components/Tag';
+import { DiagnosticTag, EquallyScoredTag, HypotheticalTag, Tag } from '../components/Tag';
 import {
   formatDate,
   formatInteger,
@@ -128,7 +128,7 @@ function ComparisonTable({ data }: { data: ComparisonData }) {
             row.values_status === 'DIAGNOSTIC' ? (
               <DiagnosticTag />
             ) : (
-              <Tag tone="good">Meets constraints</Tag>
+              <Tag tone="good">Meets every constraint</Tag>
             ),
         },
         ...data.metrics
@@ -206,7 +206,12 @@ function FeasibilityTable({ data }: { data: ScenarioListData }) {
         {
           key: 'feasibility',
           header: 'Feasibility',
-          cell: (s) => <FeasibilityTag feasibility={s.feasibility} />,
+          cell: (s) => (
+            <>
+              <FeasibilityTag feasibility={s.feasibility} />{' '}
+              {s.feasibility === 'strict' && <EquallyScoredTag unique={s.optimal_plan_unique} />}
+            </>
+          ),
         },
         {
           key: 'binding',

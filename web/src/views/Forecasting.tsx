@@ -20,6 +20,7 @@ import {
   formatPct,
   formatSigned,
   formatWeekdayDate,
+  humanise,
   modelName,
 } from '../lib/format';
 import { setQueryParam, useQueryParam } from '../router';
@@ -29,7 +30,14 @@ import {
   PageHeader,
   SignificanceCallout,
 } from './common';
-import { useBucketMetrics, useForecast, useHistory, useHorizonMetrics, useModels } from './data';
+import {
+  h1Test,
+  useBucketMetrics,
+  useForecast,
+  useHistory,
+  useHorizonMetrics,
+  useModels,
+} from './data';
 
 const WINDOWS = [
   { value: '90', label: '90 days' },
@@ -203,18 +211,33 @@ function ProjectionTable({
   );
 }
 
-function chosenModels(models: ModelsData): { id: string; label: string; color: string }[] {
-  const ids = [
-    models.recommended_model,
-    models.selection.best_baseline,
-    models.reference_model,
-  ].filter((id, index, all): id is string => id !== null && all.indexOf(id) === index);
-  const roles = ['recommended', 'best baseline', 'reference'];
-  const colors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
-  return ids.map((id, i) => ({
+function chosenModels(
+  models: ModelsData,
+): { id: string; label: string; color: string; style: 'solid' | 'dashed' | 'dotted' }[] {
+  // Each model keeps its colour and line pattern (never colour alone) and every role it
+  // holds: the recommended model can also be the best baseline, which can be missing.
+  const slots = [
+    [models.recommended_model, 'recommended', 'var(--series-1)', 'solid'],
+    [models.selection.best_baseline, 'best baseline', 'var(--series-2)', 'dashed'],
+    [models.reference_model, 'reference', 'var(--series-3)', 'dotted'],
+  ] as const;
+  const chosen: {
+    id: string;
+    roles: string[];
+    color: string;
+    style: 'solid' | 'dashed' | 'dotted';
+  }[] = [];
+  for (const [id, role, color, style] of slots) {
+    if (id === null) continue;
+    const known = chosen.find((c) => c.id === id);
+    if (known) known.roles.push(role);
+    else chosen.push({ id, roles: [role], color, style });
+  }
+  return chosen.map(({ id, roles, color, style }) => ({
     id,
-    label: `${modelName(id)} (${roles[i] ?? 'model'})`,
-    color: colors[i] ?? 'var(--neutral-mark)',
+    label: `${modelName(id)} (${roles.join(', ')})`,
+    color,
+    style,
   }));
 }
 
@@ -288,6 +311,7 @@ function HorizonContent({
     id: model.id,
     label: model.label,
     color: model.color,
+    style: model.style,
     markers: true,
     points: rows
       .filter((r) => r.model_id === model.id)
@@ -490,7 +514,7 @@ function TestsPanel() {
     >
       <Async resource={models} label="the statistical tests">
         {({ data, provenance }) => {
-          const h1 = data.primary_tests[0];
+          const h1 = h1Test(data.primary_tests);
           return (
             <div className="stack-3">
               {h1 !== undefined && (
@@ -594,7 +618,7 @@ function ReproducibilityPanel() {
               rows={data.periods}
               rowKey={(p) => p.name}
               columns={[
-                { key: 'name', header: 'Period', rowHeader: true, cell: (p) => p.name },
+                { key: 'name', header: 'Period', rowHeader: true, cell: (p) => humanise(p.name) },
                 { key: 'role', header: 'Role', cell: (p) => p.role },
                 {
                   key: 'origins',
@@ -618,9 +642,15 @@ function ReproducibilityPanel() {
               <dt>Experiment</dt>
               <dd className="mono">{data.experiment_id}</dd>
               <dt>Recommended model</dt>
-              <dd>{data.recommended_model}</dd>
+              <dd>
+                {modelName(data.recommended_model)}{' '}
+                <span className="mono">({data.recommended_model})</span>
+              </dd>
               <dt>Reference model</dt>
-              <dd>{data.reference_model}</dd>
+              <dd>
+                {modelName(data.reference_model)}{' '}
+                <span className="mono">({data.reference_model})</span>
+              </dd>
             </dl>
             <p className="small secondary">
               The run is reproduced byte for byte by <code>atlas backtest verify</code>; its

@@ -1,8 +1,9 @@
 /*
  * ATLAS design tokens. One sans (Inter, self-hosted, latin subset), a recessive neutral
- * chrome, three validated categorical series colours (dataviz reference palette, slots 1-3,
- * all-pairs CVD-checked in both modes) and a status palette reserved for evidence status.
- * Every text token clears WCAG AA (4.5:1) on both the page and the panel surface.
+ * chrome, three validated categorical series colours (all pairs checked for colour-vision
+ * deficiency in both modes, each at least 3:1 against the panel surface) and a status
+ * palette reserved for evidence status. Every text token clears WCAG AA (4.5:1) on both
+ * the page and the panel surface; control borders and data marks clear 3:1 (WCAG 1.4.11).
  */
 @font-face {
   font-family: 'Inter Variable';
@@ -56,6 +57,7 @@
   --ink-muted: #6b6a65;
   --hairline: #e1e0d9;
   --baseline: #c3c2b7;
+  --control-border: #858479;
   --border: rgba(11, 11, 11, 0.1);
   --accent: #1c5cab;
   --accent-wash: #e6effb;
@@ -63,11 +65,11 @@
 
   --series-1: #2a78d6; /* observed; reported plan */
   --series-2: #eb6834; /* projected; comparison */
-  --series-3: #1baf7a; /* third series */
+  --series-3: #0e9a80; /* third series */
   --series-1-wash: rgba(42, 120, 214, 0.1);
   --series-2-wash: rgba(235, 104, 52, 0.12);
   --series-2-wash-strong: rgba(235, 104, 52, 0.22);
-  --neutral-mark: #a6a59c;
+  --neutral-mark: #898880;
 
   /* Status: never a series colour; always with an icon and a label. */
   --status-good: #0ca30c;
@@ -96,6 +98,7 @@
     --ink-muted: #9e9d96;
     --hairline: #2c2c2a;
     --baseline: #383835;
+    --control-border: #74736c;
     --border: rgba(255, 255, 255, 0.1);
     --accent: #86b6ef;
     --accent-wash: #16243a;

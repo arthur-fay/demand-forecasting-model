@@ -163,10 +163,15 @@ class RequestContextMiddleware:
                 state["status"] = int(message["status"])
                 state["started"] = True
                 response_headers = MutableHeaders(scope=message)
+                # The dashboard's files get its own policy; a JSON answer on a dashboard
+                # path (the descriptor, a 405, a refused Host) is the API's and keeps its.
+                page = dashboard and not response_headers.get("content-type", "").startswith(
+                    "application/json"
+                )
                 for name, value in SECURITY_HEADERS.items():
                     if not (dashboard and name.lower() in response_headers):
                         response_headers[name] = value
-                if dashboard:
+                if page:
                     for name, value in DASHBOARD_HEADERS.items():
                         response_headers[name] = value
                 elif path not in self.docs_paths:

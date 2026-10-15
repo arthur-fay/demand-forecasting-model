@@ -53,7 +53,7 @@ export default defineConfig({
   projects: [
     {
       name: 'api',
-      testMatch: /(dashboard|failures|a11y|keyboard)\.spec\.ts/,
+      testMatch: /(dashboard|failures|a11y|keyboard|reflow)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], launchOptions, baseURL: `http://127.0.0.1:${API_PORT}` },
     },
     {

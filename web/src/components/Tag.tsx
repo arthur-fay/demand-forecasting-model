@@ -75,6 +75,19 @@ export function DiagnosticTag() {
   );
 }
 
+/** A plan that is one of several equally scored optima (the API's `plan_label`). */
+export function EquallyScoredTag({ unique }: { unique: boolean | null }) {
+  if (unique !== false) return null;
+  return (
+    <Tag
+      tone="neutral"
+      title="Other plans reach the same optimal score under these HYPOTHETICAL values: one of several equally scored HYPOTHETICAL plans"
+    >
+      One of several equally scored
+    </Tag>
+  );
+}
+
 export function NotValidatedTag() {
   return (
     <Tag tone="warning" title="point_forecast_validated: false">

@@ -67,9 +67,17 @@ Milestone **M6** (phase A) adds a deployment package ([DEPLOYMENT.md](DEPLOYMENT
 - `deploy/`: the templates, the bootstrap and release-build scripts, the example
   configuration and the disposable test server used by the end-to-end test.
 
-ATLAS does **not** provide a dashboard, and nothing is deployed publicly; it does not fetch
-data from the network. M4 results are not validated recommendations. See
-[ROADMAP.md](ROADMAP.md).
+Milestone **M7** adds the web dashboard ([DASHBOARD.md](DASHBOARD.md)):
+
+- `web/`: a React and TypeScript single-page application over the API, validated against the
+  contract, with the scientific limitations next to every number and bounded HYPOTHETICAL
+  simulations where the deployment allows them; built into the committed `web/dist`;
+- `atlas.dashboard` and `atlas.api.dashboard`: the build's manifest and verification, and the
+  API serving it at `/`; the deployment package publishes, verifies and rolls it back with
+  every release.
+
+Nothing is deployed publicly, and ATLAS does not fetch data from the network. M4 results are
+not validated recommendations. See [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
@@ -264,6 +272,7 @@ export the variables or use `uv run --env-file .env atlas ...`. `.env` files are
 | Snapshot | `--snapshot` | `ATLAS_SNAPSHOT_ID` | `legacy-v0` |
 | API settings (M5) | `atlas api serve --host/--port` | `ATLAS_API_*` | see [API.md](API.md), section 1 |
 | Deployment (M6) | `atlas-deploy --root` | `/etc/atlas/deploy.env` (`ATLAS_DEPLOY_*`) | see [DEPLOYMENT.md](DEPLOYMENT.md), section 6 |
+| Dashboard (M7) | — | `ATLAS_API_DASHBOARD`; `ATLAS_DEV_API` for `npm run dev` | served at `/` by `atlas api serve`; see [DASHBOARD.md](DASHBOARD.md), section 11 |
 
 Snapshot ids are restricted to `[a-z0-9][a-z0-9._-]{0,63}`, which rules out path traversal.
 
@@ -294,13 +303,22 @@ run subsets with `--no-cov`, for example `uv run pytest -m integration --no-cov`
   `ATLAS_E2E_CONTAINER=1 uv run pytest tests/test_m6_container.py --no-cov -v` (needs Docker
   and privileges to run a container with systemd; CI runs it in the `deploy-e2e` job).
 
+The dashboard (`web/`, Node.js 22.12+ on development machines and CI only) has its own
+checks: `cd web && npm ci && npm run format:check && npm run lint && npm run typecheck &&
+npm test && npm run build && npm run verify:dist && npm run size`, and the browser tests
+`npx playwright test` (they start the API and two nginx stacks; see
+[DASHBOARD.md](DASHBOARD.md) section 11). After `npm run build`, commit `web/dist`: CI
+rebuilds it and fails on any difference. `tests/test_m7_fixtures.py` keeps the fixtures of
+the frontend tests identical to the API's answers.
+
 GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus `atlas check`,
 `atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
 `atlas backtest verify`, an M3 smoke run followed by `atlas uncertainty verify`, and the M4
 smoke and reference runs followed by `atlas optimize verify` and `inspect`, and an M5 step
 that checks the committed OpenAPI contract and serves the reference data from a real server,
 shellcheck of the deployment scripts, and (job `deploy-e2e`) the M6 end-to-end deployment
-test in a disposable systemd container, on pushes to `main` and on pull requests. The GitHub Actions are pinned to commit SHAs. It installs uv from a hash-pinned requirements file
+test in a disposable systemd container, and (job `dashboard`) the dashboard's checks, a
+reproducible build and the browser tests, on pushes to `main` and on pull requests. The GitHub Actions are pinned to commit SHAs. It installs uv from a hash-pinned requirements file
 (`.github/ci-requirements.txt`).
 
 ## Repository layout
@@ -314,8 +332,9 @@ configs/uncertainty/  versioned M3 uncertainty configurations (pre-registered pr
 configs/optimization/ versioned M4 decision-simulation configurations (HYPOTHETICAL values)
 docs/api/             the committed OpenAPI contract of the M5 API
 deploy/               M6 deployment templates, host scripts, example configuration, test server
+web/                  M7 dashboard source (src/, e2e/, scripts/) and its committed build (dist/)
 docs/                 this guide, architecture, data, limitations, roadmap, backtesting,
-                      uncertainty, optimisation, API, deployment
+                      uncertainty, optimisation, API, deployment, dashboard
 docs/results/         curated reference results of the M2, M3 and M4 runs
 runs/                 local run directories (git-ignored)
 01 Data/ ... 06 Exports/   original project artifacts, unchanged and hash-verified
@@ -327,4 +346,5 @@ runs/                 local run directories (git-ignored)
 snapshot manifest: CSVs, the notebook and the SQL script are `-text`, and the Power BI file,
 PDF and images are `binary`. Without this, `core.autocrlf=true` (the Git for Windows default)
 would rewrite these files on checkout and every SHA-256 check would fail. A test asserts that
-every registered path is covered.
+every registered path is covered. The committed dashboard build (`web/dist`) and the frontend test fixtures are
+`-text` for the same reason: both are verified byte for byte.

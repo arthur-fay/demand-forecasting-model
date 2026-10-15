@@ -120,6 +120,7 @@ def test_the_descriptor_lets_the_browser_simulate(private: tuple[Site, Stack]) -
     reply = site.request("GET", DESCRIPTOR_PATH, headers=AUTH)
     assert reply.status == 200
     assert once(reply, "Cache-Control") == "no-store"
+    assert once(reply, "Content-Security-Policy") == API_CSP  # JSON: the API's policy
     assert reply.json() == {
         "format": "atlas-deployment/1",
         "operational_detail": True,

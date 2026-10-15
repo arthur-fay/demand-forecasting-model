@@ -7,7 +7,7 @@
  * rendered as React text. Every chart has a table twin in its panel, so the tooltip
  * enhances but never gates a value.
  */
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 export const FALLBACK_WIDTH = 640;
 
@@ -33,7 +33,7 @@ export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
 export interface LegendItem {
   readonly label: string;
   readonly color: string;
-  readonly kind: 'line' | 'dashed' | 'swatch' | 'diamond';
+  readonly kind: 'line' | 'dashed' | 'dotted' | 'swatch' | 'diamond';
 }
 
 export function Legend({ items }: { items: readonly LegendItem[] }) {
@@ -68,17 +68,20 @@ function LegendKey({ item }: { item: LegendItem }) {
         y2="2"
         style={{ stroke: item.color }}
         strokeWidth="2"
-        strokeDasharray={item.kind === 'dashed' ? '5 3' : undefined}
+        strokeDasharray={DASHES[item.kind]}
       />
     </svg>
   );
 }
 
+/** The dash pattern of each line style (the chart CSS draws the same patterns). */
+const DASHES: Readonly<Record<string, string | undefined>> = { dashed: '5 4', dotted: '1.5 3.5' };
+
 export interface TooltipRow {
   readonly label: string;
   readonly value: string;
   readonly color?: string;
-  readonly style?: 'solid' | 'dashed' | 'swatch';
+  readonly style?: 'solid' | 'dashed' | 'dotted' | 'swatch';
 }
 
 export interface TooltipContent {
@@ -104,16 +107,22 @@ function Tooltip({
   y: number;
   width: number;
 }) {
-  const flip = x > width - 220;
+  // Right of the reading if it fits, else left of it; always inside the chart (a phone's
+  // chart can be narrower than the tooltip's usual width).
+  const ref = useRef<HTMLDivElement>(null);
+  const [measured, setMeasured] = useState(220);
+  useLayoutEffect(() => {
+    const own = ref.current?.offsetWidth;
+    if (own !== undefined && own > 0) setMeasured(own);
+  }, [content, width]);
+  const preferred = x + 14 + measured <= width ? x + 14 : x - 14 - measured;
+  const left = Math.max(0, Math.min(width - measured, preferred));
   return (
     <div
+      ref={ref}
       className="tooltip"
       aria-hidden="true"
-      style={{
-        left: flip ? undefined : x + 14,
-        right: flip ? width - x + 14 : undefined,
-        top: Math.max(0, y),
-      }}
+      style={{ left, top: Math.max(0, y), maxWidth: width }}
     >
       <span className="tooltip-title">{content.title}</span>
       {content.rows.map((row) => (
@@ -131,7 +140,7 @@ function Tooltip({
                 y2="2"
                 style={{ stroke: row.color ?? 'currentColor' }}
                 strokeWidth="2"
-                strokeDasharray={row.style === 'dashed' ? '4 3' : undefined}
+                strokeDasharray={row.style === undefined ? undefined : DASHES[row.style]}
               />
             </svg>
           )}
@@ -218,6 +227,7 @@ export function ChartSurface({
   };
 
   const anchor = active === null ? null : anchorAt(active);
+  const content = active === null ? null : contentAt(active);
   const hint = keys === 'horizontal' ? 'left and right' : 'up and down';
   return (
     <div className="chart" data-stale={stale ? 'true' : undefined}>
@@ -233,7 +243,7 @@ export function ChartSurface({
         aria-valuemin={0}
         aria-valuemax={count}
         aria-valuenow={active === null ? 0 : active + 1}
-        aria-valuetext={active === null ? 'No value selected' : tooltipText(contentAt(active))}
+        aria-valuetext={content === null ? 'No value selected' : tooltipText(content)}
         onKeyDown={keydown}
         onBlur={() => {
           setActive(null);
@@ -255,8 +265,8 @@ export function ChartSurface({
         >
           {children(active)}
         </svg>
-        {active !== null && anchor !== null && (
-          <Tooltip content={contentAt(active)} x={anchor.x} y={anchor.y} width={width} />
+        {content !== null && anchor !== null && (
+          <Tooltip content={content} x={anchor.x} y={anchor.y} width={width} />
         )}
       </div>
       <p id={summaryId} className="visually-hidden">

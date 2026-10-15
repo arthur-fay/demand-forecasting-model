@@ -159,14 +159,23 @@ export function toRequest(form: FormState, spec: SimulationParametersData): Simu
   return request;
 }
 
-/** The names of what differs from the reference (for the summary and the reset). */
+/**
+ * The names of what differs from the reference (for the summary and the reset): what the
+ * request would change, and every field holding a value that is not valid yet (an edit too).
+ */
 export function changedFields(form: FormState, spec: SimulationParametersData): string[] {
   const request = toRequest(form, spec);
-  return [
+  const names = new Set([
     ...(request.horizon_days !== undefined ? ['horizon_days'] : []),
     ...(request.demand !== undefined ? ['demand'] : []),
     ...Object.keys(request.parameters ?? {}),
-  ];
+  ]);
+  for (const key of Object.keys(validate(form, spec))) {
+    if (key.startsWith('parameters.')) names.add(key.slice('parameters.'.length));
+    else if (key.startsWith('demand.')) names.add('demand');
+    else names.add(key);
+  }
+  return [...names];
 }
 
 /** The form key an API error detail names (`parameters.regular_wage` stays as it is). */

@@ -45,12 +45,23 @@ An end-to-end analytics project that transforms historical operational request d
 > software (FAILED_CALIBRATION intervals, HYPOTHETICAL parameters), never a validated staffing
 > system. See [Deployment and operations (M6)](docs/DEPLOYMENT.md).
 >
+> **M7 web dashboard:** an interactive, accessible web interface over the API (React and
+> TypeScript, built once into the committed `web/dist`; the server needs no Node.js): status,
+> forecasting, uncertainty, decision scenarios, methods and provenance, and bounded
+> HYPOTHETICAL simulations where the deployment allows them. Every number is the API's,
+> validated against the contract, with its limitation next to it (the M2 lead is not
+> significant after Holm, the M3 intervals FAILED_CALIBRATION, M4 parameters HYPOTHETICAL).
+> `uv run atlas api serve` and open `http://127.0.0.1:8000/`. It replaces nothing below: the
+> Power BI previews that follow are the original project's. See
+> [Web dashboard (M7)](docs/DASHBOARD.md).
+>
 > Quick start: `uv sync --locked && uv run atlas check && uv run atlas quality` ·
 > [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
 > [Data snapshot](docs/DATA_SNAPSHOT.md) · [Data quality (M1)](docs/DATA_QUALITY.md) ·
 > [Forecast features (M1)](docs/FEATURES.md) · [Backtesting (M2)](docs/BACKTESTING.md) ·
 > [Uncertainty (M3)](docs/UNCERTAINTY.md) · [Optimisation (M4)](docs/OPTIMIZATION.md) ·
-> [HTTP API (M5)](docs/API.md) · [Deployment (M6)](docs/DEPLOYMENT.md) · [Roadmap](docs/ROADMAP.md)
+> [HTTP API (M5)](docs/API.md) · [Deployment (M6)](docs/DEPLOYMENT.md) ·
+> [Dashboard (M7)](docs/DASHBOARD.md) · [Roadmap](docs/ROADMAP.md)
 
 ## Dashboard Preview
 

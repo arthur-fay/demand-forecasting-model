@@ -68,14 +68,24 @@ export function SignificanceCallout({
   test: PrimaryTest;
   multiplicity: string | null;
 }) {
-  const significant = test.significant_after_holm === true;
+  const significant = test.significant_after_holm;
+  const low = test.mae_difference_ci_low;
+  const high = test.mae_difference_ci_high;
+  const interval =
+    low === null || high === null
+      ? null
+      : low <= 0 && high >= 0
+        ? 'The interval includes zero.'
+        : 'The interval excludes zero.';
   return (
     <Callout
-      tone={significant ? 'info' : 'serious'}
+      tone={significant === true ? 'info' : 'serious'}
       title={
-        significant
+        significant === true
           ? `${test.hypothesis}: significant after the Holm adjustment`
-          : `${test.hypothesis}: not statistically significant after the Holm adjustment`
+          : significant === false
+            ? `${test.hypothesis}: not statistically significant after the Holm adjustment`
+            : `${test.hypothesis}: significance was not computed`
       }
     >
       <p>
@@ -83,10 +93,8 @@ export function SignificanceCallout({
         horizons {test.first_horizon}-{test.last_horizon} ({test.period} period):{' '}
         {formatSigned(test.mae_difference)} requests/day, interval{' '}
         {formatSigned(test.mae_difference_ci_low)} to {formatSigned(test.mae_difference_ci_high)},
-        Holm-adjusted p {formatP(test.holm_adjusted_p_value)}.{' '}
-        {significant
-          ? 'The interval excludes zero.'
-          : 'The interval includes zero: the lead over the best baseline is not established.'}
+        Holm-adjusted p {formatP(test.holm_adjusted_p_value)}.{interval !== null && ` ${interval}`}
+        {significant !== true && ' The lead over the best baseline is not established.'}
       </p>
       {multiplicity !== null && <p className="muted">{multiplicity}</p>}
     </Callout>

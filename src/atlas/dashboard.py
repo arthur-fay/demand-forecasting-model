@@ -64,8 +64,9 @@ DASHBOARD_HEADERS: Final = {
     "Cross-Origin-Resource-Policy": "same-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 }
-#: Cache policies: content-hashed assets never change; everything else is revalidated.
-CACHE_IMMUTABLE: Final = "public, max-age=31536000, immutable"
+#: Cache policies: content-hashed assets never change; everything else is revalidated. Not
+#: ``public``: behind accounts, shared caches must not keep them (RFC 9111 section 3.5).
+CACHE_IMMUTABLE: Final = "max-age=31536000, immutable"
 CACHE_REVALIDATE: Final = "no-cache"
 
 #: The only file types a build may contain, with the type every server sends for them.

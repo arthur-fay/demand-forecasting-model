@@ -44,3 +44,46 @@ test('reduced motion turns the page transition off', async ({ page }) => {
     .evaluate((element) => getComputedStyle(element).animationDuration);
   expect(parseFloat(duration)).toBeLessThan(0.001);
 });
+
+test('a field reached by keyboard is never hidden under a sticky bar', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await open(page, '/simulator', 'Hypothetical simulator');
+  const first = page.getByLabel(/Planning horizon/).and(page.locator('input[type="text"]'));
+  await first.focus();
+  // Tab through every text field of the form: each must be the element at its own centre
+  // once focused (not the top bar or the action bar drawn over it). WCAG 2.4.11.
+  const fields = await page.locator('form input[type="text"]').count();
+  for (let i = 0; i < fields; i++) {
+    const covered = await page.evaluate(() => {
+      const element = document.activeElement;
+      if (!(element instanceof HTMLInputElement) || element.type !== 'text') return null;
+      const box = element.getBoundingClientRect();
+      const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return top === element ? null : element.id;
+    });
+    expect(covered, 'focused field covered').toBeNull();
+    await page.keyboard.press('Tab');
+  }
+});
+
+test('a failed simulation is reported where the reader is', async ({ page }) => {
+  await page.route('**/api/v1/simulations', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      headers: { 'Retry-After': '1' },
+      body: JSON.stringify({
+        error: {
+          code: 'simulations_busy',
+          message: 'Every worker is busy.',
+          request_id: 'r1',
+          details: [],
+        },
+      }),
+    }),
+  );
+  await open(page, '/simulator', 'Hypothetical simulator');
+  await page.getByRole('button', { name: 'Run simulation' }).click();
+  const alert = page.getByText(/Simulation not run/);
+  await expect(alert).toBeInViewport();
+});

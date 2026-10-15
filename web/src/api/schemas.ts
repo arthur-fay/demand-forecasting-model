@@ -565,6 +565,8 @@ export const PlanVariant = z.object({
   terminal_backlog_max: z.nullable(finite),
   terminal_violation: z.nullable(finite),
   satisfies_budget: z.nullable(z.boolean()),
+  unique_optimal_plan: z.nullable(z.boolean()),
+  unique_after_tie_breaks: z.nullable(z.boolean()),
   totals: z.nullable(PlanTotals),
 });
 export type PlanVariant = z.infer<typeof PlanVariant>;

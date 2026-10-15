@@ -116,8 +116,14 @@ def test_the_private_site_serves_the_dashboard_behind_authentication(tmp_path: P
     assert "try_files /.atlas-descriptor @atlas_descriptor;" in part
     assert part.count(f"root {published};") == 3
     assert part.count("disable_symlinks on;") == 3
-    # The policy of the dashboard on the dashboard, the API's on the API.
-    assert part.count(f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;') == 4
+    # The policy of the dashboard on its pages and files (3 locations), the API's on the API
+    # and on the descriptor (JSON).
+    assert part.count(f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;') == 3
+    descriptor = part.split("location @atlas_descriptor {")[1].split("    }")[0]
+    assert "default-src 'none'; frame-ancestors 'none'" in descriptor
+    assert DASHBOARD_CSP not in descriptor
+    # Its own rate zone, no looser than twice the API's read limit (before authentication).
+    assert "limit_req zone=atlas_static burst=60 nodelay;" in part
     api = site.split("    # Dashboard (M7)")[0]
     assert DASHBOARD_CSP not in api
     assert "default-src 'none'; frame-ancestors 'none'" in api
@@ -138,7 +144,8 @@ def test_every_asset_is_listed_by_name_and_immutable() -> None:
     for item in assets:
         assert item.path.removeprefix("assets/").replace(".", r"\.") in line
     assert line.count("|") == len(assets) - 1
-    assert 'add_header Cache-Control "public, max-age=31536000, immutable" always;' in part
+    assert 'add_header Cache-Control "max-age=31536000, immutable" always;' in part
+    assert "public" not in part.split("Cache-Control", 1)[1].splitlines()[0]
     pages = next(line for line in part.splitlines() if 'location ~ "^/(?:' in line)
     for route in build.routes[1:]:
         assert route.lstrip("/") in pages
@@ -218,6 +225,32 @@ def test_an_altered_copy_is_replaced_and_a_planted_file_removed(tmp_path: Path) 
     assert check_published(target, build, owner=uid, proxy_gid=None) == []
     assert not (target / "assets/planted-12345678.js").exists()
     assert [p.name for p in layout.local(layout.dashboard_root).iterdir()] == [release.name]
+
+
+def test_a_failed_swap_keeps_the_previous_copy_serving(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replacing a copy that no longer verifies: if moving the new copy into place fails,
+    the previous one is put back (nginx never finds the directory missing)."""
+    release = make_dashboard_release(tmp_path)
+    layout = published_layout(tmp_path)
+    build = load_build(release / DIST)
+    uid = release.stat().st_uid
+    target = layout.local(publish(layout, release.name, release, build, owner=uid, chown=False))
+    (target / "favicon.svg").chmod(0o600)  # no longer verifies: a new copy is made
+    original = Path.rename
+
+    def failing(self: Path, destination: Any) -> Path:
+        if ".new-" in self.name:
+            raise OSError("disk full")
+        return original(self, destination)
+
+    monkeypatch.setattr(Path, "rename", failing)
+    with pytest.raises(PublishError, match="disk full"):
+        publish(layout, release.name, release, build, owner=uid, chown=False)
+    monkeypatch.undo()
+    assert (target / "index.html").is_file()
+    assert sorted(p.name for p in layout.local(layout.dashboard_root).iterdir()) == [release.name]
 
 
 def test_a_release_whose_dashboard_was_altered_is_not_published(tmp_path: Path) -> None:
@@ -504,3 +537,24 @@ def test_the_digest_of_the_recorded_index_is_the_built_one() -> None:
         record()["files"]["index.html"]
         == hashlib.sha256((BUILD / "index.html").read_bytes()).hexdigest()
     )
+
+
+def test_render_apply_publishes_the_dashboard_its_site_serves(tmp_path: Path) -> None:
+    """`atlas-deploy render --apply` of an exposed site publishes (and verifies) the
+    release's dashboard first, so the site never points at a missing or unverified copy."""
+    import io
+
+    from atlas.deploy import cli
+    from tests.test_m6_scripts import rehearsal
+
+    root = rehearsal(tmp_path / "host")
+    release = make_dashboard_release(tmp_path / "build")
+    out = io.StringIO()
+    command = ["--root", str(root), "render", "--release-dir", str(release), "--apply"]
+    assert cli.main(command, stdout=out) == 0, out.getvalue()
+    published = root / "opt/atlas/dashboard" / release.name
+    build = load_build(release / DIST)
+    uid = release.stat().st_uid
+    assert check_published(published, build, owner=uid, proxy_gid=None) == []
+    site = (root / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
+    assert f"root /opt/atlas/dashboard/{release.name};" in site

@@ -7,6 +7,7 @@
   box-shadow: var(--shadow-panel);
   padding: var(--space-4);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
   min-width: 0;
 }
@@ -232,7 +233,7 @@
   gap: var(--space-2);
   min-height: 36px;
   padding: 6px 14px;
-  border: 1px solid var(--baseline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
@@ -263,7 +264,7 @@
 .segmented {
   display: inline-flex;
   flex-wrap: wrap;
-  border: 1px solid var(--baseline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   padding: 2px;
   gap: 2px;
@@ -344,10 +345,18 @@
   width: 100%;
   min-height: 36px;
   padding: 4px 8px;
-  border: 1px solid var(--baseline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface);
   font-variant-numeric: tabular-nums;
+}
+
+.input:disabled,
+.select:disabled {
+  background: var(--surface-sunken);
+  border-style: dashed;
+  color: var(--ink-muted);
+  cursor: not-allowed;
 }
 
 .input[aria-invalid='true'] {
@@ -392,12 +401,15 @@ input[type='range'] {
   font-size: var(--text-sm);
 }
 
-.data-table caption {
-  text-align: left;
-  padding: var(--space-2) var(--space-3);
+.table-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+.table-caption {
   color: var(--ink-secondary);
   font-size: var(--text-xs);
-  caption-side: top;
 }
 
 .data-table th,
@@ -679,7 +691,7 @@ input[type='range'] {
   gap: var(--space-2) var(--space-4);
 }
 
-.filter-bar .filter-label {
+.filter-label {
   font-size: var(--text-sm);
   color: var(--ink-secondary);
   font-weight: 560;
@@ -719,6 +731,10 @@ input[type='range'] {
   padding-top: var(--space-2);
 }
 
+.sim-actions[data-disabled='true'] {
+  position: static;
+}
+
 .sim-actions {
   position: sticky;
   bottom: 0;
@@ -743,9 +759,11 @@ details.field-help > summary {
   cursor: pointer;
 }
 
+/* A result that no longer matches the inputs: marked by a rule and a sentence, never by
+   fading (faded text would fall below the contrast minimum). */
 [data-stale='true'] {
-  opacity: 0.6;
-  transition: opacity var(--duration-base) var(--ease);
+  border-left: 3px dashed var(--control-border);
+  padding-left: var(--space-3);
 }
 
 .methods-list {

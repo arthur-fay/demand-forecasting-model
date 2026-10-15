@@ -9,6 +9,7 @@ import { Evidence, ProvenanceFooter } from '../components/Provenance';
 import { Async } from '../components/States';
 import {
   DiagnosticTag,
+  EquallyScoredTag,
   HypotheticalTag,
   IntervalStatusTag,
   NotValidatedTag,
@@ -27,7 +28,14 @@ import {
 } from '../lib/format';
 import { Link } from '../router';
 import { ArchivedProjectionCallout, HistoryProjectionChart, PageHeader } from './common';
-import { useForecast, useHistory, useModels, useScenarios, useUncertaintyStatus } from './data';
+import {
+  h1Test,
+  useForecast,
+  useHistory,
+  useModels,
+  useScenarios,
+  useUncertaintyStatus,
+} from './data';
 
 function StatusStrip() {
   const forecast = useForecast();
@@ -51,7 +59,7 @@ function StatusStrip() {
         </Async>
         <Async resource={models} label="the model comparison">
           {({ data }) => {
-            const h1 = data.primary_tests[0];
+            const h1 = h1Test(data.primary_tests);
             if (h1 === undefined)
               return <Stat label="Model against best baseline" value="not reported" />;
             return (
@@ -62,8 +70,10 @@ function StatusStrip() {
                 tags={
                   h1.significant_after_holm === true ? (
                     <Tag tone="good">Significant after Holm</Tag>
-                  ) : (
+                  ) : h1.significant_after_holm === false ? (
                     <Tag tone="serious">Not significant after Holm</Tag>
+                  ) : (
+                    <Tag tone="neutral">Significance not computed</Tag>
                   )
                 }
                 note={`Interval ${formatSigned(h1.mae_difference_ci_low)} to ${formatSigned(h1.mae_difference_ci_high)}, Holm-adjusted p ${formatP(h1.holm_adjusted_p_value)}.`}
@@ -75,7 +85,8 @@ function StatusStrip() {
           {({ data }) => (
             <Stat
               label="Prediction intervals (M3)"
-              value={data.interval_status.toUpperCase()}
+              // The words in the tile (they wrap); the exact status, FAILED_CALIBRATION, is the tag.
+              value={humanise(data.interval_status)}
               kind="status"
               tags={<IntervalStatusTag status={data.interval_status} />}
               note={
@@ -271,7 +282,10 @@ function ScenarioPanel() {
                   header: 'Feasibility',
                   cell: (s) =>
                     s.feasibility === 'strict' ? (
-                      <Tag tone="good">Meets constraints</Tag>
+                      <>
+                        <Tag tone="good">Meets every constraint</Tag>{' '}
+                        <EquallyScoredTag unique={s.optimal_plan_unique} />
+                      </>
                     ) : (
                       <DiagnosticTag />
                     ),
@@ -305,6 +319,10 @@ function LimitationsPanel() {
   const scenarios = useScenarios();
   const fromSystem = system.data?.data.scientific_status?.limitations;
   const notices = (integrity: Integrity | undefined) => integrity?.notices ?? [];
+  const sources = operationalDetail ? [system, forecast, scenarios] : [forecast, scenarios];
+  const waiting = sources.some(
+    (r) => r.snapshot.status === 'loading' || r.snapshot.status === 'idle',
+  );
   const limitations = fromSystem ?? [
     ...new Set([...notices(forecast.data?.integrity), ...notices(scenarios.data?.integrity)]),
   ];
@@ -314,7 +332,14 @@ function LimitationsPanel() {
       subtitle="As the API states them; each also appears next to the numbers it qualifies"
     >
       {limitations.length === 0 ? (
-        <p className="muted small">Loading the limitations…</p>
+        waiting ? (
+          <p className="muted small">Loading the limitations…</p>
+        ) : (
+          <p className="small" role="status">
+            The limitations could not be loaded because the API did not answer. No number is shown
+            without them.
+          </p>
+        )
       ) : (
         <ul className="notice-list">
           {limitations.map((text) => (

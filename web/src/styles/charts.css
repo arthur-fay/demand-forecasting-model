@@ -74,6 +74,14 @@
   font-weight: 560;
 }
 
+/* A label over lines: a surface-coloured outline keeps it legible where a line crosses. */
+.halo {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
 .crosshair {
   stroke: var(--ink-secondary);
   stroke-width: 1;
@@ -209,4 +217,10 @@
   justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
+}
+
+.chart-title {
+  font-size: var(--text-sm);
+  font-weight: 560;
+  color: var(--ink-secondary);
 }

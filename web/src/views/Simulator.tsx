@@ -213,6 +213,19 @@ function ParameterField({
   );
 }
 
+/** The visible label of each form field, for the error summary. */
+const FIELD_LABELS: Readonly<Record<string, string>> = {
+  horizon_days: 'Planning horizon',
+  'demand.basis': 'Demand basis',
+  'demand.quantile': 'Quantile',
+  'demand.multiplier': 'Demand multiplier',
+  'demand.shift_per_day': 'Demand shift',
+};
+
+function fieldLabel(key: string): string {
+  return FIELD_LABELS[key] ?? humanise(key.replace(/^(parameters|demand)\./, ''));
+}
+
 function SimulatorForm({
   spec,
   blocked,
@@ -230,6 +243,10 @@ function SimulatorForm({
   const clientErrors = useMemo(() => validate(form, spec), [form, spec]);
   const errors: FieldErrors = { ...(touched ? clientErrors : {}), ...serverErrors };
   const changed = changedFields(form, spec);
+  // A result computed from other inputs than the form now holds is marked as such.
+  const current =
+    Object.keys(clientErrors).length === 0 ? JSON.stringify(toRequest(form, spec)) : null;
+  const outdated = answer !== null && current !== JSON.stringify(answer.request);
   const disabled = blocked !== null;
   const running = run.status === 'running';
 
@@ -279,9 +296,14 @@ function SimulatorForm({
         setRun({ status: 'idle' });
         return;
       }
-      if (error instanceof ApiError && error.details.length > 0) {
+      // Only the API's input errors (422) name fields of the form; a contract error's
+      // details are paths in the answer, not in what the user typed.
+      if (error instanceof ApiError && error.kind === 'http' && error.status === 422) {
         const mapped: Record<string, string> = {};
-        for (const detail of error.details) mapped[fieldOfDetail(detail.field)] = detail.message;
+        for (const detail of error.details) {
+          const key = fieldOfDetail(detail.field);
+          mapped[key] = key in mapped ? `${mapped[key]} ${detail.message}` : detail.message;
+        }
         setServerErrors(mapped);
       }
       setRun({ status: 'error', error });
@@ -308,16 +330,6 @@ function SimulatorForm({
             <HypotheticalTag />
           </div>
         </div>
-        {blocked !== null && (
-          <Callout tone="info" title="Interactive simulations are disabled in this deployment">
-            <p>{blocked}</p>
-            <p>
-              The controls show what could be adjusted and the reference values. The nine committed
-              reference scenarios are on the <Link href="/decisions">Decision optimisation</Link>{' '}
-              page.
-            </p>
-          </Callout>
-        )}
         <div ref={summary} tabIndex={-1} className="stack-2">
           {errorEntries.length > 0 && (
             <Callout
@@ -332,7 +344,7 @@ function SimulatorForm({
                       message
                     ) : (
                       <a href={`#${fieldId(key)}`}>
-                        {humanise(key.replace(/^(parameters|demand)\./, ''))}: {message}
+                        {fieldLabel(key)}: {message}
                       </a>
                     )}
                   </li>
@@ -340,6 +352,9 @@ function SimulatorForm({
               </ul>
             </Callout>
           )}
+          {/* Next to the form's top, where the focus goes: a failed run is never only
+              announced, it is seen. */}
+          {run.status === 'error' && <SimulationError error={run.error} />}
         </div>
         <fieldset className="sim-group" disabled={disabled}>
           <legend>Horizon and demand</legend>
@@ -463,7 +478,7 @@ function SimulatorForm({
           {spec.notes.join(' ')} Legacy demand percentile:{' '}
           {formatNumber(spec.legacy_demand_percentile_requests_per_day, 2)} requests/day.
         </p>
-        <div className="sim-actions">
+        <div className="sim-actions" data-disabled={disabled ? 'true' : undefined}>
           <button
             type="submit"
             className="button"
@@ -495,22 +510,39 @@ function SimulatorForm({
               Cancel
             </button>
           )}
-          <span className="small secondary" aria-live="polite">
-            {running
-              ? `Solving on the server… ${(elapsed / 1000).toFixed(1)} s`
-              : changed.length === 0
-                ? 'No change: this runs the reference configuration.'
-                : `${changed.length} ${changed.length === 1 ? 'change' : 'changes'} from the reference: ${changed.map(humanise).join(', ')}.`}
+          <span className="small secondary">
+            {disabled ? (
+              'Running simulations is disabled in this deployment.'
+            ) : running ? (
+              // The counter is for sight only: a screen reader hears one announcement.
+              <span aria-hidden="true">Solving on the server… {(elapsed / 1000).toFixed(1)} s</span>
+            ) : changed.length === 0 ? (
+              'No change: this runs the reference configuration.'
+            ) : (
+              `${changed.length} ${changed.length === 1 ? 'change' : 'changes'} from the reference: ${changed.map((key) => fieldLabel(key)).join(', ')}.`
+            )}
+          </span>
+          <span className="visually-hidden" aria-live="polite">
+            {running ? 'Running the simulation on the server.' : ''}
           </span>
         </div>
       </form>
-      {run.status === 'error' && <SimulationError error={run.error} />}
       {answer !== null && (
-        <div className="stack-2" data-stale={run.status === 'success' ? undefined : 'true'}>
-          {run.status !== 'success' && (
+        <div
+          className="stack-2"
+          data-stale={run.status === 'success' && !outdated ? undefined : 'true'}
+        >
+          {run.status !== 'success' ? (
             <p className="small secondary">
               Showing the previous result: it does not reflect the inputs of the last attempt.
             </p>
+          ) : (
+            outdated && (
+              <p className="small secondary">
+                The inputs have changed since this result was computed: run the simulation again to
+                update it.
+              </p>
+            )
           )}
           <SimulationResult result={answer.result} request={answer.request} ms={answer.ms} />
         </div>
@@ -523,9 +555,12 @@ function SimulationError({ error }: { error: unknown }) {
   const { title, detail } = describeError(error);
   const api = error instanceof ApiError ? error : null;
   let explanation: string | null = null;
-  if (api?.code === 'simulation_timeout' || api?.kind === 'timeout')
+  if (api?.code === 'simulation_timeout')
     explanation =
       'The server stopped the solve at its deadline and replaced the worker. Nothing was computed; try a shorter horizon or simpler inputs.';
+  else if (api?.kind === 'timeout')
+    explanation =
+      'No answer arrived in time, so the dashboard stopped waiting. The server stops every solve at its own, shorter deadline; check the connection and try again.';
   else if (api?.code === 'simulation_rejected')
     explanation =
       'M4 refused these inputs as stated (its own rules, such as never using a demand percentile as a capacity). The fields named above explain why.';
@@ -562,6 +597,12 @@ function SimulationResult({
 }) {
   const { data, integrity, provenance } = result;
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // The API's caveat on reference values (their rationale describes the 30-day reference
+  // run): shown once above the table when every reference value shares it.
+  const caveats = new Set(
+    data.parameters.filter((p) => p.reference_assumption !== null).map((p) => p.assumption),
+  );
+  const sharedCaveat = caveats.size === 1 ? ([...caveats][0] ?? null) : null;
   // Each new result takes the focus, so keyboard and screen-reader users land on it.
   useEffect(() => {
     headingRef.current?.focus();
@@ -603,6 +644,7 @@ function SimulationResult({
       <details className="disclosure">
         <summary>Every input of this run ({data.parameters.length})</summary>
         <div className="disclosure-body">
+          {sharedCaveat !== null && <p className="small">{sharedCaveat}</p>}
           <DataTable
             caption="Resolved inputs: what you sent (request), reference defaults, and removed limits. All HYPOTHETICAL."
             rows={data.parameters}
@@ -634,7 +676,10 @@ function SimulationResult({
               {
                 key: 'assumption',
                 header: 'Assumption',
-                cell: (p) => p.reference_assumption ?? p.assumption,
+                cell: (p) =>
+                  p.reference_assumption === null
+                    ? p.assumption
+                    : `${sharedCaveat === null ? `${p.assumption} ` : ''}Reference rationale: ${p.reference_assumption}`,
               },
             ]}
           />
@@ -660,17 +705,40 @@ function SimulationResult({
 
 export default function Simulator() {
   const parameters = useSimulationParameters();
-  const { simulationsBlocked } = useDeployment();
+  const { simulationsBlocked, loading } = useDeployment();
   return (
     <>
       <PageHeader eyebrow="M5 · Bounded HYPOTHETICAL simulations" title="Hypothetical simulator">
-        <p>
-          Change the assumed capacity, overtime, surge, budget and backlog values and re-run the M4
-          linear programme on the server. Each run is one bounded, certified solve of the real
-          engine: the results are exactly what the model computes for the values you chose, and
-          nothing more.
-        </p>
+        {simulationsBlocked === null || loading ? (
+          <p>
+            Change the assumed capacity, overtime, surge, budget and backlog values and re-run the
+            M4 linear programme on the server. Each run is one bounded, certified solve of the real
+            engine: the results are exactly what the model computes for the values you chose, and
+            nothing more.
+          </p>
+        ) : (
+          <p>
+            The HYPOTHETICAL capacity, overtime, surge, budget and backlog values the M4 linear
+            programme takes, with their reference values and ranges. Running simulations is not
+            available in this deployment.
+          </p>
+        )}
       </PageHeader>
+      {simulationsBlocked !== null &&
+        (loading ? (
+          <p className="small secondary" role="status">
+            {simulationsBlocked}
+          </p>
+        ) : (
+          <Callout tone="info" title="Interactive simulations are disabled in this deployment">
+            <p>{simulationsBlocked}</p>
+            <p>
+              The form below shows what could be adjusted and the reference values. The committed
+              reference scenarios are on the <Link href="/decisions">Decision optimisation</Link>{' '}
+              page.
+            </p>
+          </Callout>
+        ))}
       <Callout tone="warning" title="Simulations are exploratory, not operational advice">
         <p>
           Every input is HYPOTHETICAL and the demand is an unvalidated point forecast. A simulation

@@ -26,7 +26,8 @@ export interface LineSeries {
   readonly id: string;
   readonly label: string;
   readonly color: string;
-  readonly style?: 'solid' | 'dashed';
+  /** Line pattern: series are never told apart by colour alone. */
+  readonly style?: 'solid' | 'dashed' | 'dotted';
   readonly points: readonly XY[];
   /** Draw a dot at every point (short series). */
   readonly markers?: boolean;
@@ -110,6 +111,16 @@ export function LineChart({
     return [...all].sort((a, b) => a - b);
   }, [series, bands]);
 
+  // Lookups by x for the reading (a chart can hold over a thousand days).
+  const seriesAt = useMemo(
+    () => series.map((s) => new Map(s.points.map((p) => [p.x, p] as const))),
+    [series],
+  );
+  const bandsAt = useMemo(
+    () => bands.map((b) => new Map(b.points.map((p) => [p.x, p] as const))),
+    [bands],
+  );
+
   const [yMin, yMax] = useMemo(() => {
     if (yDomain) return yDomain;
     let low = Infinity;
@@ -173,8 +184,8 @@ export function LineChart({
   const contentAt = (index: number): TooltipContent => {
     const at = xs[index] ?? 0;
     const rows = [];
-    for (const s of series) {
-      const point = s.points.find((p) => p.x === at);
+    for (const [i, s] of series.entries()) {
+      const point = seriesAt[i]?.get(at);
       if (point && point.y !== null)
         rows.push({
           label: s.label,
@@ -185,8 +196,8 @@ export function LineChart({
       else if (point && point.y === null)
         rows.push({ label: s.label, value: 'not recorded', color: s.color });
     }
-    for (const b of bands) {
-      const point = b.points.find((p) => p.x === at);
+    for (const [i, b] of bands.entries()) {
+      const point = bandsAt[i]?.get(at);
       if (point)
         rows.push({
           label: b.label,
@@ -202,25 +213,29 @@ export function LineChart({
     return { title: formatX(at), rows, notes };
   };
 
+  // Pixel positions once per render; a pointer move is then a binary search.
+  const positions = xs.map(px);
   const indexAtPointer = (pointerX: number) => {
-    if (xs.length === 0) return null;
-    let best = 0;
-    let distance = Infinity;
-    xs.forEach((value, index) => {
-      const d = Math.abs(px(value) - pointerX);
-      if (d < distance) {
-        distance = d;
-        best = index;
-      }
-    });
-    return best;
+    if (positions.length === 0) return null;
+    let low = 0;
+    let high = positions.length - 1;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((positions[middle] ?? 0) < pointerX) low = middle + 1;
+      else high = middle;
+    }
+    const before = Math.max(0, low - 1);
+    return Math.abs((positions[before] ?? 0) - pointerX) <=
+      Math.abs((positions[low] ?? 0) - pointerX)
+      ? before
+      : low;
   };
 
   const legend: LegendItem[] = [
     ...series.map((s) => ({
       label: s.label,
       color: s.color,
-      kind: s.style === 'dashed' ? ('dashed' as const) : ('line' as const),
+      kind: s.style === 'dashed' || s.style === 'dotted' ? s.style : ('line' as const),
     })),
     ...bands.map((b) => ({ label: b.label, color: b.fill, kind: 'swatch' as const })),
     ...(marks.length > 0
@@ -228,6 +243,127 @@ export function LineChart({
       : []),
     ...legendExtra,
   ];
+
+  // Everything but the reading, built once per render of the chart: moving the pointer
+  // re-renders only the crosshair (React skips an unchanged element).
+  const layers = (
+    <>
+      <g className="axis">
+        {yTicks.map((tick, i) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={margin.left}
+              x2={margin.left + innerWidth}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={margin.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">
+              {tickLabels[i]}
+            </text>
+          </g>
+        ))}
+        <line
+          className="axis-baseline"
+          x1={margin.left}
+          x2={margin.left + innerWidth}
+          y1={margin.top + innerHeight}
+          y2={margin.top + innerHeight}
+        />
+        {xTicks.map((tick) => (
+          <text key={tick} x={px(tick)} y={margin.top + innerHeight + 18} textAnchor="middle">
+            {tickText(tick)}
+          </text>
+        ))}
+      </g>
+      {bands.map((b) => (
+        <path key={b.id} d={bandPath(b)} style={{ fill: b.fill, stroke: 'none' }} />
+      ))}
+      {diagonal && (
+        <line
+          className="rule-line"
+          x1={px(first)}
+          y1={y(first)}
+          x2={px(last)}
+          y2={y(last)}
+          strokeDasharray="2 3"
+        />
+      )}
+      {rules.map((rule) => (
+        <g key={rule.label}>
+          <line
+            className="rule-line"
+            x1={px(rule.x)}
+            x2={px(rule.x)}
+            y1={margin.top}
+            y2={margin.top + innerHeight}
+          />
+          <text
+            className="rule-label"
+            x={px(rule.x) + (px(rule.x) > margin.left + innerWidth - 120 ? -6 : 6)}
+            y={margin.top + 10}
+            textAnchor={px(rule.x) > margin.left + innerWidth - 120 ? 'end' : 'start'}
+          >
+            {rule.label}
+          </text>
+        </g>
+      ))}
+      {levels.map((level) => (
+        <g key={level.label}>
+          <line
+            className="rule-line"
+            x1={margin.left}
+            x2={margin.left + innerWidth}
+            y1={y(level.y)}
+            y2={y(level.y)}
+            strokeDasharray="2 3"
+          />
+          <text
+            className="rule-label halo"
+            x={margin.left + innerWidth - 4}
+            y={y(level.y) - 6}
+            textAnchor="end"
+          >
+            {level.label}
+          </text>
+        </g>
+      ))}
+      {series.map((s) => (
+        <g key={s.id}>
+          <path
+            className="series-line"
+            d={pathOf(s.points)}
+            style={{ stroke: s.color }}
+            data-style={s.style ?? 'solid'}
+          />
+          {s.markers === true &&
+            s.points.map((p) =>
+              p.y === null ? null : (
+                <circle
+                  key={p.x}
+                  className="marker"
+                  cx={px(p.x)}
+                  cy={y(p.y)}
+                  r={4}
+                  style={{ fill: s.color }}
+                />
+              ),
+            )}
+        </g>
+      ))}
+      {marks.map((m) => (
+        <rect
+          key={`${m.x}:${m.label}`}
+          className="holiday-mark"
+          x={px(m.x) - 4}
+          y={y(m.y) - 4}
+          width={8}
+          height={8}
+          transform={`rotate(45 ${px(m.x)} ${y(m.y)})`}
+        />
+      ))}
+    </>
+  );
 
   return (
     <div ref={ref} className="stack-2">
@@ -245,115 +381,7 @@ export function LineChart({
       >
         {(active) => (
           <>
-            <g className="axis">
-              {yTicks.map((tick, i) => (
-                <g key={tick}>
-                  <line
-                    className="grid-line"
-                    x1={margin.left}
-                    x2={margin.left + innerWidth}
-                    y1={y(tick)}
-                    y2={y(tick)}
-                  />
-                  <text x={margin.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">
-                    {tickLabels[i]}
-                  </text>
-                </g>
-              ))}
-              <line
-                className="axis-baseline"
-                x1={margin.left}
-                x2={margin.left + innerWidth}
-                y1={margin.top + innerHeight}
-                y2={margin.top + innerHeight}
-              />
-              {xTicks.map((tick) => (
-                <text key={tick} x={px(tick)} y={margin.top + innerHeight + 18} textAnchor="middle">
-                  {tickText(tick)}
-                </text>
-              ))}
-            </g>
-            {bands.map((b) => (
-              <path key={b.id} d={bandPath(b)} style={{ fill: b.fill, stroke: 'none' }} />
-            ))}
-            {diagonal && (
-              <line
-                className="rule-line"
-                x1={px(first)}
-                y1={y(first)}
-                x2={px(last)}
-                y2={y(last)}
-                strokeDasharray="2 3"
-              />
-            )}
-            {rules.map((rule) => (
-              <g key={rule.label}>
-                <line
-                  className="rule-line"
-                  x1={px(rule.x)}
-                  x2={px(rule.x)}
-                  y1={margin.top}
-                  y2={margin.top + innerHeight}
-                />
-                <text
-                  className="rule-label"
-                  x={px(rule.x) + (px(rule.x) > margin.left + innerWidth - 120 ? -6 : 6)}
-                  y={margin.top + 10}
-                  textAnchor={px(rule.x) > margin.left + innerWidth - 120 ? 'end' : 'start'}
-                >
-                  {rule.label}
-                </text>
-              </g>
-            ))}
-            {levels.map((level) => (
-              <g key={level.label}>
-                <line
-                  className="rule-line"
-                  x1={margin.left}
-                  x2={margin.left + innerWidth}
-                  y1={y(level.y)}
-                  y2={y(level.y)}
-                  strokeDasharray="2 3"
-                />
-                <text className="rule-label" x={margin.left + 6} y={y(level.y) - 6}>
-                  {level.label}
-                </text>
-              </g>
-            ))}
-            {series.map((s) => (
-              <g key={s.id}>
-                <path
-                  className="series-line"
-                  d={pathOf(s.points)}
-                  style={{ stroke: s.color }}
-                  data-style={s.style ?? 'solid'}
-                />
-                {s.markers === true &&
-                  s.points.map((p) =>
-                    p.y === null ? null : (
-                      <circle
-                        key={p.x}
-                        className="marker"
-                        cx={px(p.x)}
-                        cy={y(p.y)}
-                        r={4}
-                        style={{ fill: s.color }}
-                      />
-                    ),
-                  )}
-              </g>
-            ))}
-            {marks.map((m) => (
-              <rect
-                key={`${m.x}:${m.label}`}
-                className="holiday-mark"
-                x={px(m.x) - 4}
-                y={y(m.y) - 4}
-                width={8}
-                height={8}
-                transform={`rotate(45 ${px(m.x)} ${y(m.y)})`}
-              />
-            ))}
+            {layers}
             {active !== null && xs[active] !== undefined && (
               <g>
                 <line
@@ -363,8 +391,8 @@ export function LineChart({
                   y1={margin.top}
                   y2={margin.top + innerHeight}
                 />
-                {series.map((s) => {
-                  const point = s.points.find((p) => p.x === xs[active]);
+                {series.map((s, i) => {
+                  const point = seriesAt[i]?.get(xs[active] ?? NaN);
                   return point && point.y !== null ? (
                     <circle
                       key={s.id}

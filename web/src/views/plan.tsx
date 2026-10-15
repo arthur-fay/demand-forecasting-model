@@ -32,11 +32,12 @@ const POLICIES: Record<string, string> = {
   backlog_trigger: 'Backlog-trigger policy',
 };
 
+/** M4's Pareto relation on discretionary cash, request-days and terminal backlog. */
 const RELATION: Record<string, string> = {
-  dominates: 'The reported plan is better on both cash and backlog',
-  dominated: 'The policy is better on both cash and backlog',
-  tradeoff: 'A tradeoff: one spends less, the other leaves less backlog',
-  equal: 'The same outcome',
+  dominates: 'Reported plan lower on at least one of the three, higher on none',
+  dominated: 'Policy lower on at least one of the three, higher on none',
+  tradeoff: 'Each is lower on at least one of the three',
+  equal: 'Equal on all three',
 };
 
 /** The daily-plan name of the reported plan (strict: optimised; otherwise the relaxed plan). */
@@ -97,11 +98,25 @@ export function PlanOutcome({
         </Callout>
       ) : (
         <Callout tone="info" title="The reported plan meets every HYPOTHETICAL constraint">
-          <p>
-            It is the certified optimum of the linear programme for these assumed values (
-            {outcome.reported_plan_selection}). That makes it a correct answer to a hypothetical
-            question, not a recommendation.
-          </p>
+          {variant?.unique_optimal_plan === false ? (
+            <p>
+              It is one of several equally scored HYPOTHETICAL plans: other plans reach the same
+              optimal score under these assumed values. The tie-breaks (
+              {outcome.reported_plan_selection}) choose this one
+              {variant.unique_after_tie_breaks === true
+                ? ', and no other plan is left after them'
+                : variant.unique_after_tie_breaks === false
+                  ? ', and even after them its daily overtime and surge are not determined'
+                  : ''}
+              . It answers a hypothetical question; it is not a recommendation.
+            </p>
+          ) : (
+            <p>
+              It is the certified optimum of the linear programme for these assumed values (
+              {outcome.reported_plan_selection}). That makes it a correct answer to a hypothetical
+              question, not a recommendation.
+            </p>
+          )}
         </Callout>
       )}
       {evaluation !== null && (
@@ -186,8 +201,12 @@ export function PlanOutcome({
           the primal and dual feasibility and duality-gap certificate
           {certificate.duality_gap !== null && ` (gap ${certificate.duality_gap.toExponential(1)})`}
           , and the plan{' '}
-          {outcome.reported_plan?.independent_check_passed === true ? 'passed' : 'did not pass'} an
-          independent re-check of every constraint.
+          {outcome.reported_plan?.independent_check_passed === true
+            ? 'passed'
+            : outcome.reported_plan?.independent_check_passed === false
+              ? 'did not pass'
+              : 'was not given'}{' '}
+          an independent re-check of every constraint.
           {outcome.problems.length > 0 && ` Problems recorded: ${outcome.problems.join('; ')}.`}
         </p>
       )}
@@ -213,18 +232,28 @@ function DailyCharts({
   const diagnostic = outcome.feasibility !== 'strict' ? ' (DIAGNOSTIC plan)' : '';
   const byPlan = (plan: string) =>
     daily.filter((d) => d.plan === plan).sort((a, b) => a.day - b.day);
+  // Each line has its own pattern as well as its colour: the policies often coincide with
+  // the reported plan for days, and one line can hide another.
   const lines = [
-    { id: reported, label: `Reported plan${diagnostic}`, color: 'var(--series-1)', days },
+    {
+      id: reported,
+      label: `Reported plan${diagnostic}`,
+      color: 'var(--series-1)',
+      style: 'solid' as const,
+      days,
+    },
     {
       id: 'fixed_capacity',
       label: POLICIES.fixed_capacity ?? 'fixed_capacity',
       color: 'var(--series-2)',
+      style: 'dashed' as const,
       days: byPlan('fixed_capacity'),
     },
     {
       id: 'backlog_trigger',
       label: POLICIES.backlog_trigger ?? 'backlog_trigger',
       color: 'var(--series-3)',
+      style: 'dotted' as const,
       days: byPlan('backlog_trigger'),
     },
   ].filter((line) => line.days.length > 0);
@@ -284,6 +313,9 @@ function DailyCharts({
             formatValue={(v) => `${formatInteger(v)}/day`}
             formatTick={formatCompact}
           />
+          <p className="chart-title">
+            End-of-day backlog: the reported plan and two simple policies
+          </p>
           <LineChart
             label="End-of-day backlog: reported plan against two simple policies"
             summary={`End-of-day backlog (requests) of the reported plan, the fixed-capacity policy and the backlog-trigger policy over ${days.length} days${target === null ? '' : `; HYPOTHETICAL terminal target ${formatInteger(target)} requests`}.`}
@@ -291,6 +323,7 @@ function DailyCharts({
               id: line.id,
               label: line.label,
               color: line.color,
+              style: line.style,
               points: line.days.map((d) => ({ x: dateValue(d.date), y: d.backlog })),
             }))}
             levels={
@@ -371,11 +404,15 @@ function DailyCharts({
 
 function PolicyComparison({ outcome }: { outcome: ScenarioOutcome }) {
   if (outcome.comparisons.length === 0) return null;
+  const diagnostic = outcome.feasibility !== 'strict';
   return (
     <div className="stack-2">
-      <h4 className="small">Against simple policies under the same assumptions</h4>
+      <h4 className="small">
+        Against simple policies under the same assumptions
+        {diagnostic && ' (the reported plan is DIAGNOSTIC)'}
+      </h4>
       <DataTable
-        caption="Differences are reported plan minus policy: cash in USD, backlog in request-days and requests (negative: the reported plan has less)."
+        caption={`Differences are reported plan minus policy: cash in USD, backlog in request-days and requests (negative: the reported plan has less). The relation compares discretionary cash, request-days and terminal backlog (lower is better on each). A plan that violates the HYPOTHETICAL terminal target is not comparable on score${diagnostic ? ': the reported plan here misses it, so its values are DIAGNOSTIC' : ''}.`}
         rows={outcome.comparisons}
         rowKey={(c) => c.policy}
         columns={[
@@ -389,6 +426,11 @@ function PolicyComparison({ outcome }: { outcome: ScenarioOutcome }) {
             key: 'relation',
             header: 'Relation',
             cell: (c) => RELATION[c.relation_of_reported_plan] ?? c.relation_of_reported_plan,
+          },
+          {
+            key: 'comparable',
+            header: 'Comparable on score',
+            cell: (c) => (c.comparable_on_score ? 'yes' : 'no'),
           },
           {
             key: 'cash',

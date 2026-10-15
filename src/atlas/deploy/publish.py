@@ -128,7 +128,11 @@ def publish(
         if target.exists() or target.is_symlink():
             retired = root / f".{release_id}.old-{token_hex(4)}"
             target.rename(retired)
-            staging.rename(target)
+            try:
+                staging.rename(target)
+            except OSError:
+                retired.rename(target)  # the previous copy keeps serving
+                raise
             _remove(retired)
         else:
             staging.rename(target)

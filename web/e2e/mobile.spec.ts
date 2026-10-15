@@ -1,14 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-import { open, PAGES } from './helpers';
+import { horizontalOverflow, open, PAGES } from './helpers';
 
 for (const { path, heading } of PAGES) {
   test(`${path} fits a phone screen`, async ({ page }) => {
     await open(page, path, heading);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
+    // clientWidth, not innerWidth: a phone browser zooms out to fit wide content, which
+    // makes innerWidth grow with the overflow it should reveal.
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
   });
 }
 
@@ -30,6 +29,13 @@ test('a chart reads by touch', async ({ page }) => {
   const chart = page.locator('.chart-svg').first();
   await chart.scrollIntoViewIfNeeded();
   const box = (await chart.boundingBox())!;
-  await page.touchscreen.tap(box.x + box.width * 0.5, box.y + box.height * 0.5);
-  await expect(page.locator('.tooltip')).toBeVisible();
+  for (const at of [0.05, 0.35, 0.5, 0.95]) {
+    await page.touchscreen.tap(box.x + box.width * at, box.y + box.height * 0.5);
+    const tooltip = page.locator('.tooltip');
+    await expect(tooltip).toBeVisible();
+    // The reading stays inside the chart, whatever the point tapped.
+    const tip = (await tooltip.boundingBox())!;
+    expect(tip.x).toBeGreaterThanOrEqual(box.x - 1);
+    expect(tip.x + tip.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  }
 });

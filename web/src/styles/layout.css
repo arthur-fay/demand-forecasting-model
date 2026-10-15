@@ -16,7 +16,7 @@
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
 }
 
@@ -52,6 +52,8 @@
 
 .topbar .research-tag {
   margin-left: auto;
+  min-width: 0;
+  justify-content: flex-end;
 }
 
 .menu-button {

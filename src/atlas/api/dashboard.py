@@ -19,6 +19,7 @@ dashboard disables them and says why.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -95,7 +96,8 @@ def load_dashboard(repo_root: Path, *, simulations_enabled: bool) -> Dashboard:
         "enabled" if simulations_enabled else "disabled_api_key",
         operational_detail=True,
     )
-    add(DESCRIPTOR_PATH, document, "application/json", "no-store", '"descriptor"', False)
+    tag = f'"{hashlib.sha256(document).hexdigest()[:16]}"'
+    add(DESCRIPTOR_PATH, document, "application/json", "no-store", tag, False)
     return Dashboard(build, assets)
 
 
@@ -148,7 +150,7 @@ class DashboardMiddleware:
             await send({"type": "http.response.body", "body": b""})
             return
         body = asset.body
-        if asset.gzipped is not None and "gzip" in headers.get("accept-encoding", "").lower():
+        if asset.gzipped is not None and accepts_gzip(headers.get("accept-encoding", "")):
             body = asset.gzipped
             common.append((b"content-encoding", b"gzip"))
         await send(
@@ -159,6 +161,25 @@ class DashboardMiddleware:
             }
         )
         await send({"type": "http.response.body", "body": b"" if method == "HEAD" else body})
+
+
+def accepts_gzip(accept_encoding: str) -> bool:
+    """Whether an ``Accept-Encoding`` value accepts gzip (RFC 9110 12.5.3): named, or
+    covered by ``*``, with a quality above zero."""
+    qualities: dict[str, float] = {}
+    for item in accept_encoding.lower().split(","):
+        name, _, parameters = item.strip().partition(";")
+        quality = 1.0
+        for parameter in parameters.split(";"):
+            key, _, value = parameter.strip().partition("=")
+            if key == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0.0
+        if name.strip():
+            qualities[name.strip()] = quality
+    return qualities.get("gzip", qualities.get("x-gzip", qualities.get("*", 0.0))) > 0
 
 
 def try_load_dashboard(repo_root: Path, *, simulations_enabled: bool) -> Dashboard | None:

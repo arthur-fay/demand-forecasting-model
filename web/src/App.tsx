@@ -67,9 +67,14 @@ function NotFound() {
   return (
     <div className="stack-3">
       <h1>Page not found</h1>
-      <p className="secondary">
-        There is no dashboard page at this address. <Link href="/">Go to the overview</Link>.
-      </p>
+      <p className="secondary">There is no dashboard page at this address. The pages are:</p>
+      <ul>
+        {PAGES.map((p) => (
+          <li key={p.path}>
+            <Link href={p.path}>{p.label}</Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -79,8 +84,23 @@ export function App() {
   const { pathname } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const main = useRef<HTMLElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const first = useRef(true);
   const page = PAGES.find((candidate) => candidate.path === pathname);
+
+  // Escape closes the open navigation menu (phones) and returns to its button.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      menuButton.current?.focus();
+    };
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('keydown', close);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     document.title = `${page?.title ?? 'Page not found'} · ATLAS`;
@@ -102,6 +122,7 @@ export function App() {
       <div className="shell">
         <header className="topbar">
           <button
+            ref={menuButton}
             type="button"
             className="menu-button"
             aria-expanded={menuOpen}

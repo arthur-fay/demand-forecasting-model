@@ -1,6 +1,12 @@
 /** The API reads each view uses, with stable cache keys (one request per key per session). */
 import { api } from '../api/endpoints';
 import { useResource } from '../api/resource';
+import type { PrimaryTest } from '../api/schemas';
+
+/** H1 (the recommended model against the best baseline), found by name as the API does. */
+export function h1Test(tests: readonly PrimaryTest[]): PrimaryTest | undefined {
+  return tests.find((t) => t.hypothesis.startsWith('H1'));
+}
 
 export const useSystem = () => useResource('system', () => api.system());
 export const useModels = () => useResource('models', () => api.models());

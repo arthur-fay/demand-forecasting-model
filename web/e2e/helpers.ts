@@ -49,3 +49,10 @@ export async function open(page: Page, path: string, heading: string): Promise<v
   await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
   await page.waitForLoadState('networkidle');
 }
+
+/** How far the page is wider than its layout viewport, in CSS pixels (0: no sideways scroll). */
+export async function horizontalOverflow(page: Page): Promise<number> {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+}
