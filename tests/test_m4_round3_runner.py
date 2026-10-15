@@ -222,7 +222,8 @@ def _set_uncertainty_status(metrics: dict[str, Any]) -> None:
         (_set_reported_plan, ["file_altered"]),
         (_set_diagnosis, ["file_altered"]),
         # The manifest's copy of the inputs no longer equals metrics.json either.
-        (_set_uncertainty_status, ["file_altered", "manifest_field_differs"]),
+        # metrics.json is altered on disk, so the manifest is not compared with it.
+        (_set_uncertainty_status, ["file_altered"]),
     ],
     ids=["reported_plan", "diagnosis", "uncertainty_status"],
 )
@@ -344,8 +345,13 @@ def test_inspect_refuses_manifest_labels_that_contradict_metrics(
     code, output = run_cli("optimize", "inspect", str(run_dir))
     assert code == EXIT_FAILED
     report = report_of(output, "optimization_inspection")
-    assert codes(report, "error") == ["manifest_field_differs"]
-    assert issue(report, "manifest_field_differs")["message"].startswith(message)
+    # A forged configuration fingerprint also breaks the run id and the embedded
+    # configuration's fingerprint: every error is a manifest copy that differs.
+    assert set(codes(report, "error")) == {"manifest_field_differs"}
+    assert any(
+        i["code"] == "manifest_field_differs" and i["message"].startswith(message)
+        for i in report["issues"]
+    )
 
 
 @pytest.mark.integration

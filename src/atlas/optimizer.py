@@ -410,7 +410,6 @@ class LPResult:
 HIGHS_OPTIMAL: Final = 7
 HIGHS_INFEASIBLE: Final = 8
 HIGHS_UNBOUNDED_OR_INFEASIBLE: Final = 9
-HIGHS_INCONCLUSIVE: Final = (9, 10, 15)
 #: Largest magnitude accepted in a programme (larger inputs are a configuration error).
 MAX_MAGNITUDE: Final = 1e9
 #: Nonzero matrix coefficients at or below HiGHS's ``small_matrix_value`` are dropped by the
@@ -484,7 +483,12 @@ def _check_magnitudes(lp: LinearProgram) -> None:
             )
 
 
-def _linprog(lp: LinearProgram, settings: SolverSettings, presolve: bool) -> OptimizeResult:
+def _linprog(
+    lp: LinearProgram,
+    settings: SolverSettings,
+    presolve: bool,
+    method: Literal["highs-ds", "highs-ipm"] | None = None,
+) -> OptimizeResult:
     bounds = [
         (float(low), None if math.isinf(high) else float(high))
         for low, high in zip(lp.lower, lp.upper, strict=True)
@@ -499,7 +503,7 @@ def _linprog(lp: LinearProgram, settings: SolverSettings, presolve: bool) -> Opt
             A_eq=lp.a_eq,
             b_eq=lp.b_eq,
             bounds=bounds,
-            method=settings.method,
+            method=method or settings.method,
             options={
                 "presolve": presolve,
                 "primal_feasibility_tolerance": settings.primal_feasibility_tolerance,
@@ -522,10 +526,11 @@ def _highs_status(result: OptimizeResult) -> int | None:
 
 
 #: Programmes whose right-hand sides and finite bounds are all at most this (in absolute
-#: value) are solved as built; larger ones are scaled exactly (:func:`scale_factor`). Up to
-#: ``2**21`` (about 2.1e6) HiGHS's absolute tolerance ``1e-9`` still spans at least two
-#: units in the last place (``ulp(2**21)`` is about 4.7e-10); above it, it does not. The
-#: largest value of any programme of the reference run is about 1.09e6.
+#: value) are solved as built; larger ones are scaled exactly (:func:`scale_factor`). Below
+#: ``2**22`` HiGHS's absolute tolerance ``1e-9`` spans more than two units in the last place
+#: (``ulp`` at most 4.66e-10); at ``2**22`` it spans about one. ``2**21`` keeps a factor-two
+#: margin below that; the largest value of any programme of the reference run is about
+#: 1.09e6, so all of them are solved unscaled.
 SCALE_THRESHOLD: Final = 2.0**21
 #: A scaled programme's largest value is brought into ``[2**(SCALE_EXPONENT - 1),
 #: 2**SCALE_EXPONENT)``, the magnitudes of the reference run's programmes.
@@ -585,11 +590,14 @@ def solve_lp(lp: LinearProgram, settings: SolverSettings) -> LPResult:
 
     The outcome is classified on the HiGHS model status, not only on SciPy's integer
     (SciPy maps a HiGHS model error to its "infeasible" code 2, and inconclusive outcomes
-    to code 4): 7 is optimal, 8 infeasible; 9 (unbounded or infeasible), 10 (unbounded)
-    and 15 (unknown) are re-solved once without presolve; after that 9 counts as
-    infeasible, because every programme built here is bounded on its feasible set
-    (``x, b <= b[0] + sum d``, ``o`` and ``s`` by their daily limits, violations by the
-    backlog). Anything else raises :class:`OptimizationError`. Presolve decides
+    to code 4): 7 is optimal, 8 infeasible. Any other status (9 unbounded or infeasible,
+    10 unbounded, 15 unknown, 0 not set, 4 solve error, ...) is re-solved once without
+    presolve; after that 9 counts as infeasible, because every programme built here is
+    bounded on its feasible set (``x, b <= b[0] + sum d``, ``o`` and ``s`` by their daily
+    limits, violations by the backlog). A status that is still inconclusive is re-solved
+    by the interior-point method with crossover (``highs-ipm``, named in the result's
+    message); its optimum is used only if the certificate holds on ``lp``. Anything else
+    raises :class:`OptimizationError`. Presolve decides
     feasibility at HiGHS's absolute tolerance, so its infeasible verdict is confirmed by a
     re-solve without presolve: a certified optimum of that re-solve overturns it
     (``retried``); otherwise presolve's result is returned unchanged.
@@ -618,11 +626,19 @@ def _solve_scaled(lp: LinearProgram, settings: SolverSettings, factor: float) ->
     scaled = _scaled(lp, factor)
     result = _linprog(scaled, settings, settings.presolve)
     highs = _highs_status(result)
-    retried = False
-    if highs in HIGHS_INCONCLUSIVE and settings.presolve:
+    retried = interior = False
+    if not _conclusive(result, highs, first=True) and settings.presolve:
         result = _linprog(scaled, settings, presolve=False)
         highs = _highs_status(result)
         retried = True
+    if not _conclusive(result, highs):
+        # Last resort for a status the dual simplex could not conclude (0 not set, 4 solve
+        # error, 15 unknown, ...): the interior-point method with crossover to a vertex,
+        # without presolve. Its optimum is used only if the certificate holds on ``lp``.
+        candidate = _linprog(scaled, settings, presolve=False, method=INTERIOR_POINT)
+        candidate_highs = _highs_status(candidate)
+        if _conclusive(candidate, candidate_highs):
+            result, highs, retried, interior = candidate, candidate_highs, True, True
     status = _classify(result, highs)
     if status is SolveStatus.INFEASIBLE:
         infeasible = LPResult(
@@ -643,9 +659,31 @@ def _solve_scaled(lp: LinearProgram, settings: SolverSettings, factor: float) ->
             return infeasible
         if again_status is not SolveStatus.OPTIMAL:
             return infeasible
-        candidate = _solution(lp, again, again_highs, factor, retried=True)
-        return candidate if certify(lp, candidate).holds else infeasible
-    return _solution(lp, result, highs, factor, retried=retried)
+        candidate_result = _solution(lp, again, again_highs, factor, retried=True)
+        return candidate_result if certify(lp, candidate_result).holds else infeasible
+    solution = _solution(lp, result, highs, factor, retried=retried)
+    if interior:
+        solution = replace(solution, message=f"{solution.message} [{INTERIOR_POINT}]")
+        if not certify(lp, solution).holds:
+            raise OptimizationError(
+                f"HiGHS did not finish with {settings.method}, and the {INTERIOR_POINT} "
+                f"optimum is not certified: {solution.message}"
+            )
+    return solution
+
+
+#: The solver method of the last-resort re-solve (see :func:`_solve_scaled`).
+INTERIOR_POINT: Final[Literal["highs-ipm"]] = "highs-ipm"
+
+
+def _conclusive(result: OptimizeResult, highs: int | None, *, first: bool = False) -> bool:
+    """Whether HiGHS reached a verdict: optimal (7) or infeasible (8); 9 (unbounded or
+    infeasible) counts as infeasible except on the first attempt, which is re-solved."""
+    if highs == HIGHS_OPTIMAL and int(result.status) == 0:
+        return True
+    if highs == HIGHS_INFEASIBLE:
+        return True
+    return highs == HIGHS_UNBOUNDED_OR_INFEASIBLE and not first
 
 
 def _classify(result: OptimizeResult, highs: int | None) -> SolveStatus:

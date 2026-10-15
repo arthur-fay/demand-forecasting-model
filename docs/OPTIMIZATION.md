@@ -193,7 +193,8 @@ optimum in every path, and that most fallbacks were recorded nowhere. Now:
   `policy_epsilon_cap` or `frontier_epsilon_cap`.
 - **Ties are broken explicitly.** After the optimal score, the reported plan minimises
   discretionary cash, then the terminal backlog, then request-days, each on the optimal
-  face of the stage before (`plan_selection` in the CSVs names the chain for every plan).
+  face of the stage before (`plan_selection` in `scenarios.csv` and `sensitivity.csv`
+  names the chain).
   Cash, penalty, terminal backlog and request-days of a reported plan therefore do not
   depend on the vertex HiGHS returns. Its day-by-day schedule, and the split between
   overtime and surge, can still differ between tied plans; the uniqueness test (section 7)
@@ -207,13 +208,13 @@ up the unscaled solution (status 15); the result was false ERRORs or an aborted 
 also found that one large column could still widen a row's zero test. Three independent
 fixes were benchmarked on every reproduction and on 69 realistic control instances; the
 one adopted works as follows:
-- **Exact scaling.** When a right-hand side or finite bound exceeds `2**21` (above it the
-  absolute tolerance `1e-9` spans fewer than two units in the last place), every
+- **Exact scaling.** When a right-hand side or finite bound exceeds `2**21`, every
   right-hand side and finite bound is divided by a power of two `K`. That is exact in
   floating point. The solution is mapped back (`x = K x'`); the duals are unchanged.
   The scaled solution must pass the certificate on the original programme; if it does
-  not, or HiGHS fails on it, the programme is solved unscaled. Every programme of the
-  reference run has `K = 1`.
+  not, or HiGHS fails on it, the programme is solved unscaled. Below `2**22` the absolute
+  tolerance `1e-9` spans more than two units in the last place, and at `2**22` about one;
+  `2**21` keeps a factor-two margin. Every programme of the reference run has `K = 1`.
 - **Presolve's infeasible verdicts are confirmed** by a re-solve without presolve, and a
   certified optimum overturns them (`retried`). Before, only statuses 9, 10 and 15 were
   re-solved.
@@ -233,7 +234,23 @@ one adopted works as follows:
   recorded face rebuild.
 - **The face is rebuilt** from exact zeros whenever any face programme fails.
 
-The reference run is unchanged byte for byte.
+These changes leave every programme of the reference run unscaled and every computed value
+unchanged: `plans.csv`, `duals.csv`, `sensitivity.csv` and `frontier.csv` are byte-identical to
+the run before them. `report.md`, `metrics.json` and `scenarios.csv` change only through the
+wording and the new fields of the same round.
+
+**Amended (R3, verification).** A further independent check of these fixes found two more
+gaps:
+- **Statuses the dual simplex cannot conclude.** HiGHS can return statuses other than 9, 10
+  and 15, such as 0 (not set) and 4 (solve error), on valid programmes. This happens with
+  terminal penalties of `1e8` or more, even at NYC scale, and it aborted the run. Every
+  status other than 7 and 8 is now re-solved without presolve. A status that is still
+  inconclusive is re-solved by the interior-point method with crossover (`highs-ipm`, named
+  in the programme's message); its optimum is used only if the certificate holds on the
+  original programme.
+- **The planning programme itself is not a fallback.** If no method solves it, the run
+  still stops with `solver_failed` and writes no results, as before; only the analyses
+  built on it fail soft.
 
 ## 5. Infeasibility, relaxed plans and diagnostics
 
@@ -285,13 +302,20 @@ whole USD (the shortfall keeps three), so the spend no longer appears to be belo
   configured daily capacity. Before, it was never tested, and the reason could say that no
   limit lowers the violation.
 - **One tolerance for "out of reach".** Whether the target is out of reach at any cash
-  uses the plan check's tolerance, summed over the units with a target, so a scenario is
-  no longer both "out of reach at any cash" and BORDERLINE. A removal counts as lowering
-  the violation if it reaches that tolerance, or if it lowers the violation by more than
-  `10 ×` the checking tolerance (half the violation, if that is smaller).
+  uses the smallest per-unit tolerance of the plan check, so a total violation within it is
+  within every unit's tolerance however it is shared (for the single unit the configuration
+  allows, this is exactly the check's tolerance). A scenario whose relaxed plan passes the
+  plan check (BORDERLINE) always counts as within reach, so it is never also "out of reach
+  at any cash". A removal counts as lowering the violation if it reaches that tolerance, or
+  if it lowers the violation by more than `10 ×` the checking tolerance (half the
+  violation, if that is smaller).
 - **A failed removal is an ERROR.** A removal programme that is not optimal, or that the
-  solver refuses (for example, a lifted limit beyond the input magnitude bound), is now an
-  ERROR. The reason names it as not computed; it is no longer silently left out.
+  solver refuses, is now an ERROR. The reason names it as not computed, and then claims
+  only that no removal that could be computed lowers the violation; it is no longer
+  silently left out. A lifted daily limit is capped at half the input magnitude bound
+  (`5e8`). If the relaxed plan uses that cap fully, the removal is not exact, and it is
+  reported as not computed too.
+- **Configured limits and targets** are printed as configured (1.5 staff hours, not 2).
 - **Limits below one unit and the analytic bound.** Limits below one unit keep three
   significant digits. The analytic-bound reason gives the excess over the target.
 
@@ -331,13 +355,15 @@ score.
   relaxed plan and every sweep point get the same test. A non-unique plan is labelled "one of
   several equally scored HYPOTHETICAL plans". **Amended (R2):** the distance is measured from
   the vertex the solver returned for the programme tested (the planning programme, or the
-  relaxed plan's last stage), not from the reported plan. The plan is called unique when no
+  relaxed plan's planning-objective stage: least violation, then the planning objective),
+  not from the reported plan. The plan is called unique when no
   optimal plan lies more than `0.001` (requests or staff hours, summed over the active
   constraints) from it: the test is exact up to that threshold, not to zero. If a face plan
   does not score the optimum (the zero tests loosened the face), the face is rebuilt from
   exact zeros and the rebuild is recorded (`face_rebuilt`); a failed face programme is
-  recorded as an ERROR instead of aborting the run (R3: any failed face programme triggers
-  the rebuild). **Amended (R3):** the tie-breaks pin cash,
+  recorded as an ERROR instead of aborting the run. (R3: any failed face programme triggers
+  the rebuild, a recorded `face_rebuilt` WARNING; it is an ERROR only if the rebuilt face
+  fails too, and an incomplete test reports no verdict: `unique` is empty, not "no".) **Amended (R3):** the tie-breaks pin cash,
   terminal backlog and request-days, but the overtime/surge split and the daily schedule can
   stay open (for example when overtime and surge cost the same per request). The reported
   plan itself therefore gets the same test on the face of its last tie-break stage. It is
@@ -385,14 +411,20 @@ score.
   optimum must lie on the curve (checked), and the curve must be non-increasing and convex in
   the cap (checked). No point is singled out: it is a HYPOTHETICAL tradeoff, not a budget.
   **Amended (R2):** each point breaks ties like the reported plan (least cash, then terminal
-  backlog, then request-days), so the values in `frontier.csv` do not depend on the vertex.
+  backlog, then request-days), so penalty, cash, terminal backlog and request-days in
+  `frontier.csv` do not depend on the vertex; the overtime and surge totals can, and their
+  ranges are reported where they do.
   Each point gets the uniqueness test. `unique_after_tie_breaks` is false where other plans
   tie on all four values with a different daily schedule, and the ranges of the overtime and
   surge totals over those plans are reported. **Amended (R3):** a cap whose least penalty
   is certified, but whose tie-break stage failed after every fallback, is a `solver_failed`
   point: it has its least penalty, no totals, and an ERROR. So is a cap the solver gave no
   verdict on. Neither is called infeasible. `on_frontier_check` is `not_computed` (with an
-  ERROR) when the point at the strict plan's cash could not be computed.
+  ERROR) when the point at the strict plan's cash could not be computed. If a curve's
+  least-penalty programme fails, the report says so rather than "no plan meets the target",
+  which is said only when that programme is infeasible
+  (`least_penalty_programme_status`). Points without a plan are counted
+  (`points_solver_failed`), not reported as unique.
 - **Sensitivity sweeps**, one parameter at a time, with the properties proved for the model
   checked on the results (**amended (R2):** the values of each point are those of its
   tie-broken plan):
@@ -646,5 +678,16 @@ malformed manifest or `metrics.json` is a usage error (exit 2) in `verify` and `
 - **The `--require-clean` blob check.** It now compares the raw bytes with the committed
   blob (`core.autocrlf` no longer refuses an identical file), and resolves the path from the
   given repository root, which may be a subdirectory of a larger repository.
-- **Fallbacks after the run.** `inspect` shows the run's stage fallbacks as a WARNING, and
-  the report has a "Run checks" section with the counts of failed checks and fallbacks.
+- **Fallbacks after the run.** `inspect` shows the run's stage fallbacks as a WARNING,
+  `verify` reports the recomputation's fallback WARNINGs, and the report has a "Run checks"
+  section with the counts of failed checks and fallbacks.
+- **Verification follow-ups (R3).**
+  - `run` warns when the running package is not the repository's, and `inspect` warns on a
+    manifest that records it.
+  - A symlinked `src/atlas` never counts as the repository's package.
+  - The manifest's copies of the data provenance, the solver settings and versions, the
+    run id and the result-file list are cross-checked as well. `inspect` also checks the
+    embedded configuration against its fingerprint.
+  - In `verify` an ERROR names the recomputation it compares with.
+  - Integers beyond Python's digit limit and output names that do not encode are usage
+    errors.

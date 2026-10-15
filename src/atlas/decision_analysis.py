@@ -44,6 +44,7 @@ import numpy as np
 
 from atlas.optimizer import (
     CERT_REL,
+    MAX_MAGNITUDE,
     Certificate,
     Cleaning,
     DualValue,
@@ -546,7 +547,13 @@ def solve_on_face(previous: Solved, settings: SolverSettings, objective: Objecti
                 f"lexicographic stage {objective} moved the earlier optimum "
                 f"{previous.objective_value!r} to {kept!r}"
             )
-    return replace(attempt, problems=(*attempt.problems, *extra), stage_fallback=fallback)
+    # A stage with no plan records no fallback: no plan "keeps the earlier optimum to within
+    # the epsilon cap"; its failure is the problem above (an ERROR).
+    return replace(
+        attempt,
+        problems=(*attempt.problems, *extra),
+        stage_fallback=fallback if attempt.solved is not None else None,
+    )
 
 
 def solve_stages(
@@ -627,9 +634,11 @@ class Canonical:
 
     ``optimum`` is the programme of the objective itself (its value, duals and optimal
     face); ``plan`` is the last stage of :data:`TIE_BREAKS` (least cash, then least
-    terminal backlog, then least request-days among the optimal plans), so every reported
-    total is independent of the vertex the solver happens to return; when the optimum is
-    not unique, the ranges over all optimal plans are reported as well.
+    terminal backlog, then least request-days among the optimal plans), so its score, cash,
+    terminal backlog and request-days are independent of the vertex the solver happens to
+    return (its overtime/surge split and daily schedule need not be; that is tested
+    separately); when the optimum is not unique, the ranges over all optimal plans are
+    reported as well.
     """
 
     optimum: Attempt
@@ -814,6 +823,12 @@ def reach_tolerance(problem: PlanningProblem) -> float:
     return min(allowed, default=0.0)
 
 
+#: A lifted daily limit is at most this (half the input bound of the solver layer): a
+#: horizon whose total work exceeds it is still diagnosed, and a cap that binds in the
+#: relaxed plan is reported as "not computed" (see :func:`limit_relaxations`).
+LIFT_CAP: Final = MAX_MAGNITUDE / 2
+
+
 def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
     """``(limit, description, unit with that limit removed)`` for every configured limit.
 
@@ -821,15 +836,16 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
     surge becomes available from the first day at its configured daily capacity, also when
     it is configured to start after the horizon (``surge_capacity_when_available``).
     """
-    work = math.fsum(unit.demand) + unit.initial_backlog + 1.0
+    # All the work of the horizon, capped below the input bound (limit_relaxations checks
+    # that a capped lift does not bind).
+    work = min(math.fsum(unit.demand) + unit.initial_backlog + 1.0, LIFT_CAP)
     variants: list[tuple[str, str, ServiceUnit]] = []
     if unit.overtime_productivity > 0:
-        hours = work / unit.overtime_productivity
+        hours = min(work / unit.overtime_productivity, LIFT_CAP)
         variants.append(
             (
                 "overtime_daily_limit",
-                f"the daily overtime limit of {_amount(max(unit.overtime_max_hours), 0)} "
-                "staff hours",
+                f"the daily overtime limit of {_limit(max(unit.overtime_max_hours))} staff hours",
                 replace(unit, overtime_max_hours=(hours,) * unit.horizon),
             )
         )
@@ -837,7 +853,7 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
         variants.append(
             (
                 "surge_daily_limit",
-                f"the daily surge limit of {_amount(max(unit.surge_max), 0)} requests",
+                f"the daily surge limit of {_limit(max(unit.surge_max))} requests",
                 replace(
                     unit, surge_max=tuple(work if limit > 0 else 0.0 for limit in unit.surge_max)
                 ),
@@ -864,7 +880,7 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
         variants.append(
             (
                 "surge_delay",
-                f"the surge start after the horizon (surge of {_amount(daily, 0)} requests a "
+                f"the surge start after the horizon (surge of {_limit(daily)} requests a "
                 "day is never available)",
                 replace(unit, surge_max=(daily,) * unit.horizon),
             )
@@ -873,7 +889,7 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
         variants.append(
             (
                 "overtime_total_limit",
-                f"the overtime total of {_amount(unit.overtime_total_hours, 0)} staff hours",
+                f"the overtime total of {_limit(unit.overtime_total_hours)} staff hours",
                 replace(unit, overtime_total_hours=None),
             )
         )
@@ -881,7 +897,7 @@ def _relaxed_limits(unit: ServiceUnit) -> list[tuple[str, str, ServiceUnit]]:
         variants.append(
             (
                 "surge_total_limit",
-                f"the surge total of {_amount(unit.surge_total, 0)} requests",
+                f"the surge total of {_limit(unit.surge_total)} requests",
                 replace(unit, surge_total=None),
             )
         )
@@ -929,10 +945,41 @@ def limit_relaxations(
                         "the soft-target programme is always feasible",
                     ),
                 )
+            if attempt.solved is not None and _cap_binds(
+                attempt.solved.plan.units[k], limit, unit, relaxed_unit
+            ):
+                # The lift was capped (LIFT_CAP) and the relaxed plan uses all of it: the
+                # removal is not exact, so its violation is not reported.
+                attempt = replace(
+                    attempt,
+                    solved=None,
+                    problems=(
+                        f"limit relaxation {unit.unit_id}:{limit}: the lifted limit binds at "
+                        f"its cap of {LIFT_CAP:g}, so the removal is not exact",
+                    ),
+                )
             results.append(
                 LimitRelaxation(unit.unit_id, limit, description, attempt.value, attempt)
             )
     return tuple(results)
+
+
+def _cap_binds(decisions: Any, limit: str, unit: ServiceUnit, relaxed: ServiceUnit) -> bool:
+    """Whether a daily limit whose lift was capped (:data:`LIFT_CAP`) is used to that capped
+    value on some day: the removal is then not exact. A lift that reached all the work of
+    the horizon cannot bind in a way that matters."""
+    total = math.fsum(unit.demand) + unit.initial_backlog + 1.0
+    if limit == "overtime_daily_limit":
+        full = total / unit.overtime_productivity
+        lifted, used = relaxed.overtime_max_hours, decisions.overtime_hours
+    elif limit == "surge_daily_limit":
+        full = total
+        lifted, used = relaxed.surge_max, decisions.surge
+    else:
+        return False
+    if max(lifted, default=0.0) >= full:
+        return False
+    return any(cap > 0 and v >= cap - tolerance(cap) for v, cap in zip(used, lifted, strict=True))
 
 
 def _limits_text(
@@ -957,14 +1004,26 @@ def _limits_text(
             "a total dropped, a delayed surge available from the first day), these limits "
             "would lower it: " + "; ".join(named)
         )
+    elif failed:
+        text = "no configured limit whose removal could be computed lowers it when removed alone"
     else:
         text = (
             "no configured limit lowers it when removed alone (the limits and the regular "
             "capacity bind together)"
         )
     if failed:
-        text += "; not computed (solver failure): " + "; ".join(failed)
+        text += "; not computed (an ERROR of this run): " + "; ".join(failed)
     return text
+
+
+def _limit(value: float) -> str:
+    """A configured limit or target as given: whole numbers without decimals, others with
+    up to two (three significant digits below one unit), so 1.5 never prints as 2."""
+    if float(value).is_integer():
+        return f"{value:,.0f}"
+    if abs(value) < 1:
+        return f"{value:.3g}"
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
 
 
 def _amount(value: float, decimals: int) -> str:
@@ -1050,7 +1109,7 @@ def diagnose(problem: PlanningProblem, settings: SolverSettings) -> Diagnosis:
             reasons.append(
                 f"{unit_id}: even serving at maximum capacity every day leaves "
                 f"{_amount(bound, 1)} requests at the end of the horizon, "
-                f"{_amount(bound - target, 1)} above the target of {_amount(target, 0)}"
+                f"{_amount(bound - target, 1)} above the target of {_limit(target)}"
             )
     if borderline:
         reasons.append(
@@ -1329,9 +1388,9 @@ class FiniteDifference:
     practical_forward: float
     forward_cash: float | None
     forward_penalty: float | None
-    bracket_ok: bool
-    convex_ok: bool
-    sign_ok: bool
+    bracket_ok: bool | None
+    convex_ok: bool | None
+    sign_ok: bool | None
     noise: float = 0.0
     problems: tuple[str, ...] = ()
     stage_fallback: str | None = None
@@ -1569,6 +1628,9 @@ def finite_differences(
         # The optimal score never falls when demand rises (proved for d >= 0), so the dual
         # of a balance row with a positive right-hand side is a non-negative subgradient.
         sign = not (dual.constraint == "balance" and dual.rhs > 0 and dual.marginal < -(slope + nf))
+        untested = any(
+            v is not None and math.isnan(v) for v in (forward, backward, p_forward, p_backward)
+        )
         cash = penalty = None
         fallback = base_fallback
         base_fallback = None
@@ -1592,9 +1654,11 @@ def finite_differences(
                 practical_forward=p_forward,
                 forward_cash=cash,
                 forward_penalty=penalty,
-                bracket_ok=bool(bracket),
-                convex_ok=bool(convex),
-                sign_ok=bool(sign),
+                # A slope the solver could not compute leaves the tests undone (None), not
+                # failed: its re-solve's error is the recorded problem.
+                bracket_ok=None if untested else bool(bracket),
+                convex_ok=None if untested else bool(convex),
+                sign_ok=None if untested else bool(sign),
                 noise=nf + nb,
                 problems=tuple(problems),
                 stage_fallback=fallback,
@@ -1861,6 +1925,9 @@ class Frontier:
     on_frontier_check: str
     problems: tuple[str, ...] = ()
     fallbacks: tuple[str, ...] = ()
+    #: Status of each variant's least-penalty programme (``"optimal"``, ``"infeasible"``:
+    #: the target cannot be met at any cash, or ``"solver_failed"``).
+    least_penalty_status: Mapping[str, str] = field(default_factory=dict)
 
 
 def frontier(
@@ -1888,6 +1955,7 @@ def frontier(
     problems: list[str] = []
     result: list[FrontierPoint] = []
     least_cash: dict[str, float | None] = {}
+    top_status: dict[str, str] = {}
     monotone = convex = True
     fallbacks: list[str] = []
     for variant, terminal in (("kept", Terminal.HARD), ("dropped", Terminal.NONE)):
@@ -1910,7 +1978,16 @@ def frontier(
         )
         if top_solved is None or not all(a.optimal for a in top_stages[: cash_stage + 1]):
             least_cash[variant] = None
+            # "infeasible" only when the least-penalty programme itself is (the target cannot
+            # be met at any cash); a solver failure is not a statement about the model.
+            failed = next(a for a in top_stages if not a.optimal)
+            top_status[variant] = (
+                str(SolveStatus.INFEASIBLE)
+                if failed is top_stages[0] and failed.status is SolveStatus.INFEASIBLE
+                else str(SolveStatus.FAILED)
+            )
             continue
+        top_status[variant] = str(SolveStatus.OPTIMAL)
         top = top_solved.evaluation.discretionary_cost
         least_cash[variant] = top
         caps = [(top * i / (points - 1), "grid") for i in range(points)]
@@ -2026,7 +2103,7 @@ def frontier(
                     evaluation.terminal_backlog,
                     evaluation.overtime_hours,
                     evaluation.surge_requests,
-                    unique_after_tie_breaks=face.unique,
+                    unique_after_tie_breaks=None if face.problems else face.unique,
                     overtime_hours_range=spans.get("overtime_hours"),
                     surge_requests_range=spans.get("surge_requests"),
                 )
@@ -2069,7 +2146,14 @@ def frontier(
     if not convex:
         problems.append("frontier is not convex in the cash cap")
     return Frontier(
-        tuple(result), least_cash, monotone, convex, check, tuple(problems), tuple(fallbacks)
+        tuple(result),
+        least_cash,
+        monotone,
+        convex,
+        check,
+        tuple(problems),
+        tuple(fallbacks),
+        top_status,
     )
 
 
@@ -2399,7 +2483,9 @@ def analyse_scenario(
                 problems.extend(item.problems)
                 if item.stage_fallback is not None:
                     fallbacks.append(item.stage_fallback)
-                if not (item.bracket_ok and item.convex_ok and item.sign_ok):
+                if item.status != "solver_failed" and not (
+                    item.bracket_ok and item.convex_ok and item.sign_ok
+                ):
                     problems.append(
                         f"shadow price {item.dual.key()} outside its finite-difference bracket"
                     )

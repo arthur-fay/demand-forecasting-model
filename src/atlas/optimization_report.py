@@ -475,9 +475,15 @@ def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
     checked = [s for s in scenarios if s["shadow_prices"]["computed"]]
     for s in checked:
         p = s["shadow_prices"]
+        failed = p.get("solver_failed", 0)
+        if p["brackets_ok"] is None:
+            verdict = "no bracket could be computed"
+        elif p["brackets_ok"]:
+            verdict = "all computed brackets hold" if failed else "all brackets hold"
+        else:
+            verdict = "A BRACKET FAILED"
         lines.append(
-            f"- `{s['scenario_id']}`: {p['n']} duals bracketed "
-            f"({'all brackets hold' if p['brackets_ok'] else 'A BRACKET FAILED'}); "
+            f"- `{s['scenario_id']}`: {p['n']} duals bracketed ({verdict}); "
             f"{p['locally_unique']} locally unique, {p['breakpoint']} at a breakpoint, "
             f"{p['domain_boundary_or_infeasible_side']} at a domain boundary or with an "
             f"infeasible side, {p.get('backward_unresolved', 0)} with a backward step too "
@@ -490,13 +496,23 @@ def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
 
 def _tied_points(frontier: Mapping[str, Any]) -> str:
     tied = frontier.get("points_not_unique_after_tie_breaks")
+    failed = frontier.get("points_solver_failed") or 0
+    untested = (
+        f"; {_n(failed)} points could not be computed (solver failure: no plan, no uniqueness test)"
+        if failed
+        else ""
+    )
     if not tied:
-        return "every point is unique after the tie-breaks"
+        return (
+            "every computed point is unique after the tie-breaks" + untested
+            if failed
+            else "every point is unique after the tie-breaks"
+        )
     open_totals = frontier.get("points_with_overtime_or_surge_totals_open")
     return (
         f"at {_n(tied)} points other plans tie on penalty, cash, terminal backlog and "
         f"request-days with a different daily schedule; the overtime or surge totals differ "
-        f"too at {_n(open_totals)} of them"
+        f"too at {_n(open_totals)} of them" + untested
     )
 
 
@@ -519,19 +535,27 @@ def _frontier_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
         if not f:
             continue
         least = f["least_cash_for_least_penalty"]
-        kept = (
-            "with the terminal target kept, extra cash beyond "
-            f"{_n(least.get('kept'))} USD lowers the penalty no further"
-            if least.get("kept") is not None
-            else "with the terminal target kept, no plan meets the HYPOTHETICAL target at "
-            "any cash cap"
-        )
-        dropped = (
-            f"without the target, extra cash beyond {_n(least.get('dropped'))} USD lowers the "
-            "penalty no further"
-            if least.get("dropped") is not None
-            else "without the target, no point could be computed"
-        )
+        status = f.get("least_penalty_programme_status") or {}
+        failed = "its least-penalty programme could not be solved (solver failure)"
+        if least.get("kept") is not None:
+            kept = (
+                "with the terminal target kept, extra cash beyond "
+                f"{_n(least.get('kept'))} USD lowers the penalty no further"
+            )
+        elif status.get("kept") == "solver_failed":
+            kept = f"with the terminal target kept, {failed}"
+        else:
+            kept = (
+                "with the terminal target kept, no plan meets the HYPOTHETICAL target at any "
+                "cash cap"
+            )
+        if least.get("dropped") is not None:
+            dropped = (
+                f"without the target, extra cash beyond {_n(least.get('dropped'))} USD lowers "
+                "the penalty no further"
+            )
+        else:
+            dropped = f"without the target, {failed}"
         lines.append(
             f"- `{s['scenario_id']}`: {kept}; {dropped}; "
             "under this deterministic demand path and the HYPOTHETICAL prices; the "

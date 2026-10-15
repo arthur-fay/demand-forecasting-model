@@ -401,7 +401,9 @@ def test_a_solver_error_in_the_epsilon_cap_is_returned_not_raised(
     stage = analysis.solve_on_face(strict, SETTINGS, Objective.DISCRETIONARY_CASH)
     assert stage.status is SolveStatus.FAILED
     assert any("lexicographic stage discretionary_cash failed" in p for p in stage.problems)
-    assert stage.stage_fallback == "epsilon_cap"
+    # A stage with no plan records no fallback (no plan keeps the optimum to within the
+    # epsilon cap); its failure is the problem.
+    assert stage.stage_fallback is None
 
 
 def _has_row(lp: LinearProgram, name: str) -> bool:

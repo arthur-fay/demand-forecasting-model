@@ -82,6 +82,7 @@ from atlas.optimization_report import render_optimization_report
 from atlas.optimizer import (
     OptimizationError,
     SolverSettings,
+    SolveStatus,
     solver_versions,
 )
 from atlas.planning import UNITS, Plan, PlanCheck, PlanEvaluation, binding_constraints
@@ -417,10 +418,10 @@ def scenario_frame(
                     "plan_selection": None
                     if plan is None
                     else SELECTION.get(plan_id.split("_as_")[0], "policy rule"),
-                    "unique_optimal_plan": None if face is None else face.unique,
+                    "unique_optimal_plan": _verdict(face),
                     "unique_after_tie_breaks": None
-                    if face is None or result.tie_broken_face is None
-                    else result.tie_broken_face.unique,
+                    if face is None
+                    else _verdict(result.tie_broken_face),
                     "solver_status": None if attempt is None else str(attempt.status),
                     "demand_basis": scenario.demand_basis,
                     "quantile": scenario.quantile,
@@ -524,7 +525,9 @@ def _fd_fields(item: FiniteDifference | None) -> dict[str, Any]:
         "practical_forward": item.practical_forward,
         "practical_forward_cash_part": item.forward_cash,
         "practical_forward_penalty_part": item.forward_penalty,
-        "bracket_ok": item.bracket_ok and item.convex_ok and item.sign_ok,
+        "bracket_ok": None
+        if item.status == "solver_failed"
+        else bool(item.bracket_ok and item.convex_ok and item.sign_ok),
     }
 
 
@@ -608,7 +611,7 @@ def sensitivity_frame(
                     "value": point.value,
                     "solver_status": str(point.attempt.status),
                     "plan_selection": SELECTION[OPTIMIZED] if solved else None,
-                    "unique_optimal_plan": None if point.face is None else point.face.unique,
+                    "unique_optimal_plan": _verdict(point.face),
                     "least_terminal_violation_within_budget": point.least_violation,
                     "regular_capacity_mean": capacity,
                     "capacity_to_point_forecast_mean_ratio": capacity / forecast_mean,
@@ -756,7 +759,7 @@ def _sweep_summary(
         "discretionary_cost": None if evaluation is None else evaluation.discretionary_cost,
         "backlog_request_days": None if evaluation is None else evaluation.backlog_request_days,
         "terminal_backlog": None if evaluation is None else evaluation.terminal_backlog,
-        "unique_optimal_plan": None if point.face is None else point.face.unique,
+        "unique_optimal_plan": _verdict(point.face),
         "least_terminal_violation_within_budget": point.least_violation,
         "stage_fallbacks": list(point.fallbacks),
         "capacity_to_point_forecast_mean_ratio": capacity / forecast_mean,
@@ -767,13 +770,21 @@ def _sweep_summary(
     }
 
 
+def _verdict(face: Any) -> bool | None:
+    """A face's uniqueness verdict, ``None`` when the test was not completed (a recorded
+    problem, an ERROR): a failed test is not evidence of other optimal plans."""
+    if face is None or face.problems:
+        return None
+    return bool(face.unique)
+
+
 def _face_summary(face: Any, *, daily: bool = True) -> dict[str, Any] | None:
     """``daily`` False: the per-day ranges were not computed, so the count of undetermined
     days is unknown (``None``), not 0."""
     if face is None:
         return None
     return {
-        "unique": face.unique,
+        "unique": _verdict(face),
         "method": "complementary_slackness_with_certified_duals",
         "dual_threshold": face.dual_threshold,
         "bounds_fixed": face.bounds_fixed,
@@ -833,7 +844,15 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             "n": len(fd),
             "brackets_ok": None
             if not fd
-            else all(i.bracket_ok and i.convex_ok and i.sign_ok for i in fd),
+            else (
+                None
+                if all(i.status == "solver_failed" for i in fd)
+                else all(
+                    i.bracket_ok and i.convex_ok and i.sign_ok
+                    for i in fd
+                    if i.status != "solver_failed"
+                )
+            ),
             "locally_unique": sum(1 for i in fd if i.status == "locally_unique"),
             "breakpoint": sum(1 for i in fd if i.status == "breakpoint"),
             "solver_failed": sum(1 for i in fd if i.status == "solver_failed"),
@@ -871,6 +890,10 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             "points_with_overtime_or_surge_totals_open": sum(
                 1 for point in result.frontier.points if point.totals_open()
             ),
+            "points_solver_failed": sum(
+                1 for point in result.frontier.points if point.status is SolveStatus.FAILED
+            ),
+            "least_penalty_programme_status": dict(result.frontier.least_penalty_status),
         },
         "problems": list(result.problems),
     }
@@ -1168,8 +1191,13 @@ def running_package_is_repository(repo_root: Path) -> bool:
     """
     import atlas
 
+    expected = repo_root / "src" / "atlas"
+    # A symlinked src/atlas (or src) can point outside git, where edits are invisible to
+    # git status: such a layout does not identify the code either.
+    if expected.is_symlink() or expected.parent.is_symlink():
+        return False
     running = Path(atlas.__file__).resolve().parent
-    return running == (repo_root / "src" / "atlas").resolve()
+    return running == expected.resolve() and running.is_relative_to(repo_root.resolve())
 
 
 def _git(root: Path, *args: str) -> str | None:
@@ -1288,10 +1316,25 @@ def run_optimization_command(
         settings, config, inputs, outputs, run_id, git, time.perf_counter() - started
     )
     write_run(directory, outputs.files, manifest)
+    package_issues = (
+        ()
+        if manifest["code"]["running_package_is_repository_src"]
+        else (
+            Issue(
+                "running_package_not_repository",
+                Severity.WARNING,
+                "code",
+                "The atlas package that ran is not "
+                f"{settings.repo_root / 'src' / 'atlas'}: the recorded commit and code hash do "
+                "not identify the code that ran (check --repo-root, ATLAS_REPO_ROOT and "
+                "PYTHONPATH).",
+            ),
+        )
+    )
     reports.append(
         CheckReport(
             name="optimization",
-            issues=outputs.issues,
+            issues=(*outputs.issues, *package_issues),
             facts={
                 "run_dir": str(directory),
                 "run_id": run_id,
@@ -1320,14 +1363,21 @@ def _check_manifest_shape(manifest: Any, run_dir: Path) -> None:
             f"({', '.join(RESULT_FILES)})"
         )
     for name, digest in outputs.items():
+        if not isinstance(digest, str):
+            raise ConfigError(
+                f"{run_dir}/manifest.json: recorded output {name!r} has no SHA-256 string"
+            )
+        try:
+            encoded = name.encode("utf-8") if isinstance(name, str) else None
+        except UnicodeEncodeError:
+            encoded = None
         if (
-            not isinstance(name, str)
-            or not isinstance(digest, str)
+            encoded is None
             or name in ("", ".", "..")
             or "/" in name
             or "\\" in name
             or "\x00" in name
-            or len(name.encode("utf-8", "replace")) > 255
+            or len(encoded) > 255
         ):
             raise ConfigError(
                 f"{run_dir}/manifest.json: recorded output {name!r} is not a plain file name"
@@ -1346,26 +1396,43 @@ _MANIFEST_COPIES: Final = (
 )
 
 
-def _manifest_copy_issues(manifest: Mapping[str, Any], metrics: Mapping[str, Any]) -> list[Issue]:
+def _manifest_copy_issues(
+    manifest: Mapping[str, Any], metrics: Mapping[str, Any], against: str
+) -> list[Issue]:
     """ERRORs for manifest labels and provenance that disagree with ``metrics.json``.
 
     The manifest is not fingerprinted, so a hand-edited ``validated_recommendation`` or M3
-    status would otherwise pass ``verify`` and ``inspect``.
+    status would otherwise pass ``verify`` and ``inspect``. ``against`` names the
+    ``metrics.json`` compared with (the recorded one, or the recomputation).
     """
+    inputs = _obj(metrics.get("inputs"))
+    data = _obj(manifest.get("data"))
+    fingerprint = manifest.get("config_fingerprint")
+    copies: dict[str, tuple[Any, Any]] = {
+        key: (manifest.get(key), metrics.get(key)) for key in _MANIFEST_COPIES
+    }
+    copies["data"] = (manifest.get("data"), inputs.get("snapshot"))
+    copies["solver"] = (manifest.get("solver"), metrics.get("solver"))
+    copies["result_files"] = (manifest.get("result_files"), list(RESULT_FILES))
+    copies["run_id"] = (
+        manifest.get("run_id"),
+        f"{manifest.get('experiment_id')}-{str(fingerprint)[:8]}-"
+        f"{str(data.get('data_fingerprint'))[:8]}",
+    )
     issues = [
         Issue(
             "manifest_field_differs",
             Severity.ERROR,
             "manifest.json",
-            f"The manifest's {key!r} differs from the fingerprinted metrics.json.",
+            f"The manifest's {key!r} differs from {against}.",
         )
-        for key in _MANIFEST_COPIES
-        if manifest.get(key) != metrics.get(key)
+        for key, (recorded_value, expected) in copies.items()
+        if recorded_value != expected
     ]
     recorded = _obj(manifest.get("scenarios"))
     scenarios = metrics.get("scenarios")
     computed = {
-        s.get("scenario_id"): {
+        str(s.get("scenario_id")): {
             "demand_sha256": s.get("demand_sha256"),
             "demand_basis": s.get("demand_basis"),
             "adjustments": s.get("adjustments"),
@@ -1380,8 +1447,8 @@ def _manifest_copy_issues(manifest: Mapping[str, Any], metrics: Mapping[str, Any
                 "manifest_field_differs",
                 Severity.ERROR,
                 "manifest.json",
-                "The manifest's 'scenarios' (demand, adjustments, feasibility) differ from the "
-                "fingerprinted metrics.json.",
+                "The manifest's 'scenarios' (demand, adjustments, feasibility) differ from "
+                f"{against}.",
             )
         )
     return issues
@@ -1404,6 +1471,8 @@ def _read_run_json(path: Path, what: str) -> Any:
         raise ConfigError(f"{path}: the {what} is not valid UTF-8 ({exc.reason})") from exc
     except RecursionError as exc:
         raise ConfigError(f"{path}: the {what} is nested too deeply to read") from exc
+    except ValueError as exc:  # e.g. an integer literal beyond Python's digit limit
+        raise ConfigError(f"{path}: the {what} cannot be read ({exc})") from exc
 
 
 def verify_optimization_command(settings: Settings, run_dir: Path) -> list[CheckReport]:
@@ -1473,7 +1542,9 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
     ]
     absent = sorted(name for name in recorded if not (run_dir / name).is_file())
     issues += _missing_issues(absent)
-    issues += _manifest_copy_issues(manifest, json.loads(outputs.files["metrics.json"]))
+    issues += _manifest_copy_issues(
+        manifest, json.loads(outputs.files["metrics.json"]), "the recomputed metrics.json"
+    )
     if not running_package_is_repository(settings.repo_root):
         issues.append(
             Issue(
@@ -1498,6 +1569,8 @@ def verify_optimization_command(settings: Settings, run_dir: Path) -> list[Check
     # Reproducing a failed run byte for byte does not make it pass: its failed checks are
     # failures of the recomputation too.
     recomputed_errors = [i for i in outputs.issues if i.severity is Severity.ERROR]
+    # A fallback of the recomputation is reported too (a WARNING), as by run and inspect.
+    issues += [i for i in outputs.issues if i.code == "stage_fallback"]
     issues += [
         Issue("recomputed_check_failed", Severity.ERROR, i.subject, i.message)
         for i in recomputed_errors
@@ -1599,7 +1672,33 @@ def inspect_optimization_command(run_dir: Path) -> list[CheckReport]:
         raise ConfigError(f"{run_dir}/metrics.json: 'scenarios' is not a list of objects")
     if not isinstance(payload.get("inputs", {}), dict):
         raise ConfigError(f"{run_dir}/metrics.json: 'inputs' is not an object")
-    issues += _manifest_copy_issues(manifest, payload)
+    if "metrics.json" not in altered:
+        issues += _manifest_copy_issues(manifest, payload, "the recorded metrics.json")
+        # The embedded configuration must still give its recorded fingerprint.
+        try:
+            embedded = parse_optimization_config(manifest["config"]).fingerprint()
+        except (ConfigError, ValueError) as exc:
+            embedded = f"invalid: {exc}"
+        if embedded != manifest.get("config_fingerprint"):
+            issues.append(
+                Issue(
+                    "manifest_field_differs",
+                    Severity.ERROR,
+                    "manifest.json",
+                    "The manifest's embedded configuration does not give its recorded "
+                    "configuration fingerprint.",
+                )
+            )
+    if _obj(manifest.get("code")).get("running_package_is_repository_src") is False:
+        issues.append(
+            Issue(
+                "recorded_package_not_repository",
+                Severity.WARNING,
+                "manifest.json",
+                "The run was made with an atlas package outside its repository root: its "
+                "recorded commit and code hash do not identify the code that ran.",
+            )
+        )
     # metrics.json is covered by the result fingerprint; the manifest flag is not.
     checks = payload.get("checks") if isinstance(payload, dict) else None
     errors = checks.get("errors") if isinstance(checks, dict) else None

@@ -244,7 +244,8 @@ def test_a_non_optimal_limit_removal_is_a_problem_and_never_named(
     }
     assert diagnosis.reasons[0].endswith(
         REMOVED + "the overtime total of 10 staff hours (to 160.0 requests without it); "
-        "not computed (solver failure): the daily overtime limit of 10 staff hours (DIAGNOSTIC)"
+        "not computed (an ERROR of this run): the daily overtime limit of 10 staff hours "
+        "(DIAGNOSTIC)"
     )
     result = analyse_scenario(
         "relax_fail", problem, SETTINGS, {"u": 0.0}, shadow_steps=None, frontier_points=None
@@ -278,18 +279,27 @@ def test_a_limit_lifted_beyond_the_magnitude_bound_is_an_error_not_an_abort() ->
         "big", problem, SETTINGS, {"u": 0.0}, shadow_steps=None, frontier_points=None
     )
     assert result.feasibility == "relaxed_terminal_target"
-    assert len(result.problems) == 1
-    assert result.problems[0].startswith("limit relaxation u:surge_daily_limit failed: ")
-    assert "magnitude >= 1e+09" in result.problems[0]
+    # Lifting a daily limit to all the work of the horizon (1.2e9 requests) would exceed the
+    # input bound, so both lifts are capped at 5e8; the relaxed plans use the full caps, so
+    # neither removal is exact: both are reported as not computed (ERRORs), and the run
+    # completes instead of aborting.
+    assert result.problems == (
+        "limit relaxation u:overtime_daily_limit: the lifted limit binds at its cap of 5e+08, "
+        "so the removal is not exact",
+        "limit relaxation u:surge_daily_limit: the lifted limit binds at its cap of 5e+08, "
+        "so the removal is not exact",
+    )
     assert result.diagnosis is not None
     assert result.diagnosis.limit_relaxations == {
-        "u:overtime_daily_limit": pytest.approx(0.0, abs=1e-6),
+        "u:overtime_daily_limit": None,
         "u:surge_daily_limit": None,
     }
-    assert result.diagnosis.reasons[0].endswith(
-        REMOVED + "the daily overtime limit of 1,000,000 staff hours (to 0.0 requests without "
-        "it); not computed (solver failure): the daily surge limit of 1,000,000 requests "
-        "(DIAGNOSTIC)"
+    reason = result.diagnosis.reasons[0]
+    assert "no configured limit whose removal could be computed lowers it" in reason
+    assert "bind together" not in reason
+    assert reason.endswith(
+        "not computed (an ERROR of this run): the daily overtime limit of 1,000,000 staff "
+        "hours; the daily surge limit of 1,000,000 requests (DIAGNOSTIC)"
     )
 
 
@@ -549,7 +559,7 @@ def test_a_failed_limit_removal_is_an_error_of_the_run(
     assert diagnosis[METRICS_KEY]["citywide:surge_daily_limit"] is None
     assert diagnosis["reasons"][0].endswith(
         REMOVED + "the overtime total of 3,000 staff hours (to 6,537.0 requests without it); "
-        "not computed (solver failure): the daily surge limit of 500 requests (DIAGNOSTIC)"
+        "not computed (an ERROR of this run): the daily surge limit of 500 requests (DIAGNOSTIC)"
     )
 
 

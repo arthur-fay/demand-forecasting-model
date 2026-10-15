@@ -929,19 +929,21 @@ def test_unknown_status_is_retried_without_presolve(monkeypatch: pytest.MonkeyPa
     assert result.objective == pytest.approx(16.0, abs=1e-9)
 
 
-def test_unknown_status_without_presolve_is_not_retried_and_raises(
+def test_unknown_status_without_presolve_tries_the_interior_point_method_then_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[int] = []
+    # Without presolve there is no presolve-free re-solve; the last resort is the interior-
+    # point method, and a status still inconclusive there raises.
+    methods: list[str] = []
 
-    def fake(*_args: Any, **_kwargs: Any) -> OptimizeResult:
-        calls.append(1)
+    def fake(*_args: Any, **kwargs: Any) -> OptimizeResult:
+        methods.append(kwargs["method"])
         return fake_result(4, "Unknown (HiGHS Status 15: Unknown)")
 
     monkeypatch.setattr(optimizer, "linprog", fake)
     with pytest.raises(OptimizationError, match="did not finish"):
         solve_lp(build_lp(case_1a()), replace(SETTINGS, presolve=False))
-    assert len(calls) == 1
+    assert methods == ["highs-ds", "highs-ipm"]
 
 
 def test_unbounded_or_infeasible_after_retry_counts_as_infeasible(
