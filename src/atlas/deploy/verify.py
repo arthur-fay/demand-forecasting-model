@@ -18,7 +18,11 @@ check passes:
    service's main process (any local account could listen there while it is down), and
    the request without the key must have been refused;
 6. **exposure**: the API listens on loopback addresses only;
-7. **proxy socket**: the Unix socket nginx connects to answers ``/health/live``.
+7. **proxy socket**: the Unix socket nginx connects to answers ``/health/live``;
+8. (M7) **dashboard**: the API serves the release's dashboard (``/`` is the recorded
+   ``index.html``, with the dashboard's Content-Security-Policy) and its deployment
+   descriptor; in an exposed profile, the copy published for nginx holds exactly the
+   recorded files.
 
 The HTTP client is the standard library's, never configured with a proxy, and reads at
 most 1 MiB per response. Answers are untrusted: a malformed body fails a check, never the
@@ -27,6 +31,7 @@ verification itself.
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import json
 import socket
@@ -38,6 +43,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
+from atlas.dashboard import DASHBOARD_CSP, DESCRIPTOR_FORMAT, DESCRIPTOR_PATH, MANIFEST_NAME
 from atlas.deploy.preflight import parse_listeners
 
 MAX_BODY: Final = 1 << 20
@@ -189,6 +195,8 @@ class Target:
     smoke_simulation: bool = True
     #: The Unix socket nginx connects to (checked when set).
     api_socket: Path | None = None
+    #: (M7) The dashboard copy published for nginx (checked when set).
+    dashboard_dir: Path | None = None
 
 
 def wait_live(
@@ -250,6 +258,15 @@ def verify(
     _exposure(verification, target.api_port, proc)
     if target.api_socket is not None:
         _proxy_socket(verification, target.api_socket)
+    record = _obj((target.manifest or {}).get("dashboard"))
+    if record:
+        _dashboard(
+            verification,
+            requester(f"{base}/"),
+            requester(f"{base}{DESCRIPTOR_PATH}"),
+            record,
+            target.dashboard_dir,
+        )
     for name, answer in (("system", system),):
         if answer is not None:
             verification.timings_ms[name] = answer.elapsed_ms
@@ -493,6 +510,65 @@ def _exposure(verification: Verification, port: int, proc: Path) -> None:
         "The API must bind 127.0.0.1 only; check ExecStart in the unit."
         if public
         else "Is the service running?",
+    )
+
+
+def _header(answer: Response, name: str) -> str | None:
+    return next((v for k, v in answer.headers.items() if k.lower() == name.lower()), None)
+
+
+def _dashboard(
+    verification: Verification,
+    page: Response | None,
+    descriptor: Response | None,
+    record: Mapping[str, Any],
+    published: Path | None,
+) -> None:
+    files = _obj(record.get("files"))
+    expected = files.get("index.html")
+    digest = hashlib.sha256(page.body).hexdigest() if page is not None else None
+    problems = []
+    if page is None or page.status != 200:
+        problems.append("/ did not answer 200")
+    else:
+        if digest != expected:
+            problems.append("/ is not the release's index.html")
+        if _header(page, "Content-Security-Policy") != DASHBOARD_CSP:
+            problems.append("/ lacks the dashboard's Content-Security-Policy")
+    body = _obj(descriptor.json()) if descriptor is not None else {}
+    if descriptor is None or descriptor.status != 200 or body.get("format") != DESCRIPTOR_FORMAT:
+        problems.append(f"{DESCRIPTOR_PATH} did not answer the descriptor")
+    verification.add(
+        "dashboard",
+        not problems,
+        "; ".join(problems) or f"dashboard {record.get('version')} served with its policy",
+        "The API serves web/dist of the release (ATLAS_API_DASHBOARD); rebuild the release.",
+    )
+    if published is None:
+        return
+    found: dict[str, str] = {}
+    try:
+        for path in sorted(published.rglob("*")):
+            if path.is_symlink() or not path.is_file():
+                if not path.is_dir():
+                    found[path.name] = "not a regular file"
+                continue
+            relative = path.relative_to(published).as_posix()
+            if relative != MANIFEST_NAME:
+                found[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        found = {"<unreadable>": type(exc).__name__}
+    differ = sorted(p for p in set(found) | set(files) if found.get(p) != files.get(p))
+    verification.add(
+        "published dashboard",
+        not differ,
+        f"{published}: "
+        + (
+            f"{len(found)} files as recorded"
+            if not differ
+            else f"differs in {', '.join(differ[:5])}"
+        ),
+        "atlas-deploy activate <release> publishes it again from the release.",
     )
 
 

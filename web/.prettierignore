@@ -4,3 +4,4 @@ playwright-report/
 test-results/
 coverage/
 src/api/openapi.gen.ts
+src/test/fixtures/

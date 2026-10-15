@@ -111,6 +111,7 @@ layout=(
     "/opt/atlas root root 0755"
     "/opt/atlas/releases root atlas 0750"
     "/opt/atlas/tools root root 0755"
+    "/opt/atlas/dashboard root www-data 0750"
     "/etc/atlas root root 0755"
     "/etc/atlas/credentials root root 0700"
     "/etc/nginx/atlas root www-data 0750"

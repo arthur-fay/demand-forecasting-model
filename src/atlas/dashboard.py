@@ -81,7 +81,9 @@ COMPRESSIBLE: Final = frozenset({".html", ".js", ".css", ".svg"})
 
 #: A top-level file (``index.html``, ``favicon.svg``) or a content-hashed asset.
 _TOP: Final = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\.[a-z0-9]{2,5}")
-_ASSET: Final = re.compile(r"assets/[A-Za-z0-9][A-Za-z0-9_.-]{0,95}-[A-Za-z0-9_-]{8,}\.[a-z0-9]{2,5}")
+_ASSET: Final = re.compile(
+    r"assets/[A-Za-z0-9][A-Za-z0-9_.-]{0,95}-[A-Za-z0-9_-]{8,}\.[a-z0-9]{2,5}"
+)
 #: A client route: ``/`` or one lowercase segment.
 _ROUTE: Final = re.compile(r"/(?:[a-z][a-z0-9-]{0,63})?")
 _SHA256: Final = re.compile(r"[0-9a-f]{64}")

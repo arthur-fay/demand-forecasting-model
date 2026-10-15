@@ -5,6 +5,8 @@
     /opt/atlas/                         root:root   0755
         releases/<id>/                  root:atlas  0550  immutable: checkout + .venv + release.json
         current -> releases/<id>        the active release (an atomically replaced link)
+        dashboard/                      root:www-data 0750  (M7) dashboards for nginx
+            <id>/                       root:www-data 0750  a copy of releases/<id>/web/dist
         tools/uv/                       root:root   0755  the hash-pinned uv used to build
     /etc/atlas/                         root:root   0755
         deploy.env                      root:root   0644  the deployment configuration (no secret)
@@ -88,6 +90,17 @@ class Layout:
     @property
     def tools(self) -> PurePosixPath:
         return self.install / "tools"
+
+    @property
+    def dashboard_root(self) -> PurePosixPath:
+        """(M7) Where nginx reads the dashboards: one verified copy per release, readable by
+        the proxy group (a release itself is readable by the service group only)."""
+        return self.install / "dashboard"
+
+    def dashboard(self, release_id: str) -> PurePosixPath:
+        if not valid_release_id(release_id):
+            raise ValueError(f"invalid release id {release_id!r}")
+        return self.dashboard_root / release_id
 
     def release(self, release_id: str) -> PurePosixPath:
         if not valid_release_id(release_id):

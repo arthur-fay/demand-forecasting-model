@@ -13,6 +13,8 @@ later step. It identifies:
 * every file of the exported commit (code, templates, configuration) by SHA-256, and one
   fingerprint of the installed environment (``.venv``);
 * the API contract (SHA-256 of ``docs/api/openapi.json``);
+* (M7) the dashboard build (``web/dist``): its version, manifest hash, fingerprint, every
+  file's SHA-256, its routes and its Content-Security-Policy;
 * the scientific-integrity status: the M3 interval status (``failed_calibration``), the M4
   parameter provenance (``HYPOTHETICAL``) and ``validated_recommendation: false``;
 * the build: when, with which uv, and which checks passed.
@@ -33,6 +35,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePath
 from typing import Any, Final
 
+from atlas.dashboard import DIST, MANIFEST_NAME, DashboardError, manifest_record
 from atlas.deploy.layout import RELEASE_MANIFEST, valid_release_id
 
 MANIFEST_VERSION: Final = 1
@@ -185,6 +188,40 @@ def scientific_status(release_dir: Path) -> dict[str, Any]:
     }
 
 
+def dashboard_record(release_dir: Path) -> dict[str, Any] | None:
+    """The release's dashboard, verified against its own build manifest (``None``: the
+    release has no dashboard build)."""
+    if not (release_dir / DIST / MANIFEST_NAME).exists():
+        return None
+    try:
+        return manifest_record(release_dir / DIST)
+    except DashboardError as exc:
+        raise ManifestError(f"the dashboard build does not verify: {exc}") from exc
+
+
+def check_dashboard(release_dir: Path, recorded: Mapping[str, Any] | None) -> list[str]:
+    """Differences between the release's dashboard and what ``release.json`` recorded."""
+    present = (release_dir / DIST / MANIFEST_NAME).exists()
+    if recorded is None:
+        return (
+            ["the release has a dashboard build that its manifest does not record"]
+            if present
+            else []
+        )
+    if not present:
+        return ["the dashboard build recorded in the manifest is missing"]
+    try:
+        current = manifest_record(release_dir / DIST)
+    except DashboardError as exc:
+        return [f"the dashboard build does not verify: {exc}"]
+    problems = [
+        f"dashboard {key} differs from the manifest"
+        for key in ("manifest_sha256", "fingerprint", "files", "routes")
+        if current.get(key) != recorded.get(key)
+    ]
+    return problems
+
+
 def build_manifest(
     release_dir: Path,
     *,
@@ -233,6 +270,7 @@ def build_manifest(
         "source": {"fingerprint": tree_fingerprint(sources), "files": sources},
         "environment_fingerprint": environment_fingerprint(release_dir),
         "api_contract_sha256": sha256_file(release_dir / CONTRACT),
+        "dashboard": dashboard_record(release_dir),
         "scientific_status": scientific_status(release_dir),
         "build": {"built_at": built_at, "uv_version": uv_version, "checks_passed": list(checks)},
     }
@@ -301,6 +339,7 @@ def check_release(release_dir: Path, manifest: Mapping[str, Any] | None = None) 
         if recorded_sources.get(path) != sources.get(path)
     )
     problems += [f"release file altered, added or removed: {path}" for path in changed[:20]]
+    problems += check_dashboard(release_dir, manifest.get("dashboard"))
     executable = release_dir / ".venv" / "bin" / "atlas"
     if not executable.exists():
         problems.append("the release has no environment (.venv/bin/atlas)")

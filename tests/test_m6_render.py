@@ -297,8 +297,10 @@ def test_the_private_site_routes_the_contract_behind_authentication() -> None:
     site = renderer().nginx()
     assert 'auth_basic "ATLAS private research deployment";' in site
     assert "auth_basic_user_file /etc/nginx/atlas/htpasswd;" in site
-    # Every route, and the internal location answering unparsable requests with JSON.
-    assert site.count("location = ") + site.count('location ~ "') == len(load_routes(REPO_ROOT)) + 1
+    # Every route, and the internal location answering unparsable requests with JSON (the
+    # dashboard's locations follow, M7: tests/test_m7_deploy.py).
+    api = site.split("    # Dashboard (M7)")[0]
+    assert api.count("location = ") + api.count('location ~ "') == len(load_routes(REPO_ROOT)) + 1
     assert "    location = /.atlas-error-400 {\n        internal;" in site
     assert "location = /docs" not in site
     assert "openapi.json" not in site

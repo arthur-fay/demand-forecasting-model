@@ -312,11 +312,18 @@ class Nginx:
     and the log directory: everything under test is the production configuration.
     """
 
-    def __init__(self, directory: Path, site: str) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        site: str,
+        *,
+        http_port: int | None = None,
+        https_port: int | None = None,
+    ) -> None:
         need_tools("nginx")
         self.directory = directory
-        self.http_port = free_port()
-        self.https_port = free_port()
+        self.http_port = http_port or free_port()
+        self.https_port = https_port or free_port()
         for name in ("tmp", "logs"):
             (directory / name).mkdir(parents=True, exist_ok=True)
         site = (

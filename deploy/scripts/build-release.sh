@@ -11,7 +11,8 @@
 # compiled); make the tree root-owned and read-only (group atlas may read); run the release's
 # own checks as the unprivileged atlas user (snapshot verification and validation, the M4
 # reference run reproduced byte for byte and inspected, the API contract equal to the
-# committed one); write release.json last.
+# committed one, the committed dashboard build equal to its manifest); write release.json
+# last. The dashboard is committed already built (web/dist): no Node.js is needed here.
 #
 # Idempotent: a complete release of that commit is checked and kept. A failed or interrupted
 # build leaves nothing behind (an incomplete directory is removed on the next run), and no
@@ -166,6 +167,21 @@ say "Check: the API contract equals the committed docs/api/openapi.json"
 (cd /tmp && "${atlas[@]}" api openapi) | cmp -s - "$RELEASE_DIR/docs/api/openapi.json" ||
     die "the API contract differs from docs/api/openapi.json"
 checks+=("api contract")
+
+if [[ -f $RELEASE_DIR/web/dist/atlas-dashboard.json ]]; then
+    say "Check: the dashboard build (web/dist) matches its manifest"
+    # shellcheck disable=SC2016 # the Python code is single-quoted on purpose
+    "${as_atlas[@]}" "$RELEASE_DIR/.venv/bin/python" -I -c '
+import sys
+from pathlib import Path
+from atlas.dashboard import load_build, verify_build
+build = Path(sys.argv[1])
+problems = verify_build(build, load_build(build))
+print("\n".join(problems), file=sys.stderr)
+sys.exit(1 if problems else 0)
+' "$RELEASE_DIR/web/dist" || die "the dashboard build does not match its manifest"
+    checks+=("dashboard build")
+fi
 
 say "Writing release.json"
 manifest_args=()

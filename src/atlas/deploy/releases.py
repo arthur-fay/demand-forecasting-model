@@ -8,8 +8,10 @@ runs whichever release ``/opt/atlas/current`` points to. Activating a release:
 2. refuses the release unless its files match its manifest (research artifacts, lock,
    contract), every file is owned by root and writable by nobody else, the deployment
    configuration is valid and every secret the profile needs is in place;
-3. renders the systemd units, runtime environment and nginx site from the release's own
-   templates, and checks nginx's configuration before using it;
+3. (M7, exposed profiles) publishes a verified copy of the release's dashboard build for
+   nginx (:mod:`atlas.deploy.publish`), then renders the systemd units, runtime
+   environment and nginx site from the release's own templates (the site reads the
+   dashboard from that copy) and checks nginx's configuration before using it;
 4. records the activation as in progress, switches the link atomically, restarts the
    service (which reports ready only after verifying its data) and reloads nginx;
 5. verifies the running deployment (:mod:`atlas.deploy.verify`) and, if it passes, keeps
@@ -55,6 +57,7 @@ from atlas.deploy.layout import (
 )
 from atlas.deploy.manifest import ManifestError, check_release, load_manifest
 from atlas.deploy.permissions import check_not_writable_by_others, check_release_tree
+from atlas.deploy.publish import PublishError, prune_published, publish
 from atlas.deploy.render import (
     JOURNAL_DROPIN,
     Rendered,
@@ -63,6 +66,7 @@ from atlas.deploy.render import (
     enable_site,
     write_files,
 )
+from atlas.deploy.routes import dashboard_build
 from atlas.deploy.siteconfig import DeployConfig, DeployConfigError, load_config
 from atlas.deploy.verify import Target, Verification
 
@@ -381,6 +385,25 @@ class Deployment:
         Nothing is switched or restarted here: if nginx refuses the site or systemd cannot
         reload, the previous files are put back and the running service is untouched.
         """
+        notes: list[str] = []
+        if config.exposed:
+            # The dashboard nginx will serve: published (verified) before the site that
+            # reads it is written. A new copy is additive; nothing else changes on failure.
+            try:
+                build = dashboard_build(self.release_path(release_id))
+                if build is not None:
+                    published = publish(
+                        self.layout,
+                        release_id,
+                        self.release_path(release_id),
+                        build,
+                        owner=self.owner,
+                        proxy_gid=self.proxy_gid,
+                        chown=self.chown,
+                    )
+                    notes.append(f"dashboard {build.version} published in {published}")
+            except (PublishError, ValueError) as exc:
+                return False, f"the dashboard could not be published: {exc}"
         files = self.rendered(release_id, config)
         backups = {item.path: self._read(item.path) for item in files}
         site = self._site_state()
@@ -416,7 +439,6 @@ class Deployment:
                 return False, f"nginx refused the configuration without the ATLAS site: {output}"
             changed.append(f"{self.layout.nginx_site} (removed: the profile is not exposed)")
         self.host.enable(SERVICE, MONITOR_TIMER)
-        notes = []
         ok, output = self.host.start(MONITOR_TIMER)  # enabled is not running: start it now
         if not ok:
             notes.append(f"{MONITOR_TIMER} did not start: {output}")
@@ -484,7 +506,13 @@ class Deployment:
         key = None
         with contextlib.suppress(Exception):
             key = self.secrets().read_key()
+        published = (
+            self.layout.local(self.layout.dashboard(release_id))
+            if config.exposed and manifest.get("dashboard") is not None
+            else None
+        )
         return Target(
+            dashboard_dir=published,
             base_url=f"http://127.0.0.1:{config.api_port}",
             manifest=manifest,
             api_key=key,
@@ -799,6 +827,12 @@ class Deployment:
                 if valid_release_id(name) or name.startswith(".build-"):
                     _remove_tree(entry)
                     removed.append(name)
+            # Published dashboards follow their releases (and interrupted copies go).
+            remaining = {name for name in self.releases() if name not in removed}
+            removed += [
+                f"dashboard/{name}"
+                for name in prune_published(self.layout, remaining | {p for p in protected if p})
+            ]
             if removed:
                 self.record("prune", "pruned", removed=removed, kept=sorted(k for k in kept if k))
             return removed
@@ -838,6 +872,14 @@ class Deployment:
                     "api_contract_sha256",
                     "scientific_status",
                 )
+            }
+            | {
+                "dashboard": None
+                if manifest.get("dashboard") is None
+                else {
+                    key: manifest["dashboard"].get(key)
+                    for key in ("version", "fingerprint", "manifest_sha256")
+                }
             }
             | {
                 "lock_sha256": manifest.get("dependencies", {}).get("lock_sha256"),
@@ -927,6 +969,8 @@ def compare_manifests(old: Mapping[str, Any], new: Mapping[str, Any]) -> dict[st
             if old_packages.get(name) != new_packages.get(name)
         },
         "api_contract_changed": old.get("api_contract_sha256") != new.get("api_contract_sha256"),
+        "dashboard_changed": (old.get("dashboard") or {}).get("fingerprint")
+        != (new.get("dashboard") or {}).get("fingerprint"),
         "research_artifacts_changed": sorted(
             path
             for path in set(old_files) | set(new_files)

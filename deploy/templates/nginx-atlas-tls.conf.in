@@ -48,8 +48,18 @@ server {
     proxy_hide_header Content-Security-Policy;
     proxy_hide_header Cache-Control;
 
-    # Everything ATLAS (or nginx for it) answers is JSON.
+    # Everything ATLAS (or nginx for it) answers is JSON, except the dashboard's files.
     default_type application/json;
+
+    # Compression of text answers (M7): the dashboard's files and the API's JSON. No answer
+    # carries a secret (credentials and the key are never echoed), so a compression oracle
+    # has nothing to reveal.
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_types application/json text/css text/javascript image/svg+xml;
 
     # Ambiguous request targets (encoded slashes, backslashes, dots, line breaks or NUL,
     # empty or dot segments, a fragment) are refused before any route is matched. The
@@ -81,7 +91,7 @@ server {
     error_page 500 502 503 504 = @atlas_upstream;
 {{error_locations}}
     # The routes of the committed OpenAPI contract that this profile exposes; nothing else.
-{{locations}}
+{{locations}}{{dashboard_locations}}
     # Anything else: 404, answered after the allow-list, authentication and rate limits
     # (a `return` would answer before them).
     location / {
