@@ -14,8 +14,8 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import ssl
 from collections.abc import Iterator
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -281,6 +281,16 @@ def test_the_public_demo_exposes_no_computation_or_operational_detail(public: Si
 
 
 def test_the_site_answers_for_its_domain_only(public: Site) -> None:
-    with pytest.raises(OSError):  # no certificate for another name
+    with pytest.raises(ssl.SSLError):  # no certificate for another name
         public.request("GET", "/", host="other.example.org")
     assert DOMAIN in public.nginx.site.read_text("utf-8")
+
+
+def test_a_first_load_is_not_rate_limited_but_the_api_still_is(
+    private: tuple[Site, Stack],
+) -> None:
+    """The dashboard's files have their own per-client zone: a burst of them (a first
+    load, several tabs) is served, while the API's read limit is unchanged."""
+    site, _ = private
+    assert set(site.burst("GET", "/favicon.svg", 60)) == {200}
+    assert 429 in site.burst("GET", "/api/v1/uncertainty/status", 60)

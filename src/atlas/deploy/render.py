@@ -66,6 +66,11 @@ STAGES: Final = ("acme", "tls")
 _PLACEHOLDER: Final = re.compile(r"\{\{([a-z0-9_]+)\}\}")
 _SAFE: Final = re.compile(r"[A-Za-z0-9._:/,@+=%\-\[\]]*")
 NGINX_LOG_DIR: Final = "/var/log/nginx"
+#: (M7) Per-client limit of the dashboard's static files (its own zone: a first load is
+#: about twenty files at once, which the API's read limit would refuse; they are cheap
+#: and immutable). Their connections still count against the per-client connection cap.
+STATIC_RATE: Final = "50r/s"
+STATIC_BURST: Final = 200
 JOURNAL_DROPIN: Final = "60-atlas.conf"
 JOURNAL_MAX_USE: Final = {"low": "200M", "standard": "500M"}
 
@@ -266,6 +271,7 @@ class Renderer:
             "profile": config.profile,
             "domain": domain,
             "read_rate": safe("read_rate", resources.read_rate),
+            "static_rate": STATIC_RATE,
             "read_burst": str(resources.read_burst),
             "compute_rate": safe("compute_rate", resources.compute_rate),
             "connections_per_client": str(resources.connections_per_client),
@@ -343,7 +349,11 @@ class Renderer:
         root = safe("dashboard_dir", str(self.dashboard_dir))
         hsts = self.config.hsts_max_age
         method = "        if ($request_method !~ ^(GET|HEAD)$) { return 405; }"
-        serve = [f"        root {root};", "        disable_symlinks on;"]
+        serve = [
+            f"        limit_req zone=atlas_static burst={STATIC_BURST} nodelay;",
+            f"        root {root};",
+            "        disable_symlinks on;",
+        ]
         pages = [r for r in routes if r.kind == "page"]
         assets = [r for r in routes if r.kind == "file" and r.url.startswith("/assets/")]
         others = [r for r in routes if r.kind == "file" and not r.url.startswith("/assets/")]

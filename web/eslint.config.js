@@ -43,8 +43,10 @@ export default tseslint.config(
         },
       ],
       'no-console': ['error', { allow: ['error'] }],
-      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
     },
+  },
+  {
+    rules: { '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }] },
   },
   {
     files: ['**/*.test.{ts,tsx}', 'e2e/**/*.ts'],

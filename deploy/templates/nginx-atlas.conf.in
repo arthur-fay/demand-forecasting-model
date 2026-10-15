@@ -8,6 +8,8 @@
 limit_req_zone $binary_remote_addr zone=atlas_read:10m rate={{read_rate}};
 limit_req_zone $binary_remote_addr zone=atlas_compute:2m rate={{compute_rate}};
 limit_conn_zone $binary_remote_addr zone=atlas_conn:10m;
+# (M7) The dashboard's static files: cheap, immutable, about twenty on a first load.
+limit_req_zone $binary_remote_addr zone=atlas_static:10m rate={{static_rate}};
 
 # One JSON object per request. No query string, no request header, no body: the path,
 # the status, the timings, the client address and the authenticated user name only.

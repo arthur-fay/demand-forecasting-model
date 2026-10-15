@@ -248,8 +248,9 @@ export function ChartSurface({
           aria-hidden="true"
           onPointerMove={pointer}
           onPointerDown={pointer}
-          onPointerLeave={() => {
-            setActive(null);
+          onPointerLeave={(event) => {
+            // A finger lifts and "leaves" at once: keep its reading until the next touch.
+            if (event.pointerType !== 'touch') setActive(null);
           }}
         >
           {children(active)}

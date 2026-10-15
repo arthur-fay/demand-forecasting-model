@@ -227,7 +227,6 @@ function SimulatorForm({
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const summary = useRef<HTMLDivElement>(null);
-  const resultHeading = useRef<HTMLHeadingElement>(null);
   const clientErrors = useMemo(() => validate(form, spec), [form, spec]);
   const errors: FieldErrors = { ...(touched ? clientErrors : {}), ...serverErrors };
   const changed = changedFields(form, spec);
@@ -275,7 +274,6 @@ function SimulatorForm({
       const result = await api.simulate(request, { signal: controller.signal });
       setAnswer({ result, request, ms: Date.now() - startedAt });
       setRun({ status: 'success' });
-      requestAnimationFrame(() => resultHeading.current?.focus());
     } catch (error) {
       if (error instanceof ApiError && error.kind === 'aborted') {
         setRun({ status: 'idle' });
@@ -514,12 +512,7 @@ function SimulatorForm({
               Showing the previous result: it does not reflect the inputs of the last attempt.
             </p>
           )}
-          <SimulationResult
-            result={answer.result}
-            request={answer.request}
-            ms={answer.ms}
-            headingRef={resultHeading}
-          />
+          <SimulationResult result={answer.result} request={answer.request} ms={answer.ms} />
         </div>
       )}
     </div>
@@ -562,14 +555,17 @@ function SimulationResult({
   result,
   request,
   ms,
-  headingRef,
 }: {
   result: Envelope<SimulationData>;
   request: SimulationRequest;
   ms: number;
-  headingRef: React.RefObject<HTMLHeadingElement | null>;
 }) {
   const { data, integrity, provenance } = result;
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // Each new result takes the focus, so keyboard and screen-reader users land on it.
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [result]);
   return (
     <section className="panel" aria-labelledby="sim-result-title">
       <div className="panel-header">

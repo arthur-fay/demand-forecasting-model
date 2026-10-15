@@ -479,6 +479,41 @@ def test_the_private_profile_through_nginx_and_tls(server: Server) -> None:
     )
 
 
+def test_the_dashboard_through_nginx(server: Server) -> None:
+    """(M7) The release's dashboard, published for nginx by the activation and served by the
+    private site: a read-only copy nginx can read (the release itself stays closed to it),
+    the exact built bytes, the dashboard's policy, an account required."""
+    published = f"/opt/atlas/dashboard/{server.release}"
+    assert server.out(f"stat -c '%U %G %a' /opt/atlas/dashboard {published}").splitlines() == [
+        "root www-data 750",
+        "root www-data 750",
+    ]
+    assert server.out(f"find {published} -type l | wc -l") == "0"
+    assert server.out(f"find {published} -type f ! -perm 640 | wc -l") == "0"
+    as_nginx = "setpriv --reuid=www-data --regid=www-data --init-groups"
+    assert server.sh(f"{as_nginx} cat {published}/index.html", check=False).returncode == 0
+    release_index = f"{RELEASES}/{server.release}/web/dist/index.html"
+    assert server.sh(f"{as_nginx} cat {release_index}", check=False).returncode != 0
+    curl = f"curl -s --noproxy '*' --cacert /root/ca/ca.pem --resolve {DOMAIN}:443:127.0.0.1"
+    url = f"https://{DOMAIN}"
+    assert server.out(f"{curl} -o /dev/null -w '%{{http_code}}' {url}/") == "401"
+    headers = server.out(f"{curl} -u alice:{PASSWORD} -D - -o /root/index.html {url}/forecasting")
+    assert "require-trusted-types-for 'script'" in headers
+    assert server.out("sha256sum < /root/index.html") == server.out(f"sha256sum < {release_index}")
+    descriptor = json.loads(server.out(f"{curl} -u alice:{PASSWORD} {url}/atlas-deployment.json"))
+    assert descriptor["profile"] == "private"
+    assert descriptor["simulations"] == "enabled"
+    manifest = json.loads(server.out(f"cat {published}/atlas-dashboard.json"))
+    for path in manifest["files"]:
+        target = "/" if path == "index.html" else f"/{path}"
+        code = server.out(
+            f"{curl} -o /dev/null -w '%{{http_code}}' -u alice:{PASSWORD} {url}{target}"
+        )
+        assert code == "200", path
+    status = json.loads(server.out(f"{DEPLOY} status"))
+    assert status["manifest"]["dashboard"]["version"] == manifest["version"]
+
+
 # --- Reliability
 
 
@@ -584,6 +619,14 @@ def test_an_explicit_rollback(server: Server) -> None:
     status = json.loads(server.out(f"{DEPLOY} status"))
     assert status["current"] == server.release
     assert status["manifest"]["scientific_status"]["m3_interval_status"] == "failed_calibration"
+
+
+def test_the_dashboard_follows_the_release(server: Server) -> None:
+    """(M7) After the automatic and the explicit rollbacks, the site serves the dashboard of
+    the release the API runs."""
+    site = server.out("cat /etc/nginx/sites-available/atlas.conf")
+    assert f"root /opt/atlas/dashboard/{server.release};" in site
+    assert f"/opt/atlas/dashboard/{server.broken_release};" not in site
 
 
 def test_an_interrupted_activation_is_recovered(server: Server) -> None:
