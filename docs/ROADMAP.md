@@ -1,7 +1,9 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. M0-M4 are merged; M5 is implemented on
-`feature/atlas-m5-backend-api` and awaits review. Nothing from M6 onward is implemented.
+Each milestone requires separate approval. M0-M5 are merged. M6 phase A (the deployment
+package) is implemented on `feature/atlas-m6-deployment` and awaits review; M6 phase B (a
+real deployment) needs separate authorisation (DEPLOYMENT.md section 18). Nothing from M7
+onward is implemented.
 
 ## M0: Foundation (merged)
 
@@ -126,7 +128,7 @@ Deliberately not done in M4:
 - **Verified parameters:** no evidence register exists, so every parameter is `HYPOTHETICAL`.
 - **Integer staffing, fixed costs or shift rules:** they need a MILP and data ATLAS lacks.
 
-## M5: HTTP API (implemented; awaiting approval)
+## M5: HTTP API (merged)
 
 See [API.md](API.md) and the contract [`docs/api/openapi.json`](api/openapi.json).
 
@@ -175,10 +177,44 @@ Deliberately not done in M5:
 - **User accounts:** one optional shared key protects the only computing endpoint; GET
   endpoints serve committed research outputs.
 
+## M6: Secure deployment, phase A (implemented; awaiting approval)
+
+See [DEPLOYMENT.md](DEPLOYMENT.md).
+
+- Native systemd deployment on one Ubuntu 24.04 LTS server, chosen over containers for a
+  small VPS (no daemon memory, no ufw bypass, comparable isolation measured): the M5 API
+  under an unprivileged account, sandboxed (`systemd-analyze security` exposure 0.9),
+  loopback-only, `Type=notify` with a watchdog, bounded restarts, resource limits by
+  profile (`low`, `standard`).
+- nginx (Ubuntu) as the only entry point: TLS (certbot), HSTS, HTTP Basic accounts on every
+  route, a route allow-list generated from the committed OpenAPI contract, per-client
+  request, connection and simulation limits, read deadlines and body limits, JSON errors;
+  the simulation key added by the proxy only. Private-first profiles (`tunnel`, `private`);
+  a `public-demo` profile separated from computation, refused without a security review.
+- A read-only preflight (standard library only) that refuses unsuitable servers with
+  actions, including the x86-64-v2 requirement of the locked NumPy and the lock's wheels.
+- Immutable releases built from an exact commit with the locked dependencies, checked as
+  the service user (snapshot, M4 reproduction byte for byte, contract), described by a
+  manifest of fingerprints; activation with verification (health, identity, scientific
+  integrity, access control, exposure) and automatic rollback; recovery, pruning, upgrade
+  plans; secrets as systemd credentials.
+- Lightweight monitoring (a systemd timer) with an optional alert hook; persistent, capped
+  logs without secrets.
+- Tests with real nginx, openssl and systemd-analyze, real API processes, and an end-to-end
+  test on a disposable systemd server (CI job `deploy-e2e`).
+
+Deliberately not done in M6 phase A:
+
+- **Any real deployment, DNS, firewall or certificate change:** phase B, separately
+  authorised.
+- **Containers, orchestration, managed services:** not justified on one small server.
+- **A metrics stack (Prometheus, Grafana):** the timer-driven monitor covers the needs.
+- **Public exposure:** the public-demo profile exists, refused until a security review.
+
 ## Later milestones (deferred, outline only)
 
-- **M6:** hardened deployment on a small Ubuntu VPS.
-- **M7:** lightweight dashboard, model card and data card.
+- **M7:** lightweight dashboard, model card and data card (DEPLOYMENT.md section 19 lists
+  what the deployment needs from it).
 
 ## Known M0 limitations
 

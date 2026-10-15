@@ -1,0 +1,46 @@
+# ATLAS periodic health and resource check. Rendered by `atlas-deploy render`; do not edit.
+[Unit]
+Description=ATLAS health and resource check
+Documentation=https://github.com/arthur-fay/demand-forecasting-model/blob/main/docs/DEPLOYMENT.md
+After={{service}}
+# A critical finding (exit status 1) starts the optional alert hook (atlas-alert@.service).
+OnFailure=atlas-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart={{deploy_executable}} monitor --api-port {{api_port}} --state-dir %S/atlas-monitor{{monitor_tls}}
+DynamicUser=yes
+# atlas: read the release; systemd-journal: count the service's recent errors.
+SupplementaryGroups={{service_group}} systemd-journal
+StateDirectory=atlas-monitor
+SyslogIdentifier=atlas-monitor
+Environment=PYTHONDONTWRITEBYTECODE=1
+TimeoutStartSec=60
+MemoryMax=96M
+CPUQuota=25%
+Nice=10
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+IPAddressDeny=any
+IPAddressAllow=localhost
+InaccessiblePaths=-{{credentials}} -{{nginx_dir}} -{{state}}

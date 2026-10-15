@@ -1,0 +1,19 @@
+# Optional alert hook, started when the monitor reports a critical finding.
+# Rendered by `atlas-deploy render`; do not edit. It runs only if the operator installs an
+# executable {{alert_hook}} (for example a script that sends an e-mail or calls a webhook);
+# the hook receives the failed unit name as its first argument. See docs/DEPLOYMENT.md.
+[Unit]
+Description=ATLAS alert for %i
+ConditionFileIsExecutable={{alert_hook}}
+
+[Service]
+Type=oneshot
+ExecStart={{alert_hook}} %i
+DynamicUser=yes
+SupplementaryGroups=systemd-journal
+TimeoutStartSec=60
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+InaccessiblePaths=-{{credentials}} -{{nginx_dir}} -{{state}}

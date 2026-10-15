@@ -7,6 +7,10 @@ canonical M4 configuration (JSON text) is parsed with M4's own parser, turned in
 scenario with M4's scenario builder, analysed with
 :func:`atlas.decision_analysis.analyse_scenario` (without shadow-price brackets or
 frontiers) and serialised with the M4 runner's own builders.
+
+Each worker also asks the kernel to choose it, rather than the API server, when memory
+runs out (:func:`prefer_oom_kill`): a killed worker is replaced by the pool and costs one
+simulation, a killed server costs the whole service.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from multiprocessing.connection import Connection
+from pathlib import Path
 from typing import Any, Final, Literal
 
 from atlas.decision_analysis import analyse_scenario
@@ -38,6 +43,9 @@ from atlas.scenarios import build_scenarios
 #: The first message of every worker process, and the answer to a ping.
 READY: Final = ("ready", None)
 PONG: Final = ("ok", "pong")
+#: The OOM score adjustment of a worker process (the server keeps its own, lower one).
+WORKER_OOM_SCORE_ADJ: Final = 500
+OOM_SCORE_ADJ: Final = Path("/proc/self/oom_score_adj")
 
 
 @dataclass(frozen=True)
@@ -118,6 +126,23 @@ class _Lifetime:
             raise SystemExit(0)
 
 
+def prefer_oom_kill(path: Path = OOM_SCORE_ADJ, score: int = WORKER_OOM_SCORE_ADJ) -> bool:
+    """Raise this process's OOM score adjustment to ``score`` (best effort; Linux only).
+
+    Any process may raise its own adjustment; lowering it needs privileges, so a value
+    already above ``score`` is kept. Returns whether the adjustment is now at least
+    ``score``.
+    """
+    try:
+        current = int(path.read_text(encoding="ascii").strip() or "0")
+        if current >= score:
+            return True
+        path.write_text(f"{score}\n", encoding="ascii")
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def worker_main(connection: Connection, context: WorkerContext) -> None:  # pragma: no cover
     """The loop of one worker process (runs in a child process; tested through the pool).
 
@@ -126,6 +151,7 @@ def worker_main(connection: Connection, context: WorkerContext) -> None:  # prag
     SIGTERM only between simulations (see :class:`_Lifetime`).
     """
     lifetime = _Lifetime(connection)
+    prefer_oom_kill()
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, lifetime.on_term)
     connection.send(READY)

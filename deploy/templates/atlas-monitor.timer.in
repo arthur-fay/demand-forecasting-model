@@ -1,0 +1,11 @@
+# Runs the ATLAS health check every minute. Rendered by `atlas-deploy render`; do not edit.
+[Unit]
+Description=ATLAS health check every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

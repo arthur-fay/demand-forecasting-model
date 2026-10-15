@@ -597,6 +597,29 @@ class SimulationPool:
         finally:
             self.release(worker)
 
+    def replace_dead_idle(self) -> list[Stopped]:
+        """Replace the idle workers whose process died between simulations (M6).
+
+        A worker killed while idle (by the OOM killer, which prefers workers, or by hand)
+        would otherwise be noticed only by the request that next lands on it, which would
+        fail, and the pool would serve at reduced capacity until then. A slot whose last
+        start failed (no process) is left to the existing retry on its next use.
+        """
+        with self._lock:
+            if self._closed:
+                return []
+            dead = [w for w in self._idle if w.process is not None and not w.alive]
+            for worker in dead:
+                self._idle.remove(worker)
+        stopped: list[Stopped] = []
+        try:
+            for worker in dead:
+                stopped.append(worker.restart())
+        finally:
+            for worker in dead:
+                self.release(worker)
+        return stopped
+
     def close(self) -> None:
         with self._lock:
             self._closed = True
@@ -722,7 +745,20 @@ class SimulationService:
             )
 
     def health(self) -> ComponentStatus:
-        """The ``simulation_workers`` readiness component."""
+        """The ``simulation_workers`` readiness component. Workers that died while idle are
+        replaced first (:meth:`SimulationPool.replace_dead_idle`; logged, not counted as
+        lost simulations)."""
+        pool = self._pool
+        if pool is not None and not self._closed:
+            for stopped in pool.replace_dead_idle():
+                LOGGER.warning(
+                    "idle simulation worker died and was replaced",
+                    extra={
+                        "event": "worker_died_idle",
+                        "worker_pid": stopped.pid,
+                        "exit_code": stopped.exit_code,
+                    },
+                )
         status = self.status()
         if not status.started:
             detail = "stopped" if self._closed else "the worker processes are not running"

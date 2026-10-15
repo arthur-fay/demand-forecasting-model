@@ -58,8 +58,17 @@ Milestone **M5** adds an HTTP API ([API.md](API.md)):
 - strict validation, limits, safe errors, structured logging and a committed OpenAPI
   contract (`docs/api/openapi.json`).
 
-ATLAS does **not** provide a dashboard or a public deployment, and it does not fetch data
-from the network. M4 results are not validated recommendations. See
+Milestone **M6** (phase A) adds a deployment package ([DEPLOYMENT.md](DEPLOYMENT.md)):
+
+- `atlas.deploy` (standard library only) and the `atlas-deploy` command: a read-only server
+  preflight, a validated deployment configuration, systemd units and an nginx site rendered
+  from it, release manifests, health verification, activation with automatic rollback,
+  recovery, pruning, upgrade plans and a periodic monitor;
+- `deploy/`: the templates, the bootstrap and release-build scripts, the example
+  configuration and the disposable test server used by the end-to-end test.
+
+ATLAS does **not** provide a dashboard, and nothing is deployed publicly; it does not fetch
+data from the network. M4 results are not validated recommendations. See
 [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
@@ -254,6 +263,7 @@ export the variables or use `uv run --env-file .env atlas ...`. `.env` files are
 | Repository root | `--repo-root` | `ATLAS_REPO_ROOT` | nearest ancestor of the working directory containing `snapshots/` and `pyproject.toml` |
 | Snapshot | `--snapshot` | `ATLAS_SNAPSHOT_ID` | `legacy-v0` |
 | API settings (M5) | `atlas api serve --host/--port` | `ATLAS_API_*` | see [API.md](API.md), section 1 |
+| Deployment (M6) | `atlas-deploy --root` | `/etc/atlas/deploy.env` (`ATLAS_DEPLOY_*`) | see [DEPLOYMENT.md](DEPLOYMENT.md), section 6 |
 
 Snapshot ids are restricted to `[a-z0-9][a-z0-9._-]{0,63}`, which rules out path traversal.
 
@@ -275,13 +285,22 @@ run subsets with `--no-cov`, for example `uv run pytest -m integration --no-cov`
 - One integration test compares every registered file with the original commit
   (`db46703`). It is skipped when that commit is not in the clone (shallow history); CI
   checks out the full history.
+- The M6 tests run the rendered deployment files through the real `nginx`, `openssl`,
+  `shellcheck` and `systemd-analyze` when they are installed; with
+  `ATLAS_REQUIRE_DEPLOY_TOOLS=1` (as in CI) a missing tool fails the tests instead of
+  skipping them. On Ubuntu: `sudo apt-get install nginx shellcheck` (stop the nginx service;
+  the tests run their own on loopback ports).
+- The end-to-end deployment test runs in a disposable systemd container and is opt-in:
+  `ATLAS_E2E_CONTAINER=1 uv run pytest tests/test_m6_container.py --no-cov -v` (needs Docker
+  and privileges to run a container with systemd; CI runs it in the `deploy-e2e` job).
 
 GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus `atlas check`,
 `atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
 `atlas backtest verify`, an M3 smoke run followed by `atlas uncertainty verify`, and the M4
 smoke and reference runs followed by `atlas optimize verify` and `inspect`, and an M5 step
 that checks the committed OpenAPI contract and serves the reference data from a real server,
-on pushes to `main` and on pull requests. The GitHub Actions are pinned to commit SHAs. It installs uv from a hash-pinned requirements file
+shellcheck of the deployment scripts, and (job `deploy-e2e`) the M6 end-to-end deployment
+test in a disposable systemd container, on pushes to `main` and on pull requests. The GitHub Actions are pinned to commit SHAs. It installs uv from a hash-pinned requirements file
 (`.github/ci-requirements.txt`).
 
 ## Repository layout
@@ -294,8 +313,9 @@ configs/backtest/     versioned M2 experiment configurations (pre-registered pro
 configs/uncertainty/  versioned M3 uncertainty configurations (pre-registered protocol)
 configs/optimization/ versioned M4 decision-simulation configurations (HYPOTHETICAL values)
 docs/api/             the committed OpenAPI contract of the M5 API
+deploy/               M6 deployment templates, host scripts, example configuration, test server
 docs/                 this guide, architecture, data, limitations, roadmap, backtesting,
-                      uncertainty, optimisation, API
+                      uncertainty, optimisation, API, deployment
 docs/results/         curated reference results of the M2, M3 and M4 runs
 runs/                 local run directories (git-ignored)
 01 Data/ ... 06 Exports/   original project artifacts, unchanged and hash-verified

@@ -11,7 +11,9 @@ None of these locations is configurable through the API settings: a request can 
 choose a file.
 
 The one secret is the optional API key protecting the simulation endpoint. It is kept out
-of ``repr`` and never logged.
+of ``repr`` and never logged. A deployment delivers it in a file (``ATLAS_API_KEY_FILE``,
+for example a systemd credential) rather than in the environment, which other processes of
+the same user and every child process could read.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import hmac
 import ipaddress
 import os
 import re
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +34,10 @@ from atlas.errors import ConfigError
 ENV_CORS_ORIGINS: Final = "ATLAS_API_CORS_ORIGINS"
 ENV_ALLOWED_HOSTS: Final = "ATLAS_API_ALLOWED_HOSTS"
 ENV_API_KEY: Final = "ATLAS_API_KEY"
+#: A file holding the API key (one line). Exclusive with ``ATLAS_API_KEY``.
+ENV_API_KEY_FILE: Final = "ATLAS_API_KEY_FILE"
+#: A key file larger than this is not a key file.
+MAX_API_KEY_FILE_BYTES: Final = 4096
 #: The request header carrying the API key.
 API_KEY_HEADER: Final = "X-API-Key"
 ENV_MAX_BODY_BYTES: Final = "ATLAS_API_MAX_BODY_BYTES"
@@ -172,6 +179,50 @@ def _flag(environ: Mapping[str, str], name: str) -> bool | None:
     raise ConfigError(f"{name} must be one of {', '.join(_TRUE + _FALSE)}, got {raw!r}")
 
 
+def read_api_key_file(path: Path) -> str:
+    """The API key stored in ``path``: one line, its final line break removed.
+
+    The file must be a regular file that no other user can read and only its owner can
+    write (for example mode 0600, or a systemd credential, mode 0400). A key file anyone
+    could read or replace would not protect anything, so it is refused, never used.
+    """
+    try:
+        info = path.stat()
+    except OSError as exc:
+        raise ConfigError(
+            f"{ENV_API_KEY_FILE} names {path}, which cannot be read ({type(exc).__name__})"
+        ) from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise ConfigError(f"{ENV_API_KEY_FILE} must name a regular file, not {path}")
+    if info.st_mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IWGRP):
+        raise ConfigError(
+            f"{ENV_API_KEY_FILE} {path} is readable by other users or writable by its group "
+            f"(mode {stat.S_IMODE(info.st_mode):04o}); use mode 0600 or 0400"
+        )
+    if info.st_size > MAX_API_KEY_FILE_BYTES:
+        raise ConfigError(f"{ENV_API_KEY_FILE} {path} is too large to be a key file")
+    try:
+        text = path.read_bytes().decode("ascii")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(
+            f"{ENV_API_KEY_FILE} {path} cannot be read as ASCII text ({type(exc).__name__})"
+        ) from exc
+    key = text.removesuffix("\n").removesuffix("\r")
+    if not key:
+        raise ConfigError(f"{ENV_API_KEY_FILE} {path} is empty")
+    return key
+
+
+def _api_key(environ: Mapping[str, str]) -> str | None:
+    inline = environ.get(ENV_API_KEY, "")
+    named = environ.get(ENV_API_KEY_FILE, "").strip()
+    if inline and named:
+        raise ConfigError(f"set {ENV_API_KEY} or {ENV_API_KEY_FILE}, not both")
+    if named:
+        return read_api_key_file(Path(named))
+    return inline or None
+
+
 def load_api_settings(
     *,
     repo_root: Path | None = None,
@@ -204,7 +255,7 @@ def load_api_settings(
         snapshot_id=base.snapshot_id,
         cors_origins=_list(environ.get(ENV_CORS_ORIGINS, "")),
         allowed_hosts=hosts or defaults.allowed_hosts,
-        api_key=environ.get(ENV_API_KEY, "") or None,
+        api_key=_api_key(environ),
         max_body_bytes=defaults.max_body_bytes if body is None else int(body),
         max_concurrent_simulations=(
             min(defaults.max_concurrent_simulations, cpus) if slots is None else int(slots)

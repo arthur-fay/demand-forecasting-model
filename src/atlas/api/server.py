@@ -5,6 +5,10 @@ several uvicorn workers would multiply them). By default it binds to the loopbac
 interface only. Binding to any other address is refused unless an API key protects the
 simulation endpoint (``ATLAS_API_KEY``): the API is designed for local development and
 protected deployment (M6), never for an unauthenticated public bind.
+
+Under a ``Type=notify`` systemd unit (``deploy/``), :class:`SupervisedServer` tells the
+service manager when the API is ready, pings its watchdog from the event loop and reports
+the readiness summary (:mod:`atlas.api.notify`); elsewhere it behaves as uvicorn's server.
 """
 
 from __future__ import annotations
@@ -12,18 +16,19 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
-from typing import TYPE_CHECKING, Any, Final, TextIO
+import socket
+from collections.abc import Callable
+from typing import Any, Final, TextIO
 
 import h11
+import uvicorn
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from atlas.api.app import create_app
 from atlas.api.logs import configure_logging
+from atlas.api.notify import ServiceNotifier
 from atlas.api.settings import ENV_API_KEY, ApiSettings
 from atlas.errors import ConfigError
-
-if TYPE_CHECKING:
-    import uvicorn
 
 DEFAULT_HOST: Final = "127.0.0.1"
 DEFAULT_PORT: Final = 8000
@@ -85,6 +90,54 @@ class DeadlineH11Protocol(H11Protocol):
             self._arm_read_deadline()  # the next request on this keep-alive connection
 
 
+class SupervisedServer(uvicorn.Server):
+    """uvicorn's server, reporting its lifecycle to the service manager.
+
+    ``READY=1`` is sent after uvicorn's own startup, that is after the application's
+    lifespan (reference data loaded, workers started) and after the socket is bound; a
+    failed startup exits before it. The watchdog is pinged from the server's tick (every
+    0.1 s on the event loop), so a blocked event loop stops the pings.
+    """
+
+    def __init__(
+        self,
+        config: uvicorn.Config,
+        notifier: ServiceNotifier,
+        describe: Callable[[], str] = lambda: "serving",
+    ) -> None:
+        super().__init__(config)
+        self.notifier = notifier
+        self.describe = describe
+
+    async def startup(self, sockets: list[socket.socket] | None = None) -> None:
+        await super().startup(sockets=sockets)
+        if self.started:
+            self.notifier.ready(self.describe())
+
+    async def on_tick(self, counter: int) -> bool:
+        self.notifier.watchdog()
+        return await super().on_tick(counter)
+
+    async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
+        self.notifier.stopping()
+        await super().shutdown(sockets=sockets)
+
+
+def readiness_summary(app: Any) -> str:
+    """One line for ``systemctl status``: which reference components are ready."""
+    store = getattr(app.state, "store", None)
+    if store is None:
+        return "not initialised"
+    components = list(store.components())
+    simulator = getattr(app.state, "simulator", None)
+    if simulator is not None:
+        components.append(simulator.health())
+    missing = [c.component for c in components if not c.ready]
+    if not missing:
+        return f"ready: {len(components)} components ready"
+    return "degraded: not ready: " + ", ".join(missing)
+
+
 def is_loopback(host: str) -> bool:
     if host == "localhost":
         return True
@@ -107,8 +160,6 @@ def check_bind(host: str, port: int, settings: ApiSettings) -> None:
 
 def server_config(app: Any, host: str, port: int) -> uvicorn.Config:
     """The uvicorn configuration of ``atlas api serve`` (also used by the tests)."""
-    import uvicorn
-
     return uvicorn.Config(
         app,
         host=host,
@@ -126,11 +177,14 @@ def server_config(app: Any, host: str, port: int) -> uvicorn.Config:
 
 def serve(settings: ApiSettings, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     """Run the API until interrupted (blocking)."""
-    import uvicorn
-
     check_bind(host, port, settings)
     configure_logging(settings.log_level)
-    server = uvicorn.Server(server_config(create_app(settings), host, port))
+    app = create_app(settings)
+    server = SupervisedServer(
+        server_config(app, host, port),
+        ServiceNotifier.from_environment(),
+        lambda: readiness_summary(app),
+    )
     try:
         server.run()
     except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C after its graceful shutdown

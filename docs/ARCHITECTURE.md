@@ -113,8 +113,23 @@ src/atlas/
   api/settings.py         validated ATLAS_API_* settings
   api/logs.py             JSON-lines logging
   api/server.py           atlas api serve / openapi (loopback unless a key is set; a
-                          request-read deadline per connection)
+                          request-read deadline per connection; systemd notifications, M6)
+  api/notify.py           (M6) READY / WATCHDOG / STOPPING for a Type=notify unit
   api/benchmark.py        atlas api bench (measured latency and memory)
+
+  M6 additions (atlas.deploy, standard library only; see DEPLOYMENT.md)
+  deploy/preflight.py     read-only server assessment (also a standalone script)
+  deploy/layout.py        the filesystem layout of a deployment
+  deploy/siteconfig.py    /etc/atlas/deploy.env, validated; profiles and resource limits
+  deploy/permissions.py   owner and mode checks of secrets, configuration and releases
+  deploy/credentials.py   the simulation key and the proxy users (atlas-deploy secrets)
+  deploy/routes.py        the nginx route allow-list from docs/api/openapi.json
+  deploy/render.py        systemd units, runtime environment, nginx site (deploy/templates)
+  deploy/manifest.py      release.json: commit, versions, lock, data and file fingerprints
+  deploy/verify.py        post-deployment verification over HTTP
+  deploy/releases.py      activate, roll back, recover, prune, plan; the deployment history
+  deploy/monitor.py       the periodic health and resource check
+  deploy/cli.py           atlas-deploy
 ```
 
 ### Data flow
@@ -280,6 +295,33 @@ request:  GET  ─► views (in memory) ─► data + integrity + provenance
 | Response models mirror the M4 file formats (`extra=forbid`) | A field M4 adds or drops makes the M4 component not ready at startup (fail closed) instead of being served silently; v2 of the contract would add a mapping layer |
 | Comparison differences only between plans that meet every constraint | A relaxed (DIAGNOSTIC) plan's cash minus a feasible plan's would read as a funding need |
 | A request-read deadline in the HTTP protocol, a JSON in-flight cap in the middleware | Idle or slow sockets cannot hold a single-process server; overload answers in the error contract |
+
+### M6 deployment flow
+
+```
+operator (sudo)                       server
+  preflight.py ─────────────────────► read-only assessment ─► SUITABLE / UNSUITABLE
+  bootstrap-host.sh --apply ────────► packages, user atlas, layout, hash-pinned uv
+  build-release.sh <sha> ───────────► releases/<version>-<sha12>: export, uv sync --locked
+                                      --no-dev, read-only, checks as atlas, release.json
+  atlas-deploy activate <id> ───────► check (manifest, permissions, deploy.env, secrets)
+                                      ─► render units + env + nginx (release templates,
+                                         OpenAPI routes) ─► nginx -t, daemon-reload
+                                      ─► switch current ─► restart (READY=1) ─► verify
+                                      ─► on failure: previous release back, verified
+  atlas-monitor.timer ──────────────► health, workers, resources, logs, TLS ─► journal
+                                      ─► critical: atlas-alert@ (operator hook)
+```
+
+| M6 decision | Reason |
+|---|---|
+| Native systemd, no containers | No daemon memory on a 1-2 GB server; ufw applies; systemd's sandbox gives comparable isolation (exposure 0.9) with restarts, a watchdog, limits and credentials |
+| `atlas.deploy` uses the standard library only | The preflight runs before anything is installed; rollback never depends on the scientific stack |
+| One configuration file renders everything | The unit, the API environment and the nginx site cannot disagree |
+| Routes generated from the committed contract | An endpoint is exposed only when the contract changes and the site is rendered again |
+| Releases immutable, root-owned, fingerprinted | A failed deployment cannot alter research outputs; any altered file is refused before activation |
+| Verification includes the scientific-integrity labels | A deployment that served unlabelled or "validated" results would be rolled back |
+| The key as a systemd credential, added by nginx | Never in an environment, a unit property, a browser or a log |
 
 ### Extending to new snapshots
 
