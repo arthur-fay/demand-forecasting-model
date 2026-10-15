@@ -562,6 +562,75 @@ def test_responses_are_deterministic(api: TestClient) -> None:
         assert first.headers["x-request-id"] != second.headers["x-request-id"]
 
 
+def test_intervals_honour_the_horizon(api: TestClient) -> None:
+    points = get(api, "/api/v1/uncertainty/intervals?horizon_days=3")["data"]["points"]
+    assert [p["horizon"] for p in points] == [1, 2, 3]
+    for bad in ("0", "31", "x"):
+        error = get(api, f"/api/v1/uncertainty/intervals?horizon_days={bad}", 422)["error"]
+        assert error["code"] == "validation_error"
+
+
+#: The committed sources each endpoint must name (in order).
+SOURCES = {
+    "/api/v1/system": [
+        "legacy_snapshot",
+        "m2_projection_run",
+        "m3_calibration_status",
+        "m4_reference_run",
+        "m4_reference_configuration",
+    ],
+    "/api/v1/models": ["m2_backtest_run"],
+    "/api/v1/forecasts": ["m2_projection_run", "m2_backtest_run", "m3_calibration_status"],
+    "/api/v1/forecasts/history": ["legacy_snapshot"],
+    "/api/v1/forecasts/metrics": ["m2_backtest_run"],
+    "/api/v1/uncertainty/status": ["m3_calibration_status"],
+    "/api/v1/uncertainty/intervals": [
+        "m3_projection_run",
+        "m3_calibration_status",
+        "m2_projection_run",
+    ],
+    "/api/v1/scenarios/normal": [
+        "m4_reference_run",
+        "m4_reference_configuration",
+        "m2_projection_run",
+        "m3_calibration_status",
+    ],
+    "/api/v1/scenarios/m3_marginal_q90_stress": [
+        "m4_reference_run",
+        "m4_reference_configuration",
+        "m2_projection_run",
+        "m3_calibration_status",
+        "m3_projection_run",
+    ],
+    "/api/v1/simulations/parameters": [
+        "m4_reference_configuration",
+        "m2_projection_run",
+        "m2_backtest_run",
+        "m3_calibration_status",
+    ],
+}
+
+
+@pytest.mark.parametrize("path", sorted(SOURCES))
+def test_every_response_names_its_sources_and_their_files(api: TestClient, path: str) -> None:
+    body = get(api, path)
+    assert_envelope(body, body["integrity"]["data_status"])  # hashes checked against files
+    sources = body["provenance"]["sources"]
+    assert [s["kind"] for s in sources] == SOURCES[path]
+    for source in sources:
+        assert source["files"], source  # every source names at least one verified file
+    runs = {
+        "m2_backtest_run": M2_FULL,
+        "m2_projection_run": M2_PROJECTION,
+        "m3_projection_run": M3_PROJECTION,
+        "m4_reference_run": M4_RUN,
+    }
+    for source in sources:
+        if source["kind"] in runs:
+            manifest = read_json(runs[source["kind"]] / "manifest.json")
+            assert source["run_id"] == manifest["run_id"]
+
+
 def test_comparison_baseline_is_always_the_first_row(api: TestClient) -> None:
     listed = get(
         api,
@@ -577,3 +646,5 @@ def test_comparison_baseline_is_always_the_first_row(api: TestClient) -> None:
     )
     assert len(ids) == len(set(ids))
     assert every["rows"][0]["difference_from_baseline"]["overtime_hours"] == 0
+    repeated = get(api, "/api/v1/scenarios/comparison?scenario_id=normal&scenario_id=normal")
+    assert [r["scenario_id"] for r in repeated["data"]["rows"]] == ["normal"]

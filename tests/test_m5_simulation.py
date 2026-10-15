@@ -530,3 +530,14 @@ def test_http_simulation_sources_and_assumptions(api: TestClient) -> None:
     assert any("not prorated" in limit for limit in data["limitations"])
     point = post(api, {"horizon_days": 7})["provenance"]["sources"]
     assert "m3_projection_run" not in [s["kind"] for s in point]
+
+
+def test_capacity_ratio_is_capacity_over_forecast(api: TestClient) -> None:
+    config = read_json(M4_RUN / "config.json")["service_units"][0]
+    capacity = config["regular_hours_per_day"]["value"] * config["regular_productivity"]["value"]
+    data = post(api, {"horizon_days": 5})["data"]
+    plan = data["daily_plans"][0]["plan"]
+    demand = [p["demand"] for p in data["daily_plans"] if p["plan"] == plan]
+    assert len(demand) == 5
+    expected = capacity / (sum(demand) / 5)
+    assert data["capacity_to_point_forecast_mean_ratio"] == pytest.approx(expected, rel=1e-12)

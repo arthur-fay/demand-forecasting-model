@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+import multiprocessing
 import os
 import signal
 import socket
@@ -260,7 +261,16 @@ def test_import_time_does_not_count_against_the_deadline(api_store: ReferenceSto
         service.close()
 
 
+def _new_workers(before: set[int]) -> list[int]:
+    return [
+        p.pid
+        for p in multiprocessing.active_children()
+        if p.name == "atlas-simulation-worker" and p.pid not in before
+    ]
+
+
 def test_shutdown_during_a_simulation_starts_no_new_worker(api_store: ReferenceStore) -> None:
+    before = {p.pid for p in multiprocessing.active_children()}
     service = SimulationService(api_store, size=1, timeout_seconds=30.0, worker_target=slow_worker)
     service.start()
     assert service.warm_up() == 1
@@ -272,6 +282,8 @@ def test_shutdown_during_a_simulation_starts_no_new_worker(api_store: ReferenceS
     assert status == 500
     assert json.loads(data)["error"]["code"] == "simulation_failed"
     assert service.worker_pids() == []
+    time.sleep(0.5)
+    assert _new_workers(before) == []  # no process was started after close (none orphaned)
     with client(api_store, service) as test_client:
         stopped = test_client.post("/api/v1/simulations", json={"horizon_days": 3})
     assert stopped.status_code == 503
@@ -391,3 +403,12 @@ def test_workers_ignore_ctrl_c_and_finish_before_sigterm(api_store: ReferenceSto
         assert worker.process.exitcode == 0  # then the worker left
     finally:
         pool.close()
+
+
+def test_the_lifespan_stops_the_workers_it_started(api_store: ReferenceStore) -> None:
+    before = {p.pid for p in multiprocessing.active_children()}
+    with client(api_store) as test_client:  # no simulator injected: the app owns one
+        started = set(test_client.app.state.simulator.worker_pids())  # type: ignore[attr-defined]
+        assert started
+    time.sleep(0.5)
+    assert not set(_new_workers(before)) & started

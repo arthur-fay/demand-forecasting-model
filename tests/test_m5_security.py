@@ -145,6 +145,8 @@ def test_cors_allows_only_configured_origins(api_store: ReferenceStore) -> None:
     with client(api_store, cors_origins=(origin,)) as test_client:
         allowed = test_client.get("/api/v1/forecasts", headers={"origin": origin})
         assert allowed.headers["access-control-allow-origin"] == origin
+        exposed = {h.strip() for h in allowed.headers["access-control-expose-headers"].split(",")}
+        assert exposed == {"X-Request-ID", "Server-Timing", "Retry-After"}
         assert "access-control-allow-credentials" not in allowed.headers
         other = test_client.get("/api/v1/forecasts", headers={"origin": "https://evil.example"})
         assert "access-control-allow-origin" not in other.headers
@@ -469,3 +471,42 @@ def test_ipv6_loopback_is_allowed_by_default(api_store: ReferenceStore) -> None:
             test_client.get("/health/live", headers={"host": "[::2]:8000"}), 400, "invalid_host"
         )
     settings(allowed_hosts=("fe80::1", "atlas.example.org"))
+
+
+def test_every_operation_refuses_unknown_query_parameters(api: TestClient) -> None:
+    document = api.get("/openapi.json").json()
+    for path, item in document["paths"].items():
+        url = path.replace("{scenario_id}", "normal") + "?debug=1"
+        for method in item:
+            kwargs: dict[str, Any] = {"json": {"horizon_days": 2}} if method == "post" else {}
+            response = api.request(method.upper(), url, **kwargs)
+            body = assert_safe_error(response, 422, "validation_error")
+            assert body["error"]["details"] == [{"field": "debug", "message": "not accepted here"}]
+
+
+def test_access_log_never_records_the_query(
+    api: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, "atlas.api"):
+        api.get("/api/v1/forecasts?horizon_days=2")
+    paths = [r.path for r in caplog.records if getattr(r, "event", None) == "request"]  # type: ignore[attr-defined]
+    assert paths == ["/api/v1/forecasts"]
+
+
+def test_validation_details_are_capped(api: TestClient) -> None:
+    unknown = {f"unknown_{i}": 1 for i in range(30)}
+    body = assert_safe_error(
+        api.post("/api/v1/simulations", json={"parameters": unknown}), 422, "validation_error"
+    )
+    assert len(body["error"]["details"]) == 20
+
+
+def test_small_validation_rules(api: TestClient) -> None:
+    assert not is_loopback("localhost.example.org")
+    with pytest.raises(ConfigError):
+        settings(max_concurrent_simulations=True)
+    error = api.post(
+        "/api/v1/simulations", json={"demand": {"basis": "m3_marginal_quantile", "quantile": 0.5}}
+    ).json()["error"]
+    assert error["code"] == "validation_error"  # refused by the schema, before M4
+    assert error["details"][0]["field"] == "demand.quantile"
