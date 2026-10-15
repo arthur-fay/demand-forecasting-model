@@ -20,6 +20,7 @@ from atlas.deploy.render import (
     Rendered,
     Renderer,
     RenderError,
+    disable_site,
     enable_site,
     fill,
     safe,
@@ -382,3 +383,8 @@ def test_enabling_the_site_is_idempotent(tmp_path: Path) -> None:
     assert enable_site(layout) is False
     link = tmp_path / "etc/nginx/sites-enabled/atlas.conf"
     assert str(link.readlink()) == "/etc/nginx/sites-available/atlas.conf"
+    write(tmp_path / "etc/nginx/sites-available/atlas.conf", "server {}\n")
+    assert disable_site(layout) is True
+    assert not link.is_symlink()
+    assert not (tmp_path / "etc/nginx/sites-available/atlas.conf").exists()
+    assert disable_site(layout) is False

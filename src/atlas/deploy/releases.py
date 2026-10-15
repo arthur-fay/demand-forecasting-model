@@ -48,7 +48,7 @@ from atlas.deploy.layout import (
 )
 from atlas.deploy.manifest import ManifestError, check_release, load_manifest
 from atlas.deploy.permissions import check_not_writable_by_others, check_release_tree
-from atlas.deploy.render import Rendered, Renderer, enable_site, write_files
+from atlas.deploy.render import Rendered, Renderer, disable_site, enable_site, write_files
 from atlas.deploy.siteconfig import DeployConfig, DeployConfigError, load_config
 from atlas.deploy.verify import Target, Verification
 
@@ -81,6 +81,7 @@ class Host(Protocol):
     def show(self, unit: str, properties: Sequence[str]) -> dict[str, str]: ...
     def nginx_test(self) -> tuple[bool, str]: ...
     def nginx_reload(self) -> tuple[bool, str]: ...
+    def nginx_reload_if_running(self) -> tuple[bool, str]: ...
 
 
 def _run(command: Sequence[str], timeout: float) -> tuple[bool, str]:
@@ -137,6 +138,9 @@ class SystemHost:
 
     def nginx_reload(self) -> tuple[bool, str]:
         return _run(["systemctl", "reload", "nginx"], 60)
+
+    def nginx_reload_if_running(self) -> tuple[bool, str]:
+        return _run(["systemctl", "try-reload-or-restart", "nginx"], 60)
 
 
 Verifier = Callable[[Target], Verification]
@@ -304,6 +308,7 @@ class Deployment:
         """
         files = self.rendered(release_id, config)
         backups = {item.path: self._read(item.path) for item in files}
+        site = self._site_state()
         groups = {"root": 0, "atlas": self.service_gid, "www-data": self.proxy_gid}
         try:
             results = write_files(files, self.layout, chown=self.chown, group_ids=groups)
@@ -316,16 +321,36 @@ class Deployment:
             enable_site(self.layout)
             ok, output = self.host.nginx_test()
             if not ok:
-                self._restore(files, backups, groups)
+                self._restore(files, backups, groups, site)
                 return False, f"nginx refused the rendered site: {output}"
         if units_changed:
             ok, output = self.host.daemon_reload()
             if not ok:
-                self._restore(files, backups, groups)
+                self._restore(files, backups, groups, site)
                 self.host.daemon_reload()
                 return False, f"systemctl daemon-reload failed: {output}"
+        if not config.exposed and site != (None, None):
+            # The profile no longer exposes the API: an earlier profile's site must stop
+            # serving now, not linger in nginx (removed, checked, reloaded if running).
+            disable_site(self.layout)
+            ok, output = self.host.nginx_test()
+            if ok:
+                ok, output = self.host.nginx_reload_if_running()
+            if not ok:
+                self._restore(files, backups, groups, site)
+                if units_changed:
+                    self.host.daemon_reload()
+                return False, f"nginx refused the configuration without the ATLAS site: {output}"
+            changed.append(f"{self.layout.nginx_site} (removed: the profile is not exposed)")
         self.host.enable(SERVICE, MONITOR_TIMER)
         return True, "changed: " + (", ".join(changed) or "nothing")
+
+    def _site_state(self) -> tuple[bytes | None, str | None]:
+        """The nginx site's file and its ``sites-enabled`` link, to put back on failure."""
+        link = self.layout.local(self.layout.nginx_site_enabled)
+        return self._read(self.layout.nginx_site), (
+            str(link.readlink()) if link.is_symlink() else None
+        )
 
     def _read(self, host_path: Any) -> bytes | None:
         try:
@@ -334,8 +359,17 @@ class Deployment:
             return None
 
     def _restore(
-        self, files: list[Rendered], backups: Mapping[Any, bytes | None], groups: Mapping[str, int]
+        self,
+        files: list[Rendered],
+        backups: Mapping[Any, bytes | None],
+        groups: Mapping[str, int],
+        site: tuple[bytes | None, str | None] = (None, None),
     ) -> None:
+        site_file, site_link = site
+        if site_file is not None:  # an earlier site taken out (or replaced): it comes back
+            backups = {**backups, self.layout.nginx_site: site_file}
+            if all(item.path != self.layout.nginx_site for item in files):
+                files = [*files, Rendered(self.layout.nginx_site, "", 0o644, "root")]
         restore = [
             Rendered(item.path, (backups[item.path] or b"").decode("utf-8"), item.mode, item.group)
             for item in files
@@ -345,6 +379,14 @@ class Deployment:
         for item in files:
             if backups.get(item.path) is None:
                 self.layout.local(item.path).unlink(missing_ok=True)
+        link = self.layout.local(self.layout.nginx_site_enabled)
+        if site_link is None:  # no link before: none now (it would point at nothing)
+            if link.is_symlink():
+                link.unlink()
+        elif not link.is_symlink() or str(link.readlink()) != site_link:
+            link.unlink(missing_ok=True)
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(site_link)
 
     def switch(self, release_id: str) -> None:
         """Point ``current`` at ``release_id`` atomically (a new link renamed over it)."""

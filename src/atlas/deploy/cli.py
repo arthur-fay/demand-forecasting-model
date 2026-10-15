@@ -37,7 +37,14 @@ from atlas.deploy.manifest import (
     write_manifest,
 )
 from atlas.deploy.releases import DeployError, Deployment, SystemHost
-from atlas.deploy.render import STAGES, Renderer, RenderError, enable_site, write_files
+from atlas.deploy.render import (
+    STAGES,
+    Renderer,
+    RenderError,
+    disable_site,
+    enable_site,
+    write_files,
+)
 from atlas.deploy.routes import RouteError
 from atlas.deploy.siteconfig import (
     DeployConfig,
@@ -282,16 +289,19 @@ def _render(ctx: Context, args: argparse.Namespace, out: TextIO) -> int:
             chown=not ctx.rehearsal,
             group_ids={"root": 0, SERVICE_GROUP: ctx.service_gid, PROXY_GROUP: ctx.proxy_gid},
         )
+        changed = [str(r.path) for r in results if r.changed]
         if config.exposed:
             enable_site(ctx.layout)
-        changed = [str(r.path) for r in results if r.changed]
+        elif disable_site(ctx.layout):  # not exposed: no earlier site may keep serving
+            changed.append(f"{ctx.layout.nginx_site} (removed)")
         _emit(
             out,
             {"changed": changed},
             args.json,
             "changed: "
             + (", ".join(changed) or "nothing")
-            + "\nthen: systemctl daemon-reload; nginx -t && systemctl reload nginx (if exposed)",
+            + "\nthen: systemctl daemon-reload; nginx -t && systemctl reload nginx (if exposed, or"
+            + " if the site was removed)",
         )
         return EXIT_OK
     if args.output_dir is not None:

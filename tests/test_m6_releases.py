@@ -90,6 +90,10 @@ class FakeHost:
         self.calls.append("nginx reload")
         return True, ""
 
+    def nginx_reload_if_running(self) -> tuple[bool, str]:
+        self.calls.append("nginx reload if running")
+        return True, ""
+
 
 def verifier(broken: set[str]) -> Callable[[Target], Verification]:
     def check(target: Target) -> Verification:
@@ -274,6 +278,64 @@ def test_an_nginx_configuration_refused_by_nginx_restores_the_files(tmp_path: Pa
     assert site.read_text() == "# the site that works\n"
     assert deploy.current() == name(A)
     assert not any(call.startswith("restart") for call in host.calls[calls:])
+
+
+def test_returning_to_the_tunnel_profile_takes_the_site_out_of_nginx(tmp_path: Path) -> None:
+    """An exposed profile's site must not keep serving once the profile is ``tunnel``."""
+    deploy, host = deployment(tmp_path, DEPLOY_ENV_PRIVATE)
+    make_release(tmp_path, commit=A)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    site = tmp_path / "etc/nginx/sites-available/atlas.conf"
+    link = tmp_path / "etc/nginx/sites-enabled/atlas.conf"
+    assert site.is_file()
+    assert link.is_symlink()
+    write(tmp_path / "etc/atlas/deploy.env", "ATLAS_DEPLOY_PROFILE=tunnel\n", 0o644)
+    calls = len(host.calls)
+    record = deploy.activate(name(A))
+    assert record["outcome"] == ACTIVATED, record
+    assert not site.exists()
+    assert not link.is_symlink()
+    assert host.calls[calls:][:3] == ["daemon-reload", "nginx -t", "nginx reload if running"]
+    assert "nginx reload" not in host.calls[calls:]
+    # Idempotent: nothing left to take out, nginx is not touched again.
+    calls = len(host.calls)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    assert not any(call.startswith("nginx") for call in host.calls[calls:])
+
+
+def test_a_refused_site_removal_puts_everything_back(tmp_path: Path) -> None:
+    deploy, host = deployment(tmp_path, DEPLOY_ENV_PRIVATE)
+    make_release(tmp_path, commit=A)
+    deploy.activate(name(A))
+    site = tmp_path / "etc/nginx/sites-available/atlas.conf"
+    link = tmp_path / "etc/nginx/sites-enabled/atlas.conf"
+    served = site.read_text()
+    runtime = (tmp_path / "etc/atlas/atlas.env").read_text()
+    write(tmp_path / "etc/atlas/deploy.env", "ATLAS_DEPLOY_PROFILE=tunnel\n", 0o644)
+    host.nginx_ok = False
+    calls = len(host.calls)
+    record = deploy.activate(name(A))
+    assert record["outcome"] == REFUSED
+    assert "without the ATLAS site" in record["detail"][0]
+    assert site.read_text() == served
+    assert str(link.readlink()) == "/etc/nginx/sites-available/atlas.conf"
+    assert (tmp_path / "etc/atlas/atlas.env").read_text() == runtime
+    assert not any(call.startswith("restart") for call in host.calls[calls:])
+
+
+def test_a_refused_first_exposure_leaves_no_link_behind(tmp_path: Path) -> None:
+    deploy, host = deployment(tmp_path)
+    make_release(tmp_path, commit=A)
+    deploy.activate(name(A))
+    write(tmp_path / "etc/atlas/deploy.env", DEPLOY_ENV_PRIVATE, 0o644)
+    deploy.secrets().add_user("alice")
+    for item in ("fullchain.pem", "privkey.pem"):
+        write(tmp_path / "etc/letsencrypt/live/atlas.example.org" / item, "x", 0o600)
+    host.nginx_ok = False
+    record = deploy.activate(name(A))
+    assert record["outcome"] == REFUSED
+    assert not (tmp_path / "etc/nginx/sites-available/atlas.conf").exists()
+    assert not (tmp_path / "etc/nginx/sites-enabled/atlas.conf").is_symlink()
 
 
 def test_one_deployment_at_a_time(tmp_path: Path) -> None:
@@ -523,6 +585,7 @@ def test_the_system_host_runs_the_exact_commands(
     assert host.main_pid("atlas.service") == 4242
     assert host.nginx_test()[0]
     assert host.nginx_reload()[0]
+    assert host.nginx_reload_if_running()[0]
     assert log.read_text().splitlines() == [
         "systemctl daemon-reload",
         "systemctl enable atlas.service atlas-monitor.timer",
@@ -533,6 +596,7 @@ def test_the_system_host_runs_the_exact_commands(
         "systemctl show atlas.service -p MainPID",
         "nginx -t -q",
         "systemctl reload nginx",
+        "systemctl try-reload-or-restart nginx",
     ]
     write(bin_dir / "systemctl", "#!/bin/sh\necho failed >&2\nexit 1\n", 0o755)
     assert host.restart("atlas.service") == (False, "failed")

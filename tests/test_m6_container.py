@@ -9,8 +9,9 @@ the bootstrap (dry run, apply, idempotent re-run), a release build from an exact
 the first activation (tunnel), the private profile through nginx and TLS, crash recovery,
 the watchdog, a killed worker, a configuration error that must not loop, a graceful stop
 during a simulation, a broken release rolled back automatically, an explicit rollback, an
-interrupted activation recovered, the monitor and its alert hook, a reboot, and the
-absence of secrets in logs, environments and unit properties.
+interrupted activation recovered, the monitor and its alert hook, a reboot, resource use,
+a return to the tunnel profile (the nginx site taken out), and the absence of secrets in
+logs, environments and unit properties.
 
 Environment: ``ATLAS_E2E_BASE_IMAGE`` (default ``ubuntu:24.04``), ``ATLAS_E2E_NETWORK``
 (``host`` behind an HTTP proxy; the proxy variables and ``ATLAS_E2E_CA_BUNDLE`` are then
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -145,6 +147,7 @@ def _snapshot_commit(work: Path) -> tuple[str, str]:
     )
     bare = work / "atlas.git"
     git("init", "-q", "--bare", str(bare))
+    git("config", "receive.shallowUpdate", "true", cwd=bare)  # a shallow CI checkout
     git("push", "-q", str(bare), f"{commit}:refs/heads/e2e")
     clone = work / "clone"
     git("clone", "-q", "--branch", "e2e", str(bare), str(clone))
@@ -411,13 +414,13 @@ def test_no_secret_is_exposed(server: Server) -> None:
 def test_the_private_profile_through_nginx_and_tls(server: Server) -> None:
     server.sh(
         "set -e; mkdir -p /root/ca && cd /root/ca && "
-        "openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 2 -subj "
+        "openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 90 -subj "
         "'/CN=e2e CA' 2>/dev/null && "
         f"openssl req -newkey rsa:2048 -nodes -keyout site.key -out site.csr -subj '/CN={DOMAIN}' "
         "2>/dev/null && "
         f"echo 'subjectAltName=DNS:{DOMAIN}' > ext && "
         "openssl x509 -req -in site.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out site.pem "
-        "-days 2 -extfile ext 2>/dev/null && "
+        "-days 90 -extfile ext 2>/dev/null && "
         "install -d /etc/atlas-e2e-tls && install -m 0644 site.pem "
         "/etc/atlas-e2e-tls/fullchain.pem && "
         "install -m 0600 site.key /etc/atlas-e2e-tls/privkey.pem && "
@@ -529,6 +532,8 @@ def test_a_configuration_error_does_not_loop(server: Server) -> None:
 
 def test_a_stop_finishes_the_simulation_in_flight(server: Server) -> None:
     key = server.out("cat /etc/atlas/credentials/api-key")
+    cursor = server.out("journalctl -u atlas -n 0 --show-cursor -q").split("cursor: ", 1)[1]
+    tracker = server.out("pgrep -u atlas -f resource_tracker || true")
     server.sh(
         f"(curl -s --noproxy '*' -o /root/sim.json -w '%{{http_code}}' -X POST "
         "http://127.0.0.1:8000/api/v1/simulations "
@@ -537,9 +542,21 @@ def test_a_stop_finishes_the_simulation_in_flight(server: Server) -> None:
         "sleep 0.15; systemctl stop atlas; wait"
     )
     assert server.out("cat /root/sim.status") == "200"
-    state = server.show("Result", "ExecMainStatus", "ActiveState")
-    assert state == {"Result": "success", "ExecMainStatus": "0", "ActiveState": "inactive"}
-    assert "sigkill" not in server.out("journalctl -u atlas --no-pager -o cat | tail -20").lower()
+    # A clean exit: uvicorn finishes the request, stops the workers, then re-raises the
+    # SIGTERM it caught (exit status 15, which systemd counts as a success).
+    state = server.show("Result", "ExecMainCode", "ExecMainStatus", "ActiveState")
+    assert state["Result"] == "success", state
+    assert state["ActiveState"] == "inactive"
+    assert (state["ExecMainCode"], state["ExecMainStatus"]) in {("1", "0"), ("2", "15")}, state
+    journal = server.out(f"journalctl -u atlas --after-cursor '{cursor}' --no-pager -o cat")
+    requests = [json.loads(line) for line in journal.splitlines() if '"event": "request"' in line]
+    assert any(r["path"] == "/api/v1/simulations" and r["status"] == 200 for r in requests), journal
+    assert "worker_crashed" not in journal
+    # After the main process exits, KillMode=mixed SIGKILLs what is left: at most the
+    # multiprocessing resource tracker (it holds no state), never a simulation worker.
+    killed = set(re.findall(r"Killing process (\d+) .*SIGKILL", journal))
+    assert killed <= set(tracker.split()), journal
+    server.notes["stop_killed_leftovers"] = sorted(killed)
     server.sh("systemctl start atlas")
 
 
@@ -625,3 +642,20 @@ def test_resource_use_stays_within_the_limits(server: Server) -> None:
     )
     assert memory < 640 << 20  # below MemoryHigh of the standard profile
     assert int(server.show("TasksCurrent")["TasksCurrent"]) < 128
+
+
+def test_returning_to_the_tunnel_profile_closes_the_site(server: Server) -> None:
+    curl = f"curl -s --noproxy '*' --cacert /root/ca/ca.pem --resolve {DOMAIN}:443:127.0.0.1"
+    live = (
+        f"{curl} -o /dev/null -w '%{{http_code}}' -u alice:{PASSWORD} https://{DOMAIN}/health/live"
+    )
+    assert server.out(live) == "200"
+    server.sh(
+        "printf 'ATLAS_DEPLOY_PROFILE=tunnel\\nATLAS_DEPLOY_RESOURCES=standard\\n' "
+        "> /etc/atlas/deploy.env"
+    )
+    assert "activated" in server.sh(f"{DEPLOY} activate {server.release}", timeout=600).stdout
+    assert server.sh("test -e /etc/nginx/sites-enabled/atlas.conf", check=False).returncode != 0
+    assert server.sh(f"{live} || true").stdout.strip() in ("000", "")  # nothing answers
+    assert server.out("systemctl is-active nginx") == "active"  # nginx itself untouched
+    server.sh(f"{DEPLOY} verify")

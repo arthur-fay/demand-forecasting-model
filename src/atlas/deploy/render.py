@@ -437,3 +437,16 @@ def enable_site(layout: Layout) -> bool:
     temporary.symlink_to(target)
     temporary.replace(link)
     return True
+
+
+def disable_site(layout: Layout) -> bool:
+    """Take the site out of nginx: remove its ``sites-enabled`` link and its file
+    (idempotent); ``True`` if anything was removed. A profile that does not expose the
+    API (tunnel) must not leave an earlier profile's site serving."""
+    removed = False
+    for path in (layout.nginx_site_enabled, layout.nginx_site):
+        target = layout.local(path)
+        if target.is_symlink() or target.exists():
+            target.unlink()
+            removed = True
+    return removed

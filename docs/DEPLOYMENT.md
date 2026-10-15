@@ -353,6 +353,10 @@ CORS stays off (a dashboard is meant to be same-origin). The key reaches the API
 Validate before applying any change: `sudo atlas-deploy validate --installed`; apply with
 `sudo atlas-deploy activate <current release id>` (renders, checks nginx, restarts, verifies,
 restores on failure). `atlas-deploy render` prints the files without installing anything.
+Returning to the `tunnel` profile takes the ATLAS site out of nginx (its `sites-enabled` link
+and its file are removed, `nginx -t`, then nginx is reloaded if it runs) before the switch;
+if nginx refuses the change, everything is put back and nothing else changes. Close ports 80
+and 443 in ufw afterwards (the tooling never touches the firewall).
 
 ## 7. HTTPS setup
 
@@ -592,7 +596,7 @@ A larger observability stack (Prometheus, Grafana) is deliberately not part of M
 | Ready means ready | `Type=notify`: the API sends `READY=1` after loading and verifying the reference data, starting the workers and binding the socket; `systemctl start` waits for it (120 s) |
 | Liveness | `WatchdogSec=30`: the event loop pings every 10 s; a hung loop is aborted and restarted |
 | Controlled restarts | `Restart=on-failure` with a growing delay (2 s to 60 s); at most 6 starts in 15 minutes, then the unit stays failed until an operator acts; exit status 2 (invalid configuration) is never restarted. A deliberate restart by `atlas-deploy` (activate, rollback, recover) first clears the unit's failure state (`systemctl reset-failed`), so several operator actions in a few minutes are never blocked by the limit meant for automatic restarts |
-| Graceful shutdown | `KillMode=mixed`, SIGTERM to the server: in-flight requests finish (up to 10 s), the workers finish their simulation and stop; leftovers are killed after 30 s |
+| Graceful shutdown | `KillMode=mixed`, SIGTERM to the server only: in-flight requests finish (up to 10 s), the workers finish their simulation and stop, and the server exits (uvicorn re-raises the SIGTERM it handled: exit status 15, which systemd records as a success). What is left once the server has exited (at most the multiprocessing resource tracker, which holds no state) is SIGKILLed at once; a server that has not exited after `TimeoutStopSec=30` is SIGKILLed with everything else |
 | Lost workers | the M5 pool replaces a worker that dies or times out during a simulation; a worker that dies while idle (the OOM killer prefers workers: they set `oom_score_adj` 500) is replaced by the next readiness check, which the monitor runs every minute, and logged as `worker_died_idle`, so no request lands on a dead worker; `OOMPolicy=continue` keeps the service running meanwhile |
 | Degraded data | per-component readiness (M5): a damaged artifact gives 503 on its endpoints, the rest serves; the monitor alerts |
 | Version identification | release id = version + commit; `release.json`; `atlas-deploy status`; verification compares the running process's directory, version and data fingerprint with the manifest |
@@ -625,7 +629,7 @@ environment, and workers' OOM score; the private profile through nginx with TLS 
 a simulation, docs 404, the redirect, no password in nginx logs); `kill -9` of the server
 (restarted); `kill -STOP` (the watchdog restarts it); a killed worker (replaced); an invalid
 setting (exit 2, no restart loop, repaired by an activation); a stop during a simulation
-(answered 200, clean exit, no SIGKILL); a broken release (rolled back automatically); an
+(answered 200, a clean exit, no worker killed); a broken release (rolled back automatically); an
 explicit rollback; an interrupted activation (recovered); the monitor and the alert hook;
 a reboot (everything back and verified); memory and tasks within the limits.
 
