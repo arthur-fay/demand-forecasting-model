@@ -20,6 +20,10 @@ turns the M2 forecast into resource-allocation scenarios under explicitly HYPOTH
 operational parameters, compared with simple policies, with infeasibility diagnostics,
 tradeoff frontiers, sensitivity sweeps and certified shadow prices. Every result carries the
 M3 calibration status and is labelled as not a validated recommendation.
+
+Milestone M5 adds an HTTP API (FastAPI, :mod:`atlas.api`) that serves the committed M2-M4
+reference outputs with their provenance and integrity labels, and runs bounded HYPOTHETICAL
+simulations with the M4 engine in isolated worker processes.
 """
 
 import os
@@ -30,4 +34,4 @@ import os
 for _variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_variable, "1")
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

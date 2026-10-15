@@ -1,7 +1,7 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. M0-M3 are merged; M4 is implemented on
-`feature/atlas-m4-optimization` and awaits review. Nothing from M5 onward is implemented.
+Each milestone requires separate approval. M0-M4 are merged; M5 is implemented on
+`feature/atlas-m5-backend-api` and awaits review. Nothing from M6 onward is implemented.
 
 ## M0: Foundation (merged)
 
@@ -94,7 +94,7 @@ Deliberately not done in M3:
 - **Monotone widening across horizons:** not imposed; the report measures it.
 - **Scoring the archived July 2026 forecast:** still needs data after 2026-06-30.
 
-## M4: Hypothetical decision simulation and optimisation (implemented; awaiting approval)
+## M4: Hypothetical decision simulation and optimisation (merged)
 
 See [OPTIMIZATION.md](OPTIMIZATION.md).
 
@@ -126,20 +126,68 @@ Deliberately not done in M4:
 - **Verified parameters:** no evidence register exists, so every parameter is `HYPOTHETICAL`.
 - **Integer staffing, fixed costs or shift rules:** they need a MILP and data ATLAS lacks.
 
+## M5: HTTP API (implemented; awaiting approval)
+
+See [API.md](API.md) and the contract [`docs/api/openapi.json`](api/openapi.json).
+
+- A FastAPI modular monolith (`atlas.api`): routers and Pydantic contracts (transport),
+  a reference store, views and a simulation service (application), and the unchanged M0-M4
+  modules (domain), wired by dependency injection.
+- Fourteen documented endpoints (twelve under `/api/v1`, plus unversioned health probes):
+  - health and readiness, system metadata;
+  - the M2 models, projection, observed history and backtest metrics;
+  - the M3 calibration status and projection quantiles;
+  - the M4 reference scenarios, one scenario's detail, a scenario comparison;
+  - bounded HYPOTHETICAL simulations.
+- Every response carries an `integrity` block. It states observed, projected, historical or
+  HYPOTHETICAL, and the M3 status `failed_calibration`. Its `validated_recommendation` and
+  `point_forecast_validated` flags are fixed to `false` by the schema. The `provenance` block
+  names every committed source with its fingerprints.
+- The committed outputs are loaded once at startup through M4's own provenance checks and
+  `optimize inspect` (no recomputation), with per-component readiness, so damaged artifacts
+  fail closed.
+- Simulations go through M4's configuration parser, scenario builder and `analyse_scenario`.
+  They reproduce the reference scenarios exactly and run in spawned worker processes. The M4
+  solve layer is not thread-safe; the processes also allow hard deadlines and keep metadata
+  requests unblocked. Inputs are bounded, there is no queue (503), and a deadline kills the
+  worker (504). Lost workers are replaced, logged, counted and reported by readiness.
+- Honest by construction: the M2 H1 result (not significant after Holm) travels with every
+  response serving M2 numbers; intervals are labelled as failing calibration; holiday-related days
+  carry M3's flag; comparisons never subtract a DIAGNOSTIC plan from a feasible one; a test
+  applies the M4 wording rules to every string the API sends.
+- Security:
+  - strict validation (bodies, query parameters) and body limits;
+  - a request-read deadline per connection and a JSON in-flight cap;
+  - a host allow-list (IPv6 included), explicit CORS with JSON rejections, security headers;
+  - an optional API key, and refusal of a public bind without one;
+  - a generic 500 with the traceback only in the log;
+  - no filesystem paths from requests, no writes, no shell or outbound access; the only
+    processes started are the fixed-argument simulation workers.
+- Structured JSON logging; `atlas api serve|openapi|bench`; measured latency and memory
+  (API.md section 9).
+- GitHub Actions are pinned to commit SHAs (the M0 limitation below).
+
+Deliberately not done in M5:
+
+- **Deployment, TLS, per-client rate limiting:** M6, behind a reverse proxy.
+- **Interactive shadow prices, frontiers or sweeps:** research analyses of several seconds
+  each; served precomputed for the reference scenarios only.
+- **User accounts:** one optional shared key protects the only computing endpoint; GET
+  endpoints serve committed research outputs.
+
 ## Later milestones (deferred, outline only)
 
-- **M5:** FastAPI service with typed contracts.
 - **M6:** hardened deployment on a small Ubuntu VPS.
 - **M7:** lightweight dashboard, model card and data card.
 
 ## Known M0 limitations
 
-- **CI action pinning:** CI pins GitHub Actions to major-version tags
-  (`actions/checkout@v4`, `actions/setup-python@v5`). Pinning to commit SHAs was not possible
-  offline and should be done before M5. uv itself is installed from a hash-pinned
-  requirements file.
-- **No dependency cooldown:** the lockfile was resolved without a release-age cooldown
-  (`exclude-newer`).
+- **CI action pinning (resolved in M5):** CI pinned GitHub Actions to major-version tags.
+  M5 pins them to the commits those tags pointed to: `actions/checkout` v4.4.0 and
+  `actions/setup-python` v5.6.0. uv itself is installed from a hash-pinned requirements file.
+- **No dependency cooldown:** the original lockfile was resolved without a release-age
+  cooldown (`exclude-newer`). Since M4, new packages are held to releases at least two weeks
+  old through `tool.uv.constraint-dependencies` (see `pyproject.toml`).
 - **No LICENSE file:** the code licence and the NYC Open Data attribution wording need an
   owner decision.
 - **Legacy README claims:** the legacy README still contains the original headline claims. A

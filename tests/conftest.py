@@ -10,9 +10,10 @@ from __future__ import annotations
 import csv
 import dataclasses
 import shutil
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from datetime import date, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -22,6 +23,10 @@ from atlas.issues import CheckReport
 from atlas.loader import LoadedTable
 from atlas.pipeline import load_snapshot_tables, run
 from atlas.snapshot import load_manifest
+
+if TYPE_CHECKING:
+    from atlas.api.reference import ReferenceStore
+    from atlas.api.simulation import SimulationService
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -106,3 +111,29 @@ def repo_copy(tmp_path: Path) -> Path:
         else:
             shutil.copy2(source, target / name)
     return target
+
+
+# --- M5 API ------------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def api_store() -> ReferenceStore:
+    """The reference store of the committed artifacts, loaded once for the whole session."""
+    from atlas.api.reference import load_reference_store
+    from atlas.api.settings import ApiSettings
+
+    store = load_reference_store(ApiSettings(repo_root=REPO_ROOT))
+    assert store.ready, store.components()
+    return store
+
+
+@pytest.fixture(scope="session")
+def api_simulator(api_store: ReferenceStore) -> Iterator[SimulationService]:
+    """One pool of two simulation worker processes shared by every API test."""
+    from atlas.api.simulation import SimulationService
+
+    service = SimulationService(api_store, size=2, timeout_seconds=60.0)
+    service.start()
+    assert service.warm_up() == 2
+    yield service
+    service.close()

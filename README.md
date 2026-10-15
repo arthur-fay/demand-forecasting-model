@@ -32,12 +32,17 @@ An end-to-end analytics project that transforms historical operational request d
 > operational parameter is `HYPOTHETICAL`; nothing in it is a validated staffing or budget
 > recommendation. See [Decision simulation and optimisation (M4)](docs/OPTIMIZATION.md).
 >
+> **M5 HTTP API:** a FastAPI service that serves the committed M2-M4 outputs and runs
+> bounded HYPOTHETICAL simulations with the M4 engine. Every data response says what its
+> numbers are and carries the M3 status, with `validated_recommendation: false` fixed by
+> the schema. Start it with `uv run atlas api serve`; see [HTTP API (M5)](docs/API.md).
+>
 > Quick start: `uv sync --locked && uv run atlas check && uv run atlas quality` ·
 > [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
 > [Data snapshot](docs/DATA_SNAPSHOT.md) · [Data quality (M1)](docs/DATA_QUALITY.md) ·
 > [Forecast features (M1)](docs/FEATURES.md) · [Backtesting (M2)](docs/BACKTESTING.md) ·
 > [Uncertainty (M3)](docs/UNCERTAINTY.md) · [Optimisation (M4)](docs/OPTIMIZATION.md) ·
-> [Roadmap](docs/ROADMAP.md)
+> [HTTP API (M5)](docs/API.md) · [Roadmap](docs/ROADMAP.md)
 
 ## Dashboard Preview
 

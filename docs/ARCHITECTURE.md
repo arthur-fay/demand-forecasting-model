@@ -94,6 +94,27 @@ src/atlas/
   scenarios.py            Scenarios as planning problems; demand-percentile guard
   optimization_report.py  Deterministic Markdown report from the metrics payload
   optimization_runner.py  Fail-closed M4 commands (optimize run/verify/inspect)
+
+  M5 additions (atlas.api; see API.md)
+  api/app.py              create_app(): lifespan, middleware, routers, error handlers
+  api/routers/            HTTP routes (health, system, forecasts, uncertainty, scenarios,
+                          simulations): parameters, status codes, documented responses
+  api/schemas.py          Pydantic contracts: integrity and provenance envelope, errors
+  api/middleware.py       request id, Host check, body limit, in-flight cap, security
+                          headers, access log; CORS with JSON rejections
+  api/problems.py         ApiError, the error codes and the one error body
+  api/errors.py           exception handlers mapping every failure to that body
+  api/dependencies.py     injected services, API key, JSON-only bodies, no unknown or
+                          repeated query parameter
+  api/reference.py        ReferenceStore: committed M2/M3/M4 outputs, checked at startup
+  api/views.py            complete typed responses with integrity labels and provenance
+  api/simulation.py       request -> M4 configuration; the worker pool (deadlines, crashes)
+  api/worker.py           the worker-process side: analyse_scenario (domain imports only)
+  api/settings.py         validated ATLAS_API_* settings
+  api/logs.py             JSON-lines logging
+  api/server.py           atlas api serve / openapi (loopback unless a key is set; a
+                          request-read deadline per connection)
+  api/benchmark.py        atlas api bench (measured latency and memory)
 ```
 
 ### Data flow
@@ -231,6 +252,34 @@ sweeps on the base scenario ─► proved monotonicity checked
 | Shadow prices bracketed by one-sided finite differences | Duals are subgradients; a bracket failure is a bug, unequal slopes are a breakpoint, not an error |
 | HiGHS model status parsed from the message; no time limit | SciPy's integer status conflates model errors with infeasibility; a time limit is not reproducible |
 | Every CSV row labelled (HYPOTHETICAL, not validated, M3 status) | Rows copied out of context still carry their caveats |
+
+### M5 data flow
+
+```
+startup:  snapshot ─► integrity, validation (M0) ─────────────────────► history
+          reference M4 config ─► load_inputs (M2 projection + accuracy, M3 status,
+                                 quantile paths, every pin) ──────────► forecast, status
+          M2 recommending run ─► metrics.json (bytes verified) ──────► models, metrics
+          M3 projection ─► projection_intervals.csv (pinned) ────────► intervals
+          M4 reference run ─► optimize inspect + verified bytes ─────► scenarios
+          (each a component; a failed one answers 503, the rest serve;
+           simulations need the verified M4 run made with the same configuration)
+request:  GET  ─► views (in memory) ─► data + integrity + provenance
+          POST /simulations ─► M4 config (client values, HYPOTHETICAL) ─► parse + build
+                (422 on M4's rules) ─► idle worker process (else 503) ─► analyse_scenario
+                ─► M4 runner serialisation ─► validated response (504 + kill at deadline)
+```
+
+| M5 decision | Reason |
+|---|---|
+| Serve committed, verified outputs; compute only one bounded scenario per request | The research runs take seconds to minutes; their results are fixed and fingerprinted |
+| Reuse M4's loaders, parser, scenario builder, analysis and serialisation | One implementation of the science; simulations reproduce the reference run exactly (tested) |
+| Spawned worker processes for solves, no queue, kill at deadline | The M4 solve layer's warnings capture is process-global; processes also give real deadlines and keep the API responsive |
+| `validated_recommendation` and `point_forecast_validated` are schema constants | A response cannot claim validation, whatever the code path |
+| Per-component readiness, verified bytes parsed once | Damaged artifacts fail closed without taking down unrelated endpoints |
+| Response models mirror the M4 file formats (`extra=forbid`) | A field M4 adds or drops makes the M4 component not ready at startup (fail closed) instead of being served silently; v2 of the contract would add a mapping layer |
+| Comparison differences only between plans that meet every constraint | A relaxed (DIAGNOSTIC) plan's cash minus a feasible plan's would read as a funding need |
+| A request-read deadline in the HTTP protocol, a JSON in-flight cap in the middleware | Idle or slow sockets cannot hold a single-process server; overload answers in the error contract |
 
 ### Extending to new snapshots
 

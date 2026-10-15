@@ -1,7 +1,7 @@
 [project]
 name = "atlas"
-version = "0.4.0"
-description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals, exceedance probabilities and a hypothetical decision simulation with linear optimisation for NYC 311 demand analysis (milestones M0-M4)."
+version = "0.5.0"
+description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals, exceedance probabilities, a hypothetical decision simulation with linear optimisation and an HTTP API for NYC 311 demand analysis (milestones M0-M5)."
 readme = "docs/DEVELOPMENT.md"
 requires-python = ">=3.12"
 authors = [{ name = "Arthur Fay" }]
@@ -15,6 +15,9 @@ dependencies = [
     "pandas>=3.0,<3.1",
     "pydantic>=2.9,<3",
     "scipy>=1.18.1,<1.19",
+    "fastapi>=0.141.1,<0.142",
+    "uvicorn>=0.54,<0.55",
+    "h11>=0.16,<0.17",
 ]
 
 [project.scripts]
@@ -22,6 +25,7 @@ atlas = "atlas.cli:main"
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.13.1,<2.14",
     "hypothesis>=6.100",
     "mypy>=1.13",
     "pandas-stubs>=3.0,<3.1",
@@ -39,7 +43,10 @@ build-backend = "uv_build"
 default-groups = ["dev"]
 # optype is a typing-only dependency of scipy-stubs; 0.19.0 was released less than two weeks
 # before M4 was resolved, so the lock keeps the previous release (dependency cooldown).
-constraint-dependencies = ["optype<0.19"]
+# M5 applies the same two-week cooldown: starlette 1.8.0 (a FastAPI dependency) and
+# truststore 0.10.5 (an httpx2 dependency, tests only) were released less than two weeks
+# before M5 was resolved, so the lock keeps starlette 1.7.0 and truststore 0.10.4.
+constraint-dependencies = ["optype<0.19", "starlette<1.8", "truststore<0.10.5"]
 
 [tool.ruff]
 line-length = 100

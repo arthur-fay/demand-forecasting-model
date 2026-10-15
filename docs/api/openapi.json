@@ -1,0 +1,6111 @@
+{
+  "components": {
+    "schemas": {
+      "Certificate": {
+        "additionalProperties": false,
+        "properties": {
+          "dual_objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dual Objective"
+          },
+          "dual_sign": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dual Sign"
+          },
+          "duality_gap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duality Gap"
+          },
+          "holds": {
+            "title": "Holds",
+            "type": "boolean"
+          },
+          "primal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primal"
+          },
+          "primal_objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primal Objective"
+          },
+          "stationarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stationarity"
+          }
+        },
+        "required": [
+          "holds",
+          "primal",
+          "dual_sign",
+          "stationarity",
+          "duality_gap",
+          "primal_objective",
+          "dual_objective"
+        ],
+        "title": "Certificate",
+        "type": "object"
+      },
+      "ComparisonData": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_scenario_id": {
+            "title": "Baseline Scenario Id",
+            "type": "string"
+          },
+          "caveat": {
+            "title": "Caveat",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "enum": [
+                "discretionary_cost",
+                "backlog_request_days",
+                "terminal_backlog",
+                "peak_backlog",
+                "overtime_hours",
+                "surge_requests",
+                "penalised_score"
+              ],
+              "type": "string"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ComparisonRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "units": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Units",
+            "type": "object"
+          }
+        },
+        "required": [
+          "baseline_scenario_id",
+          "metrics",
+          "units",
+          "rows",
+          "caveat"
+        ],
+        "title": "ComparisonData",
+        "type": "object"
+      },
+      "ComparisonResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ComparisonData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "ComparisonResponse",
+        "type": "object"
+      },
+      "ComparisonRow": {
+        "additionalProperties": false,
+        "properties": {
+          "adjustments": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HypotheticalQuantity"
+            },
+            "title": "Adjustments",
+            "type": "object"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "difference_from_baseline": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "This scenario minus the baseline (same units as values); null unless both plans meet every constraint.",
+            "title": "Difference From Baseline",
+            "type": "object"
+          },
+          "feasibility": {
+            "enum": [
+              "strict",
+              "relaxed_terminal_target"
+            ],
+            "title": "Feasibility",
+            "type": "string"
+          },
+          "scenario_id": {
+            "title": "Scenario Id",
+            "type": "string"
+          },
+          "terminal_backlog_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The HYPOTHETICAL target, requests.",
+            "title": "Terminal Backlog Max"
+          },
+          "terminal_violation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requests the reported plan leaves above the target (0 when it meets it).",
+            "title": "Terminal Violation"
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Values",
+            "type": "object"
+          },
+          "values_status": {
+            "description": "DIAGNOSTIC: no plan meets every HYPOTHETICAL constraint; the values are those of the relaxed plan, which misses the terminal target.",
+            "enum": [
+              "plan_meets_every_constraint",
+              "DIAGNOSTIC"
+            ],
+            "title": "Values Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario_id",
+          "description",
+          "adjustments",
+          "feasibility",
+          "values_status",
+          "terminal_backlog_max",
+          "terminal_violation",
+          "values",
+          "difference_from_baseline"
+        ],
+        "title": "ComparisonRow",
+        "type": "object"
+      },
+      "ComponentStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "title": "Component",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a component is not ready (safe summary).",
+            "title": "Detail"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "component",
+          "ready",
+          "detail"
+        ],
+        "title": "ComponentStatus",
+        "type": "object"
+      },
+      "DayPlan": {
+        "additionalProperties": false,
+        "description": "One day of one plan (``plans.csv``): requests/day, staff hours, requests.",
+        "properties": {
+          "backlog": {
+            "description": "End-of-day backlog, requests.",
+            "title": "Backlog",
+            "type": "number"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "day": {
+            "title": "Day",
+            "type": "integer"
+          },
+          "demand": {
+            "title": "Demand",
+            "type": "number"
+          },
+          "extra_capacity": {
+            "title": "Extra Capacity",
+            "type": "number"
+          },
+          "extra_capacity_max_over_optimal_plans": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Capacity Max Over Optimal Plans"
+          },
+          "extra_capacity_min_over_optimal_plans": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Capacity Min Over Optimal Plans"
+          },
+          "overtime_capacity": {
+            "title": "Overtime Capacity",
+            "type": "number"
+          },
+          "overtime_hours": {
+            "title": "Overtime Hours",
+            "type": "number"
+          },
+          "plan": {
+            "description": "optimized, relaxed_terminal_target, or a policy name.",
+            "title": "Plan",
+            "type": "string"
+          },
+          "regular_capacity": {
+            "title": "Regular Capacity",
+            "type": "number"
+          },
+          "served": {
+            "title": "Served",
+            "type": "number"
+          },
+          "surge_requests": {
+            "title": "Surge Requests",
+            "type": "number"
+          },
+          "work_available": {
+            "description": "Backlog carried in + demand, requests.",
+            "title": "Work Available",
+            "type": "number"
+          }
+        },
+        "required": [
+          "plan",
+          "day",
+          "date",
+          "demand",
+          "work_available",
+          "regular_capacity",
+          "overtime_hours",
+          "overtime_capacity",
+          "surge_requests",
+          "served",
+          "backlog",
+          "extra_capacity",
+          "extra_capacity_min_over_optimal_plans",
+          "extra_capacity_max_over_optimal_plans"
+        ],
+        "title": "DayPlan",
+        "type": "object"
+      },
+      "DemandOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "items": {
+              "enum": [
+                "point_forecast",
+                "m3_marginal_quantile"
+              ],
+              "type": "string"
+            },
+            "title": "Basis",
+            "type": "array"
+          },
+          "multiplier": {
+            "$ref": "#/components/schemas/RangeSpec"
+          },
+          "notice": {
+            "description": "What a quantile stress path is, and is not.",
+            "title": "Notice",
+            "type": "string"
+          },
+          "quantile": {
+            "description": "Levels offered for m3_marginal_quantile.",
+            "items": {
+              "type": "number"
+            },
+            "title": "Quantile",
+            "type": "array"
+          },
+          "shift_per_day": {
+            "$ref": "#/components/schemas/RangeSpec"
+          }
+        },
+        "required": [
+          "basis",
+          "quantile",
+          "multiplier",
+          "shift_per_day",
+          "notice"
+        ],
+        "title": "DemandOptions",
+        "type": "object"
+      },
+      "DemandSettings": {
+        "additionalProperties": false,
+        "description": "The demand path of a simulation: the M2 point forecast, or a labelled M3 marginal\nquantile path (a HYPOTHETICAL stress path, never a probability), then scaled.",
+        "properties": {
+          "basis": {
+            "default": "point_forecast",
+            "enum": [
+              "point_forecast",
+              "m3_marginal_quantile"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "multiplier": {
+            "default": 1.0,
+            "maximum": 2.0,
+            "minimum": 0.5,
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "quantile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One of 0.75, 0.9, 0.975; required (and only allowed) with basis m3_marginal_quantile.",
+            "enum": [
+              0.75,
+              0.9,
+              0.975,
+              null
+            ],
+            "title": "Quantile"
+          },
+          "shift_per_day": {
+            "default": 0.0,
+            "description": "requests/day",
+            "maximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Shift Per Day",
+            "type": "number"
+          }
+        },
+        "title": "DemandSettings",
+        "type": "object"
+      },
+      "Diagnosis": {
+        "additionalProperties": false,
+        "description": "Why the strict model is infeasible: DIAGNOSTIC values, never budget requests.",
+        "properties": {
+          "analytic_bound_exact": {
+            "title": "Analytic Bound Exact",
+            "type": "boolean"
+          },
+          "analytic_terminal_backlog_lower_bound_requests": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Analytic Terminal Backlog Lower Bound Requests",
+            "type": "object"
+          },
+          "borderline_within_checking_tolerance": {
+            "title": "Borderline Within Checking Tolerance",
+            "type": "boolean"
+          },
+          "diagnostic_budget_shortfall_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic Budget Shortfall Usd"
+          },
+          "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic Min Discretionary Spend To Reach Hypothetical Target Usd"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "least_terminal_violation_unlimited_discretionary_cash_requests": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Least Terminal Violation Unlimited Discretionary Cash Requests"
+          },
+          "least_terminal_violation_within_budget_requests": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Least Terminal Violation Within Budget Requests"
+          },
+          "least_violation_unlimited_cash_with_one_limit_removed_requests": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Least Violation Unlimited Cash With One Limit Removed Requests",
+            "type": "object"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "relaxed_plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relaxed Plan"
+          }
+        },
+        "required": [
+          "label",
+          "borderline_within_checking_tolerance",
+          "least_terminal_violation_unlimited_discretionary_cash_requests",
+          "least_terminal_violation_within_budget_requests",
+          "diagnostic_min_discretionary_spend_to_reach_hypothetical_target_usd",
+          "diagnostic_budget_shortfall_usd",
+          "analytic_terminal_backlog_lower_bound_requests",
+          "analytic_bound_exact",
+          "reasons",
+          "least_violation_unlimited_cash_with_one_limit_removed_requests",
+          "relaxed_plan"
+        ],
+        "title": "Diagnosis",
+        "type": "object"
+      },
+      "EndpointInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "cost": {
+            "enum": [
+              "static",
+              "precomputed",
+              "bounded_computation"
+            ],
+            "title": "Cost",
+            "type": "string"
+          },
+          "interactive": {
+            "title": "Interactive",
+            "type": "boolean"
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "cost",
+          "interactive",
+          "summary"
+        ],
+        "title": "EndpointInfo",
+        "type": "object"
+      },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Stable identifier (docs/API.md, section 4).",
+            "enum": [
+              "bad_request",
+              "invalid_host",
+              "cors_rejected",
+              "unauthorized",
+              "not_found",
+              "method_not_allowed",
+              "payload_too_large",
+              "unsupported_media_type",
+              "validation_error",
+              "simulation_rejected",
+              "simulation_failed",
+              "internal_error",
+              "artifact_unavailable",
+              "simulations_busy",
+              "simulation_timeout",
+              "server_busy",
+              "http_error"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "description": "Problems by field: the dotted path inside the body (parameters.regular_wage) or the query parameter (start); <body> for the body.",
+            "items": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "request_id",
+          "details"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "FaceRange": {
+        "additionalProperties": false,
+        "properties": {
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "units": {
+            "title": "Units",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quantity",
+          "units",
+          "low",
+          "high"
+        ],
+        "title": "FaceRange",
+        "type": "object"
+      },
+      "ForecastAccuracyContext": {
+        "additionalProperties": false,
+        "description": "Historical error of the projected model on M2's confirmation period (context only;\nnever used to adjust the forecast).",
+        "properties": {
+          "bias_requests_per_day": {
+            "title": "Bias Requests Per Day",
+            "type": "number"
+          },
+          "bias_sign": {
+            "title": "Bias Sign",
+            "type": "string"
+          },
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "mae_requests_per_day": {
+            "title": "Mae Requests Per Day",
+            "type": "number"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "n_predictions": {
+            "title": "N Predictions",
+            "type": "integer"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "wape_pct": {
+            "title": "Wape Pct",
+            "type": "number"
+          }
+        },
+        "required": [
+          "model_id",
+          "period",
+          "bucket",
+          "mae_requests_per_day",
+          "bias_requests_per_day",
+          "bias_sign",
+          "wape_pct",
+          "n_predictions"
+        ],
+        "title": "ForecastAccuracyContext",
+        "type": "object"
+      },
+      "ForecastData": {
+        "additionalProperties": false,
+        "properties": {
+          "accuracy_context": {
+            "$ref": "#/components/schemas/ForecastAccuracyContext"
+          },
+          "horizon_days": {
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Last observed day the forecast was made from.",
+            "format": "date",
+            "title": "Origin",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "record_type": {
+            "const": "future_projection",
+            "title": "Record Type",
+            "type": "string"
+          },
+          "unit": {
+            "const": "requests_per_day",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "record_type",
+          "label",
+          "origin",
+          "horizon_days",
+          "unit",
+          "points",
+          "accuracy_context"
+        ],
+        "title": "ForecastData",
+        "type": "object"
+      },
+      "ForecastPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "federal_holiday": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "US federal holiday observed that day (M1 rules).",
+            "title": "Federal Holiday"
+          },
+          "holiday_related": {
+            "default": false,
+            "description": "A federal holiday (actual or observed date) or the day before or after the actual date: an M3 stratum with markedly lower interval coverage (64.1 % at nominal 80 % and 83.3 % at 95 %, against 84.8 % and 94.3 % on ordinary days, over only 33 distinct target days; UNCERTAINTY.md section 9.6).",
+            "title": "Holiday Related",
+            "type": "boolean"
+          },
+          "horizon": {
+            "description": "Days after the forecast origin.",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Horizon",
+            "type": "integer"
+          },
+          "prediction": {
+            "description": "Point forecast, requests/day.",
+            "title": "Prediction",
+            "type": "number"
+          },
+          "status": {
+            "const": "projected",
+            "title": "Status",
+            "type": "string"
+          },
+          "target_date": {
+            "format": "date",
+            "title": "Target Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_date",
+          "horizon",
+          "prediction",
+          "status",
+          "federal_holiday",
+          "holiday_related"
+        ],
+        "title": "ForecastPoint",
+        "type": "object"
+      },
+      "ForecastResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ForecastData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "ForecastResponse",
+        "type": "object"
+      },
+      "FrontierSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "convex_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Convex Ok"
+          },
+          "least_cash_for_least_penalty": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Least Cash For Least Penalty",
+            "type": "object"
+          },
+          "least_penalty_programme_status": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Least Penalty Programme Status",
+            "type": "object"
+          },
+          "monotone_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monotone Ok"
+          },
+          "on_frontier_check": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Frontier Check"
+          },
+          "points_not_unique_after_tie_breaks": {
+            "title": "Points Not Unique After Tie Breaks",
+            "type": "integer"
+          },
+          "points_solver_failed": {
+            "title": "Points Solver Failed",
+            "type": "integer"
+          },
+          "points_uniqueness_not_tested": {
+            "title": "Points Uniqueness Not Tested",
+            "type": "integer"
+          },
+          "points_with_overtime_or_surge_totals_open": {
+            "title": "Points With Overtime Or Surge Totals Open",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "on_frontier_check",
+          "monotone_ok",
+          "convex_ok",
+          "least_cash_for_least_penalty",
+          "points_not_unique_after_tie_breaks",
+          "points_with_overtime_or_surge_totals_open",
+          "points_solver_failed",
+          "points_uniqueness_not_tested",
+          "least_penalty_programme_status"
+        ],
+        "title": "FrontierSummary",
+        "type": "object"
+      },
+      "HistoryData": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ObservedPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "snapshot_first_date": {
+            "format": "date",
+            "title": "Snapshot First Date",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "snapshot_last_date": {
+            "format": "date",
+            "title": "Snapshot Last Date",
+            "type": "string"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "unit": {
+            "const": "requests_per_day",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "start",
+          "end",
+          "unit",
+          "snapshot_first_date",
+          "snapshot_last_date",
+          "points"
+        ],
+        "title": "HistoryData",
+        "type": "object"
+      },
+      "HistoryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HistoryData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "HistoryResponse",
+        "type": "object"
+      },
+      "HorizonSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "integer"
+          },
+          "first_date": {
+            "description": "The first projected day (day 1 of every plan).",
+            "format": "date",
+            "title": "First Date",
+            "type": "string"
+          },
+          "maximum": {
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "default",
+          "minimum",
+          "maximum",
+          "first_date"
+        ],
+        "title": "HorizonSpec",
+        "type": "object"
+      },
+      "HypotheticalParameter": {
+        "additionalProperties": false,
+        "description": "One HYPOTHETICAL parameter of a run (a sweep grid has a text value listing it).",
+        "properties": {
+          "assumption": {
+            "title": "Assumption",
+            "type": "string"
+          },
+          "parameter": {
+            "title": "Parameter",
+            "type": "string"
+          },
+          "provenance": {
+            "const": "HYPOTHETICAL",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "scope": {
+            "description": "unit:<id>, budget, scenario:<id> or sensitivity:<id>.",
+            "title": "Scope",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "scope",
+          "parameter",
+          "value",
+          "unit",
+          "provenance",
+          "assumption"
+        ],
+        "title": "HypotheticalParameter",
+        "type": "object"
+      },
+      "HypotheticalQuantity": {
+        "additionalProperties": false,
+        "description": "A HYPOTHETICAL number with its exact unit and the assumption behind it.",
+        "properties": {
+          "assumption": {
+            "title": "Assumption",
+            "type": "string"
+          },
+          "provenance": {
+            "const": "HYPOTHETICAL",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "provenance",
+          "assumption"
+        ],
+        "title": "HypotheticalQuantity",
+        "type": "object"
+      },
+      "Integrity": {
+        "additionalProperties": false,
+        "description": "What the numbers in ``data`` are, and what they are not.",
+        "properties": {
+          "data_status": {
+            "description": "observed: recorded history; projected: forecasts of days not yet observed; historical_evaluation: backtest scores of past days; calibration_assessment: the M3 calibration verdict; hypothetical_reference_run / hypothetical_simulation: M4 decision simulations with HYPOTHETICAL parameters.",
+            "enum": [
+              "observed",
+              "projected",
+              "historical_evaluation",
+              "calibration_assessment",
+              "hypothetical_reference_run",
+              "hypothetical_simulation",
+              "metadata"
+            ],
+            "title": "Data Status",
+            "type": "string"
+          },
+          "notices": {
+            "description": "Labels that must travel with the data.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "parameter_provenance": {
+            "anyOf": [
+              {
+                "const": "HYPOTHETICAL",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HYPOTHETICAL for every M4 result: no operational parameter is measured.",
+            "title": "Parameter Provenance"
+          },
+          "point_forecast_validated": {
+            "const": false,
+            "default": false,
+            "description": "Always false: the M2 point forecast is not prospectively validated.",
+            "title": "Point Forecast Validated",
+            "type": "boolean"
+          },
+          "record_type": {
+            "description": "Record type of the source (as written by ATLAS).",
+            "title": "Record Type",
+            "type": "string"
+          },
+          "uncertainty_decision_grade": {
+            "description": "Whether M3 granted decision-grade status (false for the reference run).",
+            "title": "Uncertainty Decision Grade",
+            "type": "boolean"
+          },
+          "uncertainty_interval_status": {
+            "description": "M3 interval status from the committed calibration_status.json (the reference run reports failed_calibration, printed FAILED_CALIBRATION).",
+            "enum": [
+              "decision_grade",
+              "failed_calibration",
+              "insufficient_evidence",
+              "unavailable"
+            ],
+            "title": "Uncertainty Interval Status",
+            "type": "string"
+          },
+          "validated_recommendation": {
+            "const": false,
+            "default": false,
+            "description": "Always false: nothing this API returns is a validated staffing, budget or service-capacity recommendation.",
+            "title": "Validated Recommendation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "record_type",
+          "data_status",
+          "point_forecast_validated",
+          "uncertainty_interval_status",
+          "uncertainty_decision_grade",
+          "parameter_provenance",
+          "validated_recommendation",
+          "notices"
+        ],
+        "title": "Integrity",
+        "type": "object"
+      },
+      "IntervalLevelEvidence": {
+        "additionalProperties": false,
+        "description": "Coverage evidence of the primary model's intervals at one nominal level.",
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "coverage_ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage Ci High"
+          },
+          "coverage_ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage Ci Low"
+          },
+          "effective_sample_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Sample Size"
+          },
+          "evidence_sufficient": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Sufficient"
+          },
+          "level": {
+            "title": "Level",
+            "type": "number"
+          },
+          "p_value_conservative": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Value Conservative"
+          },
+          "rejected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected"
+          },
+          "scopes_outside_tolerance": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes Outside Tolerance",
+            "type": "array"
+          },
+          "test_computed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Computed"
+          },
+          "tolerance_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance Pct"
+          }
+        },
+        "required": [
+          "level",
+          "coverage",
+          "coverage_ci_low",
+          "coverage_ci_high",
+          "effective_sample_size",
+          "evidence_sufficient",
+          "p_value_conservative",
+          "rejected",
+          "scopes_outside_tolerance",
+          "test_computed",
+          "tolerance_pct"
+        ],
+        "title": "IntervalLevelEvidence",
+        "type": "object"
+      },
+      "IntervalPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "holiday_related": {
+            "description": "A federal holiday (actual or observed date) or the day before or after the actual date: an M3 stratum with markedly lower interval coverage (64.1 % at nominal 80 % and 83.3 % at 95 %, against 84.8 % and 94.3 % on ordinary days, over only 33 distinct target days; UNCERTAINTY.md section 9.6).",
+            "title": "Holiday Related",
+            "type": "boolean"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "integer"
+          },
+          "prediction": {
+            "title": "Prediction",
+            "type": "number"
+          },
+          "quantiles": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Marginal quantiles (requests/day) keyed by level. Their calibration FAILED (M3 status failed_calibration): they carry no probability to rely on.",
+            "title": "Quantiles",
+            "type": "object"
+          },
+          "status": {
+            "const": "projected",
+            "title": "Status",
+            "type": "string"
+          },
+          "target_date": {
+            "format": "date",
+            "title": "Target Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_date",
+          "horizon",
+          "prediction",
+          "quantiles",
+          "status",
+          "holiday_related"
+        ],
+        "title": "IntervalPoint",
+        "type": "object"
+      },
+      "IntervalsData": {
+        "additionalProperties": false,
+        "properties": {
+          "interval_status": {
+            "enum": [
+              "decision_grade",
+              "failed_calibration",
+              "insufficient_evidence",
+              "unavailable"
+            ],
+            "title": "Interval Status",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "origin": {
+            "format": "date",
+            "title": "Origin",
+            "type": "string"
+          },
+          "pair_id": {
+            "title": "Pair Id",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/IntervalPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "model_id",
+          "pair_id",
+          "interval_status",
+          "label",
+          "origin",
+          "points"
+        ],
+        "title": "IntervalsData",
+        "type": "object"
+      },
+      "IntervalsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IntervalsData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "IntervalsResponse",
+        "type": "object"
+      },
+      "Limits": {
+        "additionalProperties": false,
+        "properties": {
+          "max_body_bytes": {
+            "title": "Max Body Bytes",
+            "type": "integer"
+          },
+          "max_concurrent_simulations": {
+            "title": "Max Concurrent Simulations",
+            "type": "integer"
+          },
+          "max_history_days": {
+            "title": "Max History Days",
+            "type": "integer"
+          },
+          "max_horizon_days": {
+            "title": "Max Horizon Days",
+            "type": "integer"
+          },
+          "simulation_requires_api_key": {
+            "title": "Simulation Requires Api Key",
+            "type": "boolean"
+          },
+          "simulation_timeout_seconds": {
+            "title": "Simulation Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "max_body_bytes",
+          "max_concurrent_simulations",
+          "simulation_timeout_seconds",
+          "simulation_requires_api_key",
+          "max_history_days",
+          "max_horizon_days"
+        ],
+        "title": "Limits",
+        "type": "object"
+      },
+      "LiveResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "atlas_version": {
+            "title": "Atlas Version",
+            "type": "string"
+          },
+          "status": {
+            "const": "alive",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "atlas_version"
+        ],
+        "title": "LiveResponse",
+        "type": "object"
+      },
+      "MetricRow": {
+        "additionalProperties": false,
+        "description": "Accuracy of one model over one horizon or horizon bucket of one M2 period.",
+        "properties": {
+          "bias": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean of prediction - actual, requests/day.",
+            "title": "Bias"
+          },
+          "bias_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Pct"
+          },
+          "first_horizon": {
+            "title": "First Horizon",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_horizon": {
+            "title": "Last Horizon",
+            "type": "integer"
+          },
+          "mae": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean absolute error, requests/day.",
+            "title": "Mae"
+          },
+          "mape_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Secondary metric only (see BACKTESTING.md).",
+            "title": "Mape Pct"
+          },
+          "mase": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mase"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "rmse": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Root mean squared error, requests/day.",
+            "title": "Rmse"
+          },
+          "scope": {
+            "enum": [
+              "horizon",
+              "bucket"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "wape_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wape Pct"
+          }
+        },
+        "required": [
+          "model_id",
+          "period",
+          "scope",
+          "label",
+          "first_horizon",
+          "last_horizon",
+          "n",
+          "mae",
+          "rmse",
+          "bias",
+          "bias_pct",
+          "wape_pct",
+          "mase",
+          "mape_pct"
+        ],
+        "title": "MetricRow",
+        "type": "object"
+      },
+      "MetricsData": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_id": {
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/PeriodInfo"
+            },
+            "title": "Periods",
+            "type": "array"
+          },
+          "recommended_model": {
+            "title": "Recommended Model",
+            "type": "string"
+          },
+          "reference_model": {
+            "title": "Reference Model",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/MetricRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "label",
+          "reference_model",
+          "recommended_model",
+          "periods",
+          "rows",
+          "notes"
+        ],
+        "title": "MetricsData",
+        "type": "object"
+      },
+      "MetricsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MetricsData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "MetricsResponse",
+        "type": "object"
+      },
+      "ModelInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "family": {
+            "description": "baseline or regression.",
+            "title": "Family",
+            "type": "string"
+          },
+          "mae_days_1_30_by_period": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "MAE (requests/day) over horizons 1-30 in each M2 period.",
+            "title": "Mae Days 1 30 By Period",
+            "type": "object"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "model_type": {
+            "title": "Model Type",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "procedure": {
+            "description": "direct or recursive (how 30-day forecasts are made).",
+            "title": "Procedure",
+            "type": "string"
+          },
+          "recommended": {
+            "title": "Recommended",
+            "type": "boolean"
+          },
+          "selected_on_development": {
+            "title": "Selected On Development",
+            "type": "boolean"
+          },
+          "spec_fingerprint": {
+            "title": "Spec Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "family",
+          "model_type",
+          "procedure",
+          "description",
+          "params",
+          "spec_fingerprint",
+          "selected_on_development",
+          "recommended",
+          "mae_days_1_30_by_period"
+        ],
+        "title": "ModelInfo",
+        "type": "object"
+      },
+      "ModelsData": {
+        "additionalProperties": false,
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "multiplicity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multiplicity"
+          },
+          "primary_tests": {
+            "description": "The confirmation tests behind the recommendation; read the interval of the MAE difference and the Holm-adjusted p-value before calling the model better.",
+            "items": {
+              "$ref": "#/components/schemas/PrimaryTest"
+            },
+            "title": "Primary Tests",
+            "type": "array"
+          },
+          "recommendation_period": {
+            "title": "Recommendation Period",
+            "type": "string"
+          },
+          "recommendation_reason": {
+            "title": "Recommendation Reason",
+            "type": "string"
+          },
+          "recommended_model": {
+            "title": "Recommended Model",
+            "type": "string"
+          },
+          "reference_model": {
+            "title": "Reference Model",
+            "type": "string"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SelectionInfo"
+          }
+        },
+        "required": [
+          "recommended_model",
+          "recommendation_period",
+          "recommendation_reason",
+          "reference_model",
+          "selection",
+          "primary_tests",
+          "multiplicity",
+          "models"
+        ],
+        "title": "ModelsData",
+        "type": "object"
+      },
+      "ModelsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ModelsData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "ModelsResponse",
+        "type": "object"
+      },
+      "ObservedPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "federal_holiday": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "US federal holiday observed that day (M1 rules).",
+            "title": "Federal Holiday"
+          },
+          "holiday_related": {
+            "default": false,
+            "description": "A federal holiday (actual or observed date) or the day before or after the actual date: an M3 stratum with markedly lower interval coverage (64.1 % at nominal 80 % and 83.3 % at 95 %, against 84.8 % and 94.3 % on ordinary days, over only 33 distinct target days; UNCERTAINTY.md section 9.6).",
+            "title": "Holiday Related",
+            "type": "boolean"
+          },
+          "requests": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "City-wide 311 requests created that day (null: not recorded).",
+            "title": "Requests"
+          },
+          "status": {
+            "enum": [
+              "observed",
+              "missing"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "requests",
+          "status",
+          "federal_holiday",
+          "holiday_related"
+        ],
+        "title": "ObservedPoint",
+        "type": "object"
+      },
+      "OptimalFace": {
+        "additionalProperties": false,
+        "description": "Uniqueness test over all optimal plans (M4 section 7).",
+        "properties": {
+          "bounds_fixed": {
+            "title": "Bounds Fixed",
+            "type": "integer"
+          },
+          "dual_threshold": {
+            "title": "Dual Threshold",
+            "type": "number"
+          },
+          "max_active_distance": {
+            "title": "Max Active Distance",
+            "type": "number"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "ranges": {
+            "items": {
+              "$ref": "#/components/schemas/FaceRange"
+            },
+            "title": "Ranges",
+            "type": "array"
+          },
+          "rows_tight": {
+            "title": "Rows Tight",
+            "type": "integer"
+          },
+          "undetermined_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undetermined Days"
+          },
+          "unique": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null when the test could not be completed.",
+            "title": "Unique"
+          }
+        },
+        "required": [
+          "unique",
+          "method",
+          "dual_threshold",
+          "bounds_fixed",
+          "rows_tight",
+          "max_active_distance",
+          "undetermined_days",
+          "ranges"
+        ],
+        "title": "OptimalFace",
+        "type": "object"
+      },
+      "ParameterSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "default_assumption": {
+            "title": "Default Assumption",
+            "type": "string"
+          },
+          "maximum": {
+            "title": "Maximum",
+            "type": "number"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "description": "An explicit null removes this limit.",
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "unit",
+          "default",
+          "minimum",
+          "maximum",
+          "nullable",
+          "default_assumption"
+        ],
+        "title": "ParameterSpec",
+        "type": "object"
+      },
+      "PeriodInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "first_origin": {
+            "format": "date",
+            "title": "First Origin",
+            "type": "string"
+          },
+          "first_target": {
+            "format": "date",
+            "title": "First Target",
+            "type": "string"
+          },
+          "last_origin": {
+            "format": "date",
+            "title": "Last Origin",
+            "type": "string"
+          },
+          "last_target": {
+            "format": "date",
+            "title": "Last Target",
+            "type": "string"
+          },
+          "n_origins": {
+            "title": "N Origins",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "role",
+          "first_origin",
+          "last_origin",
+          "first_target",
+          "last_target",
+          "n_origins"
+        ],
+        "title": "PeriodInfo",
+        "type": "object"
+      },
+      "PlanEvaluation": {
+        "additionalProperties": false,
+        "description": "Totals of one plan. Cash in USD; penalties are notional USD-equivalent weights,\nnever cash; backlog in requests; request-days = sum of end-of-day backlogs.",
+        "properties": {
+          "backlog_penalty": {
+            "description": "Notional weight x request-days (not cash).",
+            "title": "Backlog Penalty",
+            "type": "number"
+          },
+          "backlog_request_days": {
+            "title": "Backlog Request Days",
+            "type": "number"
+          },
+          "budget_remaining": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Remaining"
+          },
+          "days_with_backlog": {
+            "title": "Days With Backlog",
+            "type": "integer"
+          },
+          "discretionary_budget": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discretionary Budget"
+          },
+          "discretionary_cost": {
+            "description": "Overtime + surge cash against the budget, USD.",
+            "title": "Discretionary Cost",
+            "type": "number"
+          },
+          "idle_paid_capacity": {
+            "title": "Idle Paid Capacity",
+            "type": "number"
+          },
+          "initial_backlog": {
+            "title": "Initial Backlog",
+            "type": "number"
+          },
+          "operating_cost": {
+            "description": "Regular + discretionary cash, USD.",
+            "title": "Operating Cost",
+            "type": "number"
+          },
+          "overtime_cost": {
+            "description": "USD.",
+            "title": "Overtime Cost",
+            "type": "number"
+          },
+          "overtime_hours": {
+            "title": "Overtime Hours",
+            "type": "number"
+          },
+          "peak_backlog": {
+            "title": "Peak Backlog",
+            "type": "number"
+          },
+          "penalised_score": {
+            "description": "Ranking score only; never a cost.",
+            "title": "Penalised Score",
+            "type": "number"
+          },
+          "regular_cost": {
+            "description": "Committed regular staff cost, USD (not in score).",
+            "title": "Regular Cost",
+            "type": "number"
+          },
+          "surge_cost": {
+            "description": "USD.",
+            "title": "Surge Cost",
+            "type": "number"
+          },
+          "surge_requests": {
+            "title": "Surge Requests",
+            "type": "number"
+          },
+          "terminal_backlog": {
+            "title": "Terminal Backlog",
+            "type": "number"
+          },
+          "terminal_penalty": {
+            "description": "Notional weight x terminal backlog (not cash).",
+            "title": "Terminal Penalty",
+            "type": "number"
+          },
+          "total_demand": {
+            "title": "Total Demand",
+            "type": "number"
+          },
+          "total_served": {
+            "title": "Total Served",
+            "type": "number"
+          }
+        },
+        "required": [
+          "regular_cost",
+          "overtime_cost",
+          "surge_cost",
+          "discretionary_cost",
+          "operating_cost",
+          "backlog_penalty",
+          "terminal_penalty",
+          "penalised_score",
+          "total_demand",
+          "initial_backlog",
+          "total_served",
+          "backlog_request_days",
+          "terminal_backlog",
+          "peak_backlog",
+          "days_with_backlog",
+          "overtime_hours",
+          "surge_requests",
+          "idle_paid_capacity",
+          "discretionary_budget",
+          "budget_remaining"
+        ],
+        "title": "PlanEvaluation",
+        "type": "object"
+      },
+      "PlanTotals": {
+        "additionalProperties": false,
+        "description": "The totals ``scenarios.csv`` records for one plan (units as in\n:class:`PlanEvaluation`).",
+        "properties": {
+          "backlog_penalty": {
+            "title": "Backlog Penalty",
+            "type": "number"
+          },
+          "backlog_request_days": {
+            "title": "Backlog Request Days",
+            "type": "number"
+          },
+          "budget_remaining": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Remaining"
+          },
+          "days_with_backlog": {
+            "title": "Days With Backlog",
+            "type": "integer"
+          },
+          "discretionary_cost": {
+            "title": "Discretionary Cost",
+            "type": "number"
+          },
+          "idle_paid_capacity": {
+            "title": "Idle Paid Capacity",
+            "type": "number"
+          },
+          "operating_cost": {
+            "title": "Operating Cost",
+            "type": "number"
+          },
+          "overtime_cost": {
+            "title": "Overtime Cost",
+            "type": "number"
+          },
+          "overtime_hours": {
+            "title": "Overtime Hours",
+            "type": "number"
+          },
+          "peak_backlog": {
+            "title": "Peak Backlog",
+            "type": "number"
+          },
+          "penalised_score": {
+            "title": "Penalised Score",
+            "type": "number"
+          },
+          "regular_cost": {
+            "title": "Regular Cost",
+            "type": "number"
+          },
+          "surge_cost": {
+            "title": "Surge Cost",
+            "type": "number"
+          },
+          "surge_requests": {
+            "title": "Surge Requests",
+            "type": "number"
+          },
+          "terminal_backlog": {
+            "title": "Terminal Backlog",
+            "type": "number"
+          },
+          "terminal_penalty": {
+            "title": "Terminal Penalty",
+            "type": "number"
+          },
+          "total_served": {
+            "title": "Total Served",
+            "type": "number"
+          }
+        },
+        "required": [
+          "discretionary_cost",
+          "overtime_cost",
+          "surge_cost",
+          "regular_cost",
+          "operating_cost",
+          "backlog_penalty",
+          "terminal_penalty",
+          "penalised_score",
+          "backlog_request_days",
+          "terminal_backlog",
+          "peak_backlog",
+          "days_with_backlog",
+          "overtime_hours",
+          "surge_requests",
+          "idle_paid_capacity",
+          "total_served",
+          "budget_remaining"
+        ],
+        "title": "PlanTotals",
+        "type": "object"
+      },
+      "PlanVariant": {
+        "additionalProperties": false,
+        "description": "One plan of a scenario (``scenarios.csv``): reported, without target, policies and\nthe LP at a policy's cash or backlog.",
+        "properties": {
+          "feasibility": {
+            "title": "Feasibility",
+            "type": "string"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "plan_selection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Selection"
+          },
+          "reported_plan_relation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Plan Relation"
+          },
+          "satisfies_budget": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Satisfies Budget"
+          },
+          "solver_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Solver Status"
+          },
+          "terminal_backlog_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The HYPOTHETICAL terminal target, requests (null: no target).",
+            "title": "Terminal Backlog Max"
+          },
+          "terminal_violation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Violation"
+          },
+          "totals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanTotals"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unique_after_tie_breaks": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique After Tie Breaks"
+          },
+          "unique_optimal_plan": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique Optimal Plan"
+          }
+        },
+        "required": [
+          "plan",
+          "feasibility",
+          "plan_selection",
+          "unique_optimal_plan",
+          "unique_after_tie_breaks",
+          "solver_status",
+          "terminal_backlog_max",
+          "terminal_violation",
+          "satisfies_budget",
+          "reported_plan_relation",
+          "totals"
+        ],
+        "title": "PlanVariant",
+        "type": "object"
+      },
+      "PolicyComparison": {
+        "additionalProperties": false,
+        "description": "The reported plan against a simple policy under the same assumptions.",
+        "properties": {
+          "cash_difference_at_same_backlog": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Difference At Same Backlog"
+          },
+          "comparable_on_score": {
+            "title": "Comparable On Score",
+            "type": "boolean"
+          },
+          "discretionary_cost_difference": {
+            "description": "Reported - policy, USD.",
+            "title": "Discretionary Cost Difference",
+            "type": "number"
+          },
+          "lp_cash_at_policy_backlog": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lp Cash At Policy Backlog"
+          },
+          "lp_request_days_at_policy_cash": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lp Request Days At Policy Cash"
+          },
+          "policy": {
+            "enum": [
+              "fixed_capacity",
+              "backlog_trigger"
+            ],
+            "title": "Policy",
+            "type": "string"
+          },
+          "policy_constraints_violated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Policy Constraints Violated",
+            "type": "array"
+          },
+          "relation_of_reported_plan": {
+            "enum": [
+              "dominates",
+              "dominated",
+              "tradeoff",
+              "equal"
+            ],
+            "title": "Relation Of Reported Plan",
+            "type": "string"
+          },
+          "reported_plan": {
+            "title": "Reported Plan",
+            "type": "string"
+          },
+          "request_days_difference": {
+            "description": "Reported - policy, request-days.",
+            "title": "Request Days Difference",
+            "type": "number"
+          },
+          "request_days_difference_at_same_cash": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Days Difference At Same Cash"
+          },
+          "terminal_backlog_difference": {
+            "description": "Reported - policy, requests.",
+            "title": "Terminal Backlog Difference",
+            "type": "number"
+          }
+        },
+        "required": [
+          "policy",
+          "reported_plan",
+          "policy_constraints_violated",
+          "comparable_on_score",
+          "relation_of_reported_plan",
+          "discretionary_cost_difference",
+          "request_days_difference",
+          "terminal_backlog_difference",
+          "lp_request_days_at_policy_cash",
+          "request_days_difference_at_same_cash",
+          "lp_cash_at_policy_backlog",
+          "cash_difference_at_same_backlog"
+        ],
+        "title": "PolicyComparison",
+        "type": "object"
+      },
+      "PrimaryTest": {
+        "additionalProperties": false,
+        "description": "One pre-registered confirmation test of the recommended model (Holm-adjusted).",
+        "properties": {
+          "effective_sample_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Sample Size"
+          },
+          "first_horizon": {
+            "title": "First Horizon",
+            "type": "integer"
+          },
+          "holm_adjusted_p_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holm Adjusted P Value"
+          },
+          "hypothesis": {
+            "title": "Hypothesis",
+            "type": "string"
+          },
+          "last_horizon": {
+            "title": "Last Horizon",
+            "type": "integer"
+          },
+          "mae": {
+            "description": "requests/day",
+            "title": "Mae",
+            "type": "number"
+          },
+          "mae_difference": {
+            "description": "model - reference, requests/day",
+            "title": "Mae Difference",
+            "type": "number"
+          },
+          "mae_difference_ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mae Difference Ci High"
+          },
+          "mae_difference_ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mae Difference Ci Low"
+          },
+          "mae_reference": {
+            "description": "requests/day",
+            "title": "Mae Reference",
+            "type": "number"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "significant_after_holm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Holm-adjusted p below 0.05 (null if no p-value was computed).",
+            "title": "Significant After Holm"
+          }
+        },
+        "required": [
+          "hypothesis",
+          "model_id",
+          "reference",
+          "period",
+          "first_horizon",
+          "last_horizon",
+          "mae",
+          "mae_reference",
+          "mae_difference",
+          "mae_difference_ci_low",
+          "mae_difference_ci_high",
+          "holm_adjusted_p_value",
+          "significant_after_holm",
+          "effective_sample_size"
+        ],
+        "title": "PrimaryTest",
+        "type": "object"
+      },
+      "Programme": {
+        "additionalProperties": false,
+        "description": "One solved programme: its status, the three independent checks and the plan totals.",
+        "properties": {
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Certificate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints_not_checked": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Constraints Not Checked",
+            "type": "array"
+          },
+          "evaluation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanEvaluation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evaluation_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Note"
+          },
+          "highs_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highs Status"
+          },
+          "independent_check_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Independent Check Passed"
+          },
+          "iterations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iterations"
+          },
+          "largest_snap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Largest Snap"
+          },
+          "max_balance_residual": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Balance Residual"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "objective_recomputed_from_plan": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective Recomputed From Plan"
+          },
+          "objective_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective Value"
+          },
+          "retried_without_presolve": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retried Without Presolve"
+          },
+          "stage_fallback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Fallback"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "values_snapped_to_bounds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Values Snapped To Bounds"
+          }
+        },
+        "required": [
+          "status",
+          "objective",
+          "objective_value",
+          "objective_recomputed_from_plan",
+          "highs_status",
+          "iterations",
+          "retried_without_presolve",
+          "stage_fallback",
+          "certificate",
+          "independent_check_passed",
+          "constraints_not_checked",
+          "values_snapped_to_bounds",
+          "largest_snap",
+          "max_balance_residual",
+          "evaluation",
+          "message",
+          "evaluation_note"
+        ],
+        "title": "Programme",
+        "type": "object"
+      },
+      "Provenance": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "title": "Api Version",
+            "type": "string"
+          },
+          "atlas_version": {
+            "title": "Atlas Version",
+            "type": "string"
+          },
+          "data_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fingerprint of the legacy-v0 data (after the M0 integrity and contract checks) every source was made from.",
+            "title": "Data Fingerprint"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "atlas_version",
+          "api_version",
+          "snapshot_id",
+          "data_fingerprint",
+          "sources"
+        ],
+        "title": "Provenance",
+        "type": "object"
+      },
+      "RangeSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "number"
+          },
+          "maximum": {
+            "title": "Maximum",
+            "type": "number"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "number"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default",
+          "minimum",
+          "maximum",
+          "unit"
+        ],
+        "title": "RangeSpec",
+        "type": "object"
+      },
+      "ReadyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentStatus"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "not_ready"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "components"
+        ],
+        "title": "ReadyResponse",
+        "type": "object"
+      },
+      "ResolvedParameter": {
+        "additionalProperties": false,
+        "properties": {
+          "assumption": {
+            "title": "Assumption",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provenance": {
+            "const": "HYPOTHETICAL",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "reference_assumption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a reference default: the assumption the reference configuration documents, which describes the 30-day reference with every other value at its default (horizon totals are not prorated).",
+            "title": "Reference Assumption"
+          },
+          "source": {
+            "enum": [
+              "request",
+              "reference_default",
+              "removed_by_request"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "unit",
+          "provenance",
+          "source",
+          "assumption",
+          "reference_assumption"
+        ],
+        "title": "ResolvedParameter",
+        "type": "object"
+      },
+      "ScenarioDetailData": {
+        "additionalProperties": false,
+        "properties": {
+          "daily_plans": {
+            "items": {
+              "$ref": "#/components/schemas/DayPlan"
+            },
+            "title": "Daily Plans",
+            "type": "array"
+          },
+          "hypothetical_parameters": {
+            "description": "Every HYPOTHETICAL parameter of the run with its unit and assumption.",
+            "items": {
+              "$ref": "#/components/schemas/HypotheticalParameter"
+            },
+            "title": "Hypothetical Parameters",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ScenarioOutcome"
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/PlanVariant"
+            },
+            "title": "Plans",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "structural_assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Structural Assumptions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "label",
+          "outcome",
+          "plans",
+          "daily_plans",
+          "hypothetical_parameters",
+          "structural_assumptions"
+        ],
+        "title": "ScenarioDetailData",
+        "type": "object"
+      },
+      "ScenarioDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ScenarioDetailData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "ScenarioDetailResponse",
+        "type": "object"
+      },
+      "ScenarioListData": {
+        "additionalProperties": false,
+        "properties": {
+          "config_fingerprint": {
+            "title": "Config Fingerprint",
+            "type": "string"
+          },
+          "first_date": {
+            "format": "date",
+            "title": "First Date",
+            "type": "string"
+          },
+          "horizon_days": {
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_date": {
+            "format": "date",
+            "title": "Last Date",
+            "type": "string"
+          },
+          "result_fingerprint": {
+            "title": "Result Fingerprint",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioSummary"
+            },
+            "title": "Scenarios",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "result_fingerprint",
+          "config_fingerprint",
+          "label",
+          "horizon_days",
+          "first_date",
+          "last_date",
+          "scenarios"
+        ],
+        "title": "ScenarioListData",
+        "type": "object"
+      },
+      "ScenarioListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ScenarioListData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "ScenarioListResponse",
+        "type": "object"
+      },
+      "ScenarioOutcome": {
+        "additionalProperties": false,
+        "description": "One scenario as the M4 runner reports it (``metrics.json`` ``scenarios[]``).",
+        "properties": {
+          "adjustments": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HypotheticalQuantity"
+            },
+            "description": "HYPOTHETICAL changes to the base case.",
+            "title": "Adjustments",
+            "type": "object"
+          },
+          "binding_constraints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Binding Constraints",
+            "type": "array"
+          },
+          "comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyComparison"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          },
+          "demand_basis": {
+            "description": "point_forecast or per_day_marginal_quantile_path.",
+            "title": "Demand Basis",
+            "type": "string"
+          },
+          "demand_sha256": {
+            "title": "Demand Sha256",
+            "type": "string"
+          },
+          "demand_total_requests": {
+            "title": "Demand Total Requests",
+            "type": "number"
+          },
+          "demand_total_vs_point_forecast_pct": {
+            "title": "Demand Total Vs Point Forecast Pct",
+            "type": "number"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "diagnosis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Diagnosis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discretionary_budget_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discretionary Budget Usd"
+          },
+          "feasibility": {
+            "description": "strict: the plan meets every HYPOTHETICAL constraint. relaxed_terminal_target: no plan does; the reported plan is the DIAGNOSTIC plan that misses the terminal target by the least amount within the budget.",
+            "enum": [
+              "strict",
+              "relaxed_terminal_target"
+            ],
+            "title": "Feasibility",
+            "type": "string"
+          },
+          "frontier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrontierSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optimal_face": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimalFace"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optimal_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimal Score"
+          },
+          "problems": {
+            "description": "Failed checks (an empty list on a clean result).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "quantile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantile"
+          },
+          "regular_capacity_mean_requests_per_day": {
+            "title": "Regular Capacity Mean Requests Per Day",
+            "type": "number"
+          },
+          "relaxed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Programme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reported_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Programme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reported_plan_after_tie_breaks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimalFace"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reported_plan_selection": {
+            "title": "Reported Plan Selection",
+            "type": "string"
+          },
+          "scenario_id": {
+            "title": "Scenario Id",
+            "type": "string"
+          },
+          "shadow_prices": {
+            "$ref": "#/components/schemas/ShadowPrices"
+          },
+          "stage_fallbacks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stage Fallbacks",
+            "type": "array"
+          },
+          "strict_programme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Programme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terminal_target_changes_optimal_score": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Target Changes Optimal Score"
+          },
+          "terminal_target_changes_reported_plan": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Target Changes Reported Plan"
+          },
+          "without_terminal_target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Programme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "scenario_id",
+          "description",
+          "demand_basis",
+          "quantile",
+          "adjustments",
+          "demand_sha256",
+          "demand_total_requests",
+          "demand_total_vs_point_forecast_pct",
+          "regular_capacity_mean_requests_per_day",
+          "discretionary_budget_usd",
+          "feasibility",
+          "optimal_score",
+          "reported_plan_selection",
+          "reported_plan",
+          "strict_programme",
+          "without_terminal_target",
+          "relaxed",
+          "terminal_target_changes_optimal_score",
+          "terminal_target_changes_reported_plan",
+          "stage_fallbacks",
+          "diagnosis",
+          "optimal_face",
+          "reported_plan_after_tie_breaks",
+          "binding_constraints",
+          "shadow_prices",
+          "comparisons",
+          "frontier",
+          "problems"
+        ],
+        "title": "ScenarioOutcome",
+        "type": "object"
+      },
+      "ScenarioSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "backlog_request_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backlog Request Days"
+          },
+          "binding_constraints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Binding Constraints",
+            "type": "array"
+          },
+          "demand_basis": {
+            "title": "Demand Basis",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "diagnosis_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnosis Reasons",
+            "type": "array"
+          },
+          "discretionary_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discretionary Cost"
+          },
+          "feasibility": {
+            "enum": [
+              "strict",
+              "relaxed_terminal_target"
+            ],
+            "title": "Feasibility",
+            "type": "string"
+          },
+          "optimal_plan_unique": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimal Plan Unique"
+          },
+          "overtime_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overtime Hours"
+          },
+          "peak_backlog": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Backlog"
+          },
+          "plan_label": {
+            "title": "Plan Label",
+            "type": "string"
+          },
+          "scenario_id": {
+            "title": "Scenario Id",
+            "type": "string"
+          },
+          "surge_requests": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surge Requests"
+          },
+          "terminal_backlog": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Backlog"
+          },
+          "unique_after_tie_breaks": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unique After Tie Breaks"
+          }
+        },
+        "required": [
+          "scenario_id",
+          "description",
+          "demand_basis",
+          "feasibility",
+          "plan_label",
+          "discretionary_cost",
+          "backlog_request_days",
+          "terminal_backlog",
+          "peak_backlog",
+          "overtime_hours",
+          "surge_requests",
+          "optimal_plan_unique",
+          "unique_after_tie_breaks",
+          "binding_constraints",
+          "diagnosis_reasons"
+        ],
+        "title": "ScenarioSummary",
+        "type": "object"
+      },
+      "ScientificStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_simulation_label": {
+            "title": "Decision Simulation Label",
+            "type": "string"
+          },
+          "forecast_confirmation_mae_requests_per_day": {
+            "title": "Forecast Confirmation Mae Requests Per Day",
+            "type": "number"
+          },
+          "forecast_label": {
+            "title": "Forecast Label",
+            "type": "string"
+          },
+          "forecast_model": {
+            "title": "Forecast Model",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "parameter_provenance": {
+            "const": "HYPOTHETICAL",
+            "default": "HYPOTHETICAL",
+            "title": "Parameter Provenance",
+            "type": "string"
+          },
+          "point_forecast_validated": {
+            "const": false,
+            "default": false,
+            "title": "Point Forecast Validated",
+            "type": "boolean"
+          },
+          "uncertainty_decision_grade": {
+            "title": "Uncertainty Decision Grade",
+            "type": "boolean"
+          },
+          "uncertainty_interval_status": {
+            "enum": [
+              "decision_grade",
+              "failed_calibration",
+              "insufficient_evidence",
+              "unavailable"
+            ],
+            "title": "Uncertainty Interval Status",
+            "type": "string"
+          },
+          "uncertainty_statement": {
+            "title": "Uncertainty Statement",
+            "type": "string"
+          },
+          "validated_recommendation": {
+            "const": false,
+            "default": false,
+            "title": "Validated Recommendation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "forecast_model",
+          "forecast_label",
+          "forecast_confirmation_mae_requests_per_day",
+          "point_forecast_validated",
+          "uncertainty_interval_status",
+          "uncertainty_decision_grade",
+          "uncertainty_statement",
+          "decision_simulation_label",
+          "parameter_provenance",
+          "validated_recommendation",
+          "limitations"
+        ],
+        "title": "ScientificStatus",
+        "type": "object"
+      },
+      "SelectionInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "best_baseline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Baseline"
+          },
+          "best_regression": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Regression"
+          },
+          "margin_met": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Met"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "selected_model": {
+            "title": "Selected Model",
+            "type": "string"
+          },
+          "significant": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Significant"
+          }
+        },
+        "required": [
+          "period",
+          "rule",
+          "selected_model",
+          "best_baseline",
+          "best_regression",
+          "margin_met",
+          "significant",
+          "reason"
+        ],
+        "title": "SelectionInfo",
+        "type": "object"
+      },
+      "ShadowPriceHeadline": {
+        "additionalProperties": false,
+        "properties": {
+          "binding": {
+            "title": "Binding",
+            "type": "boolean"
+          },
+          "constraint": {
+            "title": "Constraint",
+            "type": "string"
+          },
+          "dual_units": {
+            "title": "Dual Units",
+            "type": "string"
+          },
+          "fd_backward": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fd Backward"
+          },
+          "fd_forward": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fd Forward"
+          },
+          "fd_status": {
+            "title": "Fd Status",
+            "type": "string"
+          },
+          "practical_forward_cash_part": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Practical Forward Cash Part"
+          },
+          "practical_forward_penalty_part": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Practical Forward Penalty Part"
+          },
+          "solver_dual_subgradient": {
+            "title": "Solver Dual Subgradient",
+            "type": "number"
+          }
+        },
+        "required": [
+          "constraint",
+          "solver_dual_subgradient",
+          "dual_units",
+          "fd_backward",
+          "fd_forward",
+          "fd_status",
+          "practical_forward_cash_part",
+          "practical_forward_penalty_part",
+          "binding"
+        ],
+        "title": "ShadowPriceHeadline",
+        "type": "object"
+      },
+      "ShadowPrices": {
+        "additionalProperties": false,
+        "description": "Bracketed shadow prices of the reference run (USD-equivalent; not wages).",
+        "properties": {
+          "backward_unresolved": {
+            "title": "Backward Unresolved",
+            "type": "integer"
+          },
+          "brackets_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brackets Ok"
+          },
+          "breakpoint": {
+            "title": "Breakpoint",
+            "type": "integer"
+          },
+          "computed": {
+            "title": "Computed",
+            "type": "boolean"
+          },
+          "domain_boundary_or_infeasible_side": {
+            "title": "Domain Boundary Or Infeasible Side",
+            "type": "integer"
+          },
+          "headline": {
+            "items": {
+              "$ref": "#/components/schemas/ShadowPriceHeadline"
+            },
+            "title": "Headline",
+            "type": "array"
+          },
+          "locally_unique": {
+            "title": "Locally Unique",
+            "type": "integer"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "solver_failed": {
+            "title": "Solver Failed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "computed",
+          "n",
+          "brackets_ok",
+          "locally_unique",
+          "breakpoint",
+          "solver_failed",
+          "domain_boundary_or_infeasible_side",
+          "backward_unresolved",
+          "headline"
+        ],
+        "title": "ShadowPrices",
+        "type": "object"
+      },
+      "SimulationData": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity_to_point_forecast_mean_ratio": {
+            "title": "Capacity To Point Forecast Mean Ratio",
+            "type": "number"
+          },
+          "daily_plans": {
+            "items": {
+              "$ref": "#/components/schemas/DayPlan"
+            },
+            "title": "Daily Plans",
+            "type": "array"
+          },
+          "demand_basis": {
+            "title": "Demand Basis",
+            "type": "string"
+          },
+          "demand_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Demand Notice"
+          },
+          "first_date": {
+            "format": "date",
+            "title": "First Date",
+            "type": "string"
+          },
+          "horizon_days": {
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_date": {
+            "format": "date",
+            "title": "Last Date",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ScenarioOutcome"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/ResolvedParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/PlanVariant"
+            },
+            "title": "Plans",
+            "type": "array"
+          },
+          "simulation_id": {
+            "description": "SHA-256 of the canonical M4 configuration the request resolved to: equal requests give equal ids, and equal results with the same ATLAS and solver versions (provenance.atlas_version, GET /api/v1/system).",
+            "title": "Simulation Id",
+            "type": "string"
+          },
+          "structural_assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Structural Assumptions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "simulation_id",
+          "label",
+          "horizon_days",
+          "first_date",
+          "last_date",
+          "demand_basis",
+          "demand_notice",
+          "parameters",
+          "capacity_to_point_forecast_mean_ratio",
+          "outcome",
+          "plans",
+          "daily_plans",
+          "structural_assumptions",
+          "limitations"
+        ],
+        "title": "SimulationData",
+        "type": "object"
+      },
+      "SimulationParameters": {
+        "additionalProperties": false,
+        "description": "HYPOTHETICAL operational parameters of the one city-wide unit.\n\nAn omitted field takes the reference configuration's value (GET\n/api/v1/simulations/parameters). For the three optional limits\n(``overtime_total_hours``, ``surge_total``, ``terminal_backlog_max``) and the budget, an\nexplicit ``null`` removes the limit; for every other field ``null`` is rejected. The\nranges keep every programme at the scale the M4 solver layer was reviewed at.",
+        "properties": {
+          "backlog_penalty": {
+            "anyOf": [
+              {
+                "const": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
+              }
+            ],
+            "description": "usd_per_request_day (notional weight, not cash)",
+            "title": "Backlog Penalty"
+          },
+          "backlog_trigger": {
+            "description": "requests (trigger of the backlog-trigger comparison policy)",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Backlog Trigger",
+            "type": "number"
+          },
+          "discretionary_budget": {
+            "anyOf": [
+              {
+                "maximum": 100000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "usd for overtime and surge over the horizon; null removes the limit",
+            "title": "Discretionary Budget"
+          },
+          "initial_backlog": {
+            "description": "requests",
+            "maximum": 200000.0,
+            "minimum": 0.0,
+            "title": "Initial Backlog",
+            "type": "number"
+          },
+          "overtime_max_hours_per_day": {
+            "description": "staff_hours_per_day",
+            "maximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Overtime Max Hours Per Day",
+            "type": "number"
+          },
+          "overtime_productivity": {
+            "description": "requests_per_staff_hour",
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Overtime Productivity",
+            "type": "number"
+          },
+          "overtime_total_hours": {
+            "anyOf": [
+              {
+                "maximum": 150000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "staff_hours over the horizon; null removes the limit",
+            "title": "Overtime Total Hours"
+          },
+          "overtime_wage": {
+            "anyOf": [
+              {
+                "const": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
+              }
+            ],
+            "description": "usd_per_staff_hour",
+            "title": "Overtime Wage"
+          },
+          "regular_hours_per_day": {
+            "description": "staff_hours_per_day",
+            "maximum": 12000.0,
+            "minimum": 0.0,
+            "title": "Regular Hours Per Day",
+            "type": "number"
+          },
+          "regular_productivity": {
+            "description": "requests_per_staff_hour",
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Regular Productivity",
+            "type": "number"
+          },
+          "regular_wage": {
+            "anyOf": [
+              {
+                "const": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
+              }
+            ],
+            "description": "usd_per_staff_hour",
+            "title": "Regular Wage"
+          },
+          "surge_available_from_day": {
+            "description": "planning_day (1-based); horizon_days + 1 means never within the horizon",
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Surge Available From Day",
+            "type": "integer"
+          },
+          "surge_max_per_day": {
+            "description": "requests_per_day",
+            "maximum": 50000.0,
+            "minimum": 0.0,
+            "title": "Surge Max Per Day",
+            "type": "number"
+          },
+          "surge_price": {
+            "anyOf": [
+              {
+                "const": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
+              }
+            ],
+            "description": "usd_per_request",
+            "title": "Surge Price"
+          },
+          "surge_total": {
+            "anyOf": [
+              {
+                "maximum": 1500000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "requests over the horizon; null removes the limit",
+            "title": "Surge Total"
+          },
+          "terminal_backlog_max": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "requests left after the last day; null removes the target",
+            "title": "Terminal Backlog Max"
+          },
+          "terminal_penalty": {
+            "anyOf": [
+              {
+                "const": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 10000.0,
+                "minimum": 0.01,
+                "type": "number"
+              }
+            ],
+            "description": "usd_per_request (notional weight, not cash)",
+            "title": "Terminal Penalty"
+          }
+        },
+        "title": "SimulationParameters",
+        "type": "object"
+      },
+      "SimulationParametersData": {
+        "additionalProperties": false,
+        "properties": {
+          "demand": {
+            "$ref": "#/components/schemas/DemandOptions"
+          },
+          "horizon_days": {
+            "$ref": "#/components/schemas/HorizonSpec"
+          },
+          "legacy_demand_percentile_requests_per_day": {
+            "description": "A regular capacity within 1 % of this demand percentile is rejected: M4 never uses a demand percentile as a service capacity.",
+            "title": "Legacy Demand Percentile Requests Per Day",
+            "type": "number"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterSpec"
+            },
+            "title": "Parameters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "horizon_days",
+          "demand",
+          "parameters",
+          "legacy_demand_percentile_requests_per_day",
+          "notes"
+        ],
+        "title": "SimulationParametersData",
+        "type": "object"
+      },
+      "SimulationParametersResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SimulationParametersData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "SimulationParametersResponse",
+        "type": "object"
+      },
+      "SimulationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "demand": {
+            "$ref": "#/components/schemas/DemandSettings",
+            "default": {
+              "basis": "point_forecast",
+              "multiplier": 1.0,
+              "shift_per_day": 0.0
+            }
+          },
+          "horizon_days": {
+            "default": 30,
+            "description": "Planning days, from the first projected day.",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/SimulationParameters",
+            "default": {}
+          }
+        },
+        "title": "SimulationRequest",
+        "type": "object"
+      },
+      "SimulationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SimulationData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "SimulationResponse",
+        "type": "object"
+      },
+      "SnapshotInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "data_fingerprint": {
+            "title": "Data Fingerprint",
+            "type": "string"
+          },
+          "first_date": {
+            "format": "date",
+            "title": "First Date",
+            "type": "string"
+          },
+          "last_date": {
+            "format": "date",
+            "title": "Last Date",
+            "type": "string"
+          },
+          "n_days": {
+            "title": "N Days",
+            "type": "integer"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "data_fingerprint",
+          "first_date",
+          "last_date",
+          "n_days"
+        ],
+        "title": "SnapshotInfo",
+        "type": "object"
+      },
+      "Source": {
+        "additionalProperties": false,
+        "description": "One committed input, checked when the API started.",
+        "properties": {
+          "config_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Fingerprint"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "SHA-256 of each file this response was built from, by file name in path (each verified against its run's record at startup).",
+            "title": "Files",
+            "type": "object"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "description": "Repository-relative directory of the run or file.",
+            "title": "Path",
+            "type": "string"
+          },
+          "record_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Type"
+          },
+          "result_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Fingerprint"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "required": [
+          "kind",
+          "path",
+          "record_type",
+          "run_id",
+          "result_fingerprint",
+          "config_fingerprint",
+          "files"
+        ],
+        "title": "Source",
+        "type": "object"
+      },
+      "SystemData": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "title": "Api Version",
+            "type": "string"
+          },
+          "atlas_version": {
+            "title": "Atlas Version",
+            "type": "string"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentStatus"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "endpoints": {
+            "items": {
+              "$ref": "#/components/schemas/EndpointInfo"
+            },
+            "title": "Endpoints",
+            "type": "array"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/Limits"
+          },
+          "milestone": {
+            "const": "M5",
+            "title": "Milestone",
+            "type": "string"
+          },
+          "scientific_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScientificStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "service": {
+            "const": "atlas-api",
+            "title": "Service",
+            "type": "string"
+          },
+          "simulation_workers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkerPoolStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SnapshotInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "solver": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Solver",
+            "type": "object"
+          }
+        },
+        "required": [
+          "service",
+          "atlas_version",
+          "api_version",
+          "milestone",
+          "snapshot",
+          "components",
+          "scientific_status",
+          "limits",
+          "simulation_workers",
+          "solver",
+          "endpoints"
+        ],
+        "title": "SystemData",
+        "type": "object"
+      },
+      "SystemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SystemData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "SystemResponse",
+        "type": "object"
+      },
+      "UncertaintyStatusData": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_grade": {
+            "title": "Decision Grade",
+            "type": "boolean"
+          },
+          "evaluation_period": {
+            "title": "Evaluation Period",
+            "type": "string"
+          },
+          "evaluation_share_at_or_below_quantile_days_1_30": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Share of evaluation outcomes at or below each nominal quantile (perfect calibration would equal the quantile level).",
+            "title": "Evaluation Share At Or Below Quantile Days 1 30",
+            "type": "object"
+          },
+          "exceedance_reasons": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Exceedance Reasons",
+            "type": "object"
+          },
+          "exceedance_status": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Exceedance Status",
+            "type": "object"
+          },
+          "failure_reasons": {
+            "description": "Why the intervals failed, as recorded.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Failure Reasons",
+            "type": "array"
+          },
+          "interval_levels": {
+            "items": {
+              "$ref": "#/components/schemas/IntervalLevelEvidence"
+            },
+            "title": "Interval Levels",
+            "type": "array"
+          },
+          "interval_status": {
+            "description": "failed_calibration for the reference run.",
+            "enum": [
+              "decision_grade",
+              "failed_calibration",
+              "insufficient_evidence",
+              "unavailable"
+            ],
+            "title": "Interval Status",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "primary_model": {
+            "title": "Primary Model",
+            "type": "string"
+          },
+          "selected_pair": {
+            "title": "Selected Pair",
+            "type": "string"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "interval_status",
+          "decision_grade",
+          "statement",
+          "note",
+          "evaluation_period",
+          "primary_model",
+          "selected_pair",
+          "failure_reasons",
+          "interval_levels",
+          "exceedance_status",
+          "exceedance_reasons",
+          "evaluation_share_at_or_below_quantile_days_1_30"
+        ],
+        "title": "UncertaintyStatusData",
+        "type": "object"
+      },
+      "UncertaintyStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UncertaintyStatusData"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/Integrity"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "integrity",
+          "provenance",
+          "data"
+        ],
+        "title": "UncertaintyStatusResponse",
+        "type": "object"
+      },
+      "WorkerPoolStatus": {
+        "additionalProperties": false,
+        "description": "The simulation worker processes (counters since the server started).",
+        "properties": {
+          "alive": {
+            "description": "Worker processes currently running (or importing).",
+            "title": "Alive",
+            "type": "integer"
+          },
+          "completed": {
+            "description": "Simulations a worker answered (any outcome).",
+            "title": "Completed",
+            "type": "integer"
+          },
+          "consecutive_crashes": {
+            "description": "Crashes since the last answered simulation; /health/ready reports the workers not ready from 3.",
+            "title": "Consecutive Crashes",
+            "type": "integer"
+          },
+          "crashes": {
+            "description": "Simulations whose worker died or never became ready.",
+            "title": "Crashes",
+            "type": "integer"
+          },
+          "idle": {
+            "title": "Idle",
+            "type": "integer"
+          },
+          "started": {
+            "title": "Started",
+            "type": "boolean"
+          },
+          "timeouts": {
+            "description": "Simulations stopped at their deadline.",
+            "title": "Timeouts",
+            "type": "integer"
+          },
+          "workers": {
+            "title": "Workers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workers",
+          "alive",
+          "idle",
+          "started",
+          "completed",
+          "timeouts",
+          "crashes",
+          "consecutive_crashes"
+        ],
+        "title": "WorkerPoolStatus",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "description": "Required for POST /api/v1/simulations when the server sets ATLAS_API_KEY.",
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "Read-only access to the ATLAS NYC 311 demand-forecasting research outputs (M2 forecasts,\nM3 uncertainty, M4 decision simulation) and bounded HYPOTHETICAL simulations with the M4\nlinear-programming engine.\n\n**Read before using any number.**\n\n* Every response states what its numbers are (`integrity.data_status`): observed history,\n  a projection, a historical evaluation, or a HYPOTHETICAL simulation.\n* The point forecast is not prospectively validated (`point_forecast_validated: false`).\n* The M3 prediction intervals have the status **failed_calibration**: no interval or\n  probability is decision-grade, and none is presented as one.\n* Every M4 operational parameter is **HYPOTHETICAL**. Nothing returned is a validated\n  staffing, budget or service-capacity recommendation (`validated_recommendation: false`\n  is fixed by the schema).\n\nErrors share one body: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n",
+    "title": "ATLAS API",
+    "version": "0.5.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/forecasts": {
+      "get": {
+        "description": "Point forecasts of the recommended M2 model for the days after the last observed\nday, each with ``status: projected``, and the model's historical error on M2's\nconfirmation period as context.",
+        "operationId": "getForecast",
+        "parameters": [
+          {
+            "description": "Days to return.",
+            "in": "query",
+            "name": "horizon_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "Days to return.",
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Horizon Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "The future projection (projected, not validated)",
+        "tags": [
+          "forecasts"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/forecasts/history": {
+      "get": {
+        "description": "City-wide 311 requests created per day, each with ``status: observed``; at most\n1,500 days per request, within the snapshot's dates (``GET /api/v1/system``).",
+        "operationId": "getHistory",
+        "parameters": [
+          {
+            "description": "First day, YYYY-MM-DD (default: 180 days before end).",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day, YYYY-MM-DD (default: 180 days before end).",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "Last day, YYYY-MM-DD (default: last observed day).",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day, YYYY-MM-DD (default: last observed day).",
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "Observed daily demand (legacy-v0 snapshot)",
+        "tags": [
+          "forecasts"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/forecasts/metrics": {
+      "get": {
+        "description": "Historical rolling-origin accuracy (MAE, RMSE, bias, WAPE, MASE, MAPE) of every M2\nmodel. These are scores of past forecasts, not prospective validation.",
+        "operationId": "getForecastMetrics",
+        "parameters": [
+          {
+            "description": "One model.",
+            "in": "query",
+            "name": "model_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "One model.",
+              "title": "Model Id"
+            }
+          },
+          {
+            "description": "development, confirmation, ...",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "development, confirmation, ...",
+              "title": "Period"
+            }
+          },
+          {
+            "description": "bucket: horizon groups (day_1, days_1_30, ...); horizon: h01..h30.",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "bucket",
+              "description": "bucket: horizon groups (day_1, days_1_30, ...); horizon: h01..h30.",
+              "enum": [
+                "bucket",
+                "horizon"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "not_found: unknown resource."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "M2 backtest accuracy by model, period and horizon",
+        "tags": [
+          "forecasts"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "description": "Every M2 model, the development selection and the confirmation-period\nrecommendation with its pre-registered tests, and each model's MAE over horizons 1-30\nin every M2 period.",
+        "operationId": "listModels",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "Forecasting models evaluated by M2",
+        "tags": [
+          "forecasts"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/scenarios": {
+      "get": {
+        "description": "One summary per scenario of the committed M4 reference run: feasibility, the\nreported plan's totals, uniqueness, binding constraints and diagnosis reasons.",
+        "operationId": "listScenarios",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "M4 reference scenarios (HYPOTHETICAL)",
+        "tags": [
+          "scenarios"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/scenarios/comparison": {
+      "get": {
+        "description": "The chosen scenarios side by side, each with its adjustments, terminal target and\nviolation, and each metric's difference from the baseline scenario. Differences are\nbetween HYPOTHETICAL scenarios, not expected outcomes, and are given only when both\nplans meet every constraint (a relaxed plan's values are DIAGNOSTIC).",
+        "operationId": "compareScenarios",
+        "parameters": [
+          {
+            "description": "Scenarios to compare (repeatable; default: all).",
+            "in": "query",
+            "name": "scenario_id",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Scenarios to compare (repeatable; default: all).",
+              "items": {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Scenario Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseline",
+            "required": false,
+            "schema": {
+              "default": "normal",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "title": "Baseline",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Metrics (default: all).",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Metrics (default: all).",
+              "items": {
+                "enum": [
+                  "discretionary_cost",
+                  "backlog_request_days",
+                  "terminal_backlog",
+                  "peak_backlog",
+                  "overtime_hours",
+                  "surge_requests",
+                  "penalised_score"
+                ],
+                "type": "string"
+              },
+              "maxItems": 7,
+              "title": "Metric",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparisonResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "not_found: unknown resource."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "Compare M4 reference scenarios",
+        "tags": [
+          "scenarios"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/scenarios/{scenario_id}": {
+      "get": {
+        "description": "The scenario as the M4 runner reported it (certificates, diagnosis, policy\ncomparisons, uniqueness, shadow-price summary), every plan variant, and the daily\nschedule of the reported plan and of both policies.",
+        "operationId": "getScenario",
+        "parameters": [
+          {
+            "description": "e.g. normal",
+            "in": "path",
+            "name": "scenario_id",
+            "required": true,
+            "schema": {
+              "description": "e.g. normal",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "title": "Scenario Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "not_found: unknown resource."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "One M4 reference scenario with its daily plans",
+        "tags": [
+          "scenarios"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/simulations": {
+      "post": {
+        "description": "Plan one HYPOTHETICAL city-wide unit over 1-30 days of the M2 projection with the M4\nlinear programme (certified optimum, tie-broken plan, uniqueness test, infeasibility\ndiagnosis, both baseline policies). Inputs are bounded (GET .../parameters); the result\nis deterministic for equal inputs (``simulation_id``). Shadow-price brackets,\nfrontiers and sweeps are research analyses: they are served precomputed for the\nreference scenarios and never run on request. The compute time is in the\n``Server-Timing`` header.",
+        "operationId": "runSimulation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "reference": {
+                  "summary": "Reference defaults (the M4 normal scenario)",
+                  "value": {}
+                },
+                "smaller_budget": {
+                  "summary": "Half the discretionary budget (infeasible: a DIAGNOSTIC relaxed plan)",
+                  "value": {
+                    "parameters": {
+                      "discretionary_budget": 150000
+                    }
+                  }
+                },
+                "stress_path": {
+                  "summary": "Demand at each day's marginal M3 90 % quantile (a stress path, no probability)",
+                  "value": {
+                    "demand": {
+                      "basis": "m3_marginal_quantile",
+                      "quantile": 0.9
+                    }
+                  }
+                },
+                "two_weeks_more_surge": {
+                  "summary": "14 days, more surge capacity, no terminal target",
+                  "value": {
+                    "horizon_days": 14,
+                    "parameters": {
+                      "surge_max_per_day": 900
+                    }
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/SimulationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve; bad_request: the body cannot be read (invalid UTF-8, an oversized number)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "unauthorized: missing or wrong X-API-Key (when the server sets one)."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "payload_too_large: request body above the limit."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "unsupported_media_type: body is not application/json."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter); simulation_rejected: an input M4's own rules refuse."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log); simulation_failed: no certified result, or the worker died."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready; simulations_busy: every simulation worker is busy; retry after Retry-After."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "simulation_timeout: the simulation missed its deadline and was stopped."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {}
+        ],
+        "summary": "Run one bounded HYPOTHETICAL simulation",
+        "tags": [
+          "simulations"
+        ],
+        "x-atlas-cost": "bounded_computation"
+      }
+    },
+    "/api/v1/simulations/parameters": {
+      "get": {
+        "description": "Every HYPOTHETICAL input of POST /api/v1/simulations with its unit, its default (the\nM4 reference configuration) and its hard range.",
+        "operationId": "getSimulationParameters",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationParametersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "Defaults and ranges of the simulation inputs",
+        "tags": [
+          "simulations"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/system": {
+      "get": {
+        "description": "Everything a client needs to label results honestly: the snapshot, the source of\nevery reference run, the M3 calibration status, the HYPOTHETICAL status of every M4\nparameter, the component readiness, the request limits, the simulation workers and\nwhat each endpoint costs.",
+        "operationId": "getSystem",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "Versions, provenance, scientific status and limits",
+        "tags": [
+          "system"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/uncertainty/intervals": {
+      "get": {
+        "description": "Marginal quantiles of the projected days from the sealed M3 method, with the M3\nholiday-related flag. The method failed its calibration criteria: the quantiles carry\nno probability to rely on.",
+        "operationId": "getUncertaintyIntervals",
+        "parameters": [
+          {
+            "description": "Days to return.",
+            "in": "query",
+            "name": "horizon_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "Days to return.",
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Horizon Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntervalsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "M3 projection quantiles (failed calibration)",
+        "tags": [
+          "uncertainty"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/api/v1/uncertainty/status": {
+      "get": {
+        "description": "The pre-registered M3 decision status, its statement, the coverage evidence and the\nreasons it failed, exactly as the committed calibration_status.json records them.",
+        "operationId": "getUncertaintyStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UncertaintyStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
+          }
+        },
+        "summary": "M3 calibration status",
+        "tags": [
+          "uncertainty"
+        ],
+        "x-atlas-cost": "precomputed"
+      }
+    },
+    "/health/live": {
+      "get": {
+        "description": "The process answers. Says nothing about the reference data (see ``/health/ready``).",
+        "operationId": "getLive",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          }
+        },
+        "summary": "Process liveness",
+        "tags": [
+          "health"
+        ],
+        "x-atlas-cost": "static"
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "200 when every committed reference component loaded and passed its integrity checks\nand the simulation workers run; 503 (same body) naming each component that is not\nready (the workers after 3 consecutive crashes).",
+        "operationId": "getReady",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            },
+            "description": "A component is not ready."
+          }
+        },
+        "summary": "Readiness of every reference component",
+        "tags": [
+          "health"
+        ],
+        "x-atlas-cost": "static"
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Liveness and readiness.",
+      "name": "health"
+    },
+    {
+      "description": "Versions, provenance, scientific status and limits.",
+      "name": "system"
+    },
+    {
+      "description": "M2 models, projection, history and accuracy.",
+      "name": "forecasts"
+    },
+    {
+      "description": "M3 calibration status and projection quantiles.",
+      "name": "uncertainty"
+    },
+    {
+      "description": "The committed M4 reference run (HYPOTHETICAL).",
+      "name": "scenarios"
+    },
+    {
+      "description": "Bounded HYPOTHETICAL simulations (M4 engine).",
+      "name": "simulations"
+    }
+  ]
+}
