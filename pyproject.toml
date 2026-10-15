@@ -1,7 +1,7 @@
 [project]
 name = "atlas"
-version = "0.5.0"
-description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals, exceedance probabilities, a hypothetical decision simulation with linear optimisation and an HTTP API for NYC 311 demand analysis (milestones M0-M5)."
+version = "0.6.0"
+description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals, exceedance probabilities, a hypothetical decision simulation with linear optimisation, an HTTP API and a verified deployment package for NYC 311 demand analysis (milestones M0-M6)."
 readme = "docs/DEVELOPMENT.md"
 requires-python = ">=3.12"
 authors = [{ name = "Arthur Fay" }]
@@ -22,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 atlas = "atlas.cli:main"
+atlas-deploy = "atlas.deploy.cli:main"
 
 [dependency-groups]
 dev = [
@@ -94,6 +95,7 @@ addopts = [
 ]
 markers = [
     "integration: exercises the committed legacy-v0 snapshot end to end",
+    "container: M6 end to end in a disposable systemd container (opt-in: ATLAS_E2E_CONTAINER=1)",
 ]
 filterwarnings = ["error"]
 

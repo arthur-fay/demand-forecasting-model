@@ -181,6 +181,11 @@ def _add_api_parser(commands: Any) -> None:
     )
     serve.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1).")
     serve.add_argument("--port", type=int, default=8000, help="Port (default: 8000).")
+    serve.add_argument(
+        "--uds",
+        metavar="PATH",
+        help="Also listen on this Unix socket (how the M6 reverse proxy reaches the API).",
+    )
     sub.add_parser("openapi", help="Print the OpenAPI document as JSON (never writes a file).")
     bench = sub.add_parser(
         "bench", help="Measure endpoint latency and memory on a local server (loopback only)."
@@ -733,7 +738,7 @@ def _api(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_OK
     from atlas.api.server import serve
 
-    serve(settings, host=args.host, port=args.port)
+    serve(settings, host=args.host, port=args.port, uds=args.uds)
     return EXIT_OK
 
 

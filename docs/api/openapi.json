@@ -4890,7 +4890,7 @@
   "info": {
     "description": "Read-only access to the ATLAS NYC 311 demand-forecasting research outputs (M2 forecasts,\nM3 uncertainty, M4 decision simulation) and bounded HYPOTHETICAL simulations with the M4\nlinear-programming engine.\n\n**Read before using any number.**\n\n* Every response states what its numbers are (`integrity.data_status`): observed history,\n  a projection, a historical evaluation, or a HYPOTHETICAL simulation.\n* The point forecast is not prospectively validated (`point_forecast_validated: false`).\n* The M3 prediction intervals have the status **failed_calibration**: no interval or\n  probability is decision-grade, and none is presented as one.\n* Every M4 operational parameter is **HYPOTHETICAL**. Nothing returned is a validated\n  staffing, budget or service-capacity recommendation (`validated_recommendation: false`\n  is fixed by the schema).\n\nErrors share one body: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n",
     "title": "ATLAS API",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "openapi": "3.1.0",
   "paths": {

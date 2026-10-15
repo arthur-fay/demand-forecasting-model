@@ -1,0 +1,7 @@
+# Journal limits for an ATLAS server. Rendered by `atlas-deploy render`; do not edit.
+# Persistent logs, capped so they never fill a small disk.
+[Journal]
+Storage=persistent
+SystemMaxUse={{journal_max_use}}
+SystemKeepFree=1G
+MaxRetentionSec=30day

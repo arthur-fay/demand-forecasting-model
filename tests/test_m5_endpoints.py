@@ -48,7 +48,7 @@ def get(api: TestClient, path: str, status: int = 200) -> dict[str, Any]:
 
 
 def test_live_and_ready(api: TestClient) -> None:
-    assert get(api, "/health/live") == {"status": "alive", "atlas_version": "0.5.0"}
+    assert get(api, "/health/live") == {"status": "alive", "atlas_version": "0.6.0"}
     ready = get(api, "/health/ready")
     assert ready["status"] == "ready"
     assert [c["component"] for c in ready["components"]] == [

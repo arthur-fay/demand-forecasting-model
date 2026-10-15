@@ -37,12 +37,20 @@ An end-to-end analytics project that transforms historical operational request d
 > numbers are and carries the M3 status, with `validated_recommendation: false` fixed by
 > the schema. Start it with `uv run atlas api serve`; see [HTTP API (M5)](docs/API.md).
 >
+> **M6 deployment package (phase A):** a private-first, verified deployment of the API on one
+> small Ubuntu 24.04 server: native systemd services under an unprivileged account behind
+> nginx, a read-only preflight that refuses unsuitable servers, immutable releases with
+> fingerprinted manifests, activation with health verification and automatic rollback, and
+> lightweight monitoring. **Nothing has been deployed**; a deployed ATLAS remains research
+> software (FAILED_CALIBRATION intervals, HYPOTHETICAL parameters), never a validated staffing
+> system. See [Deployment and operations (M6)](docs/DEPLOYMENT.md).
+>
 > Quick start: `uv sync --locked && uv run atlas check && uv run atlas quality` ·
 > [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
 > [Data snapshot](docs/DATA_SNAPSHOT.md) · [Data quality (M1)](docs/DATA_QUALITY.md) ·
 > [Forecast features (M1)](docs/FEATURES.md) · [Backtesting (M2)](docs/BACKTESTING.md) ·
 > [Uncertainty (M3)](docs/UNCERTAINTY.md) · [Optimisation (M4)](docs/OPTIMIZATION.md) ·
-> [HTTP API (M5)](docs/API.md) · [Roadmap](docs/ROADMAP.md)
+> [HTTP API (M5)](docs/API.md) · [Deployment (M6)](docs/DEPLOYMENT.md) · [Roadmap](docs/ROADMAP.md)
 
 ## Dashboard Preview
 
