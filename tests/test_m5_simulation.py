@@ -197,6 +197,11 @@ def test_limitations_describe_this_simulation(api_store: ReferenceStore) -> None
         "their 30-day reference values over this 7-day horizon."
     ]
     # A total the client sets (or removes) is the client's choice: no notice for it.
+    one = texts(horizon_days=7, parameters={"discretionary_budget": None})
+    assert [t for t in one if "not prorated" in t] == [
+        "Horizon totals are not prorated: overtime_total_hours keeps its 30-day reference "
+        "value over this 7-day horizon."
+    ]
     chosen = texts(
         horizon_days=7, parameters={"overtime_total_hours": 1000, "discretionary_budget": None}
     )

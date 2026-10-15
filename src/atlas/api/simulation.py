@@ -155,10 +155,12 @@ def limitations(
         if p.name in HORIZON_TOTALS and p.source == "reference_default" and p.value is not None
     ]
     if config.horizon_days < reference_horizon and defaults:
+        verb = "keeps its" if len(defaults) == 1 else "keep their"
+        values = "value" if len(defaults) == 1 else "values"
         items.insert(
             2,
-            f"Horizon totals are not prorated: {', '.join(defaults)} keep their "
-            f"{reference_horizon}-day reference values over this {config.horizon_days}-day "
+            f"Horizon totals are not prorated: {', '.join(defaults)} {verb} "
+            f"{reference_horizon}-day reference {values} over this {config.horizon_days}-day "
             "horizon.",
         )
     return items

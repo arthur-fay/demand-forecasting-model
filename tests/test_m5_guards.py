@@ -84,6 +84,7 @@ def test_a_run_claiming_a_validated_recommendation_is_not_served(repo_copy: Path
     state = store.status["m4_reference_run"]
     assert not state.ready
     assert "validated_recommendation=false" in str(state.detail)
+    assert not store.status["simulation"].ready  # its defaults are no longer verified
 
 
 @pytest.mark.parametrize(
@@ -108,6 +109,7 @@ def test_a_run_with_an_unlabelled_row_is_not_served(
     state = store.status["m4_reference_run"]
     assert not state.ready
     assert label in str(state.detail)
+    assert not store.status["simulation"].ready
 
 
 # --- Verified bytes ------------------------------------------------------------------------
