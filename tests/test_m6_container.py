@@ -271,6 +271,7 @@ def test_the_bootstrap_applies_and_is_idempotent(server: Server) -> None:
     for line in (
         "already installed",
         "user atlas exists",
+        "user atlas-monitor exists",
         "uv 0.11.32 already installed",
         "kept as it is",
     ):
@@ -288,6 +289,7 @@ def test_the_bootstrap_applies_and_is_idempotent(server: Server) -> None:
         "/etc/atlas/deploy.env root root 644",
     ]
     assert server.out("getent passwd atlas | cut -d: -f6,7") == "/nonexistent:/usr/sbin/nologin"
+    assert server.out("getent passwd atlas-monitor | cut -d: -f7") == "/usr/sbin/nologin"
 
 
 def test_the_preflight_executes_the_locked_dependencies(server: Server) -> None:
@@ -428,6 +430,12 @@ def test_the_private_profile_through_nginx_and_tls(server: Server) -> None:
         f"echo {PASSWORD} | {DEPLOY} secrets add-user alice --password-stdin && systemctl start "
         "nginx"
     )
+    # The monitor checks the served certificate against the system trust store, as it
+    # would a Let's Encrypt one: trust the test CA there.
+    server.sh(
+        "cp /root/ca/ca.pem /usr/local/share/ca-certificates/atlas-e2e-ca.crt && "
+        "update-ca-certificates >/dev/null"
+    )
     assert "activated" in server.sh(f"{DEPLOY} activate {server.release}", timeout=600).stdout
     curl = f"curl -s --noproxy '*' --cacert /root/ca/ca.pem --resolve {DOMAIN}:443:127.0.0.1"
     url = f"https://{DOMAIN}"
@@ -503,13 +511,18 @@ def test_a_configuration_error_does_not_loop(server: Server) -> None:
         "sed -i 's/^ATLAS_API_MAX_CONCURRENT_SIMULATIONS=.*/"
         "ATLAS_API_MAX_CONCURRENT_SIMULATIONS=99/' /etc/atlas/atlas.env"
     )
-    before = int(server.show("NRestarts")["NRestarts"])
+    since = server.out("date +%s")
     assert server.sh("systemctl restart atlas", check=False).returncode != 0
-    time.sleep(15)  # several restart delays
+    time.sleep(15)  # longer than several restart delays (2 s, growing)
     state = server.show("ActiveState", "NRestarts", "ExecMainStatus")
     assert state["ActiveState"] == "failed"
     assert state["ExecMainStatus"] == "2"
-    assert int(state["NRestarts"]) == before  # exit status 2 is never restarted
+    # Exit status 2 is never restarted. (systemd resets NRestarts on an explicit start,
+    # so the journal is the evidence.)
+    assert state["NRestarts"] == "0"
+    journal = server.out(f"journalctl -u atlas --since @{since} --no-pager -o cat")
+    assert "Scheduled restart job" not in journal
+    assert "exceeds the" in journal  # the reason is in the log
     # Activating renders the environment again from deploy.env: the error is gone.
     assert "activated" in server.sh(f"{DEPLOY} activate {server.release}", timeout=600).stdout
 

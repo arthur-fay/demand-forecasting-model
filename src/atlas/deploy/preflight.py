@@ -1095,6 +1095,7 @@ def probe_dependencies(
         )
         return
     started = time.perf_counter()
+    release_dir = release_dir.resolve()  # the commands below run in the scratch directory
     with tempfile.TemporaryDirectory(prefix="atlas-preflight-", dir=work_dir) as scratch:
         base = Path(scratch)
         project = base / "project"

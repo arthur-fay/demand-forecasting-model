@@ -6,7 +6,7 @@
 #
 # Run it from a checkout of the repository. It runs the read-only preflight first and stops
 # on an UNSUITABLE server. Then it installs the Ubuntu packages ATLAS needs, creates the
-# unprivileged `atlas` system user, the directories of the deployment layout with their
+# unprivileged `atlas` and `atlas-monitor` system users, the directories of the deployment layout with their
 # owners and modes (src/atlas/deploy/layout.py), a hash-pinned uv for release builds, and
 # /etc/atlas/deploy.env from the example (never overwritten). It disables nginx's stock
 # default site, which would conflict with the ATLAS site.
@@ -96,6 +96,13 @@ if id -u atlas >/dev/null 2>&1; then
 else
     run useradd --system --gid atlas --no-create-home --home-dir /nonexistent \
         --shell /usr/sbin/nologin --comment "ATLAS API service" atlas
+fi
+# The monitor's own account (its unit adds the groups atlas and systemd-journal).
+if id -u atlas-monitor >/dev/null 2>&1; then
+    echo "    user atlas-monitor exists"
+else
+    run useradd --system --user-group --no-create-home --home-dir /nonexistent \
+        --shell /usr/sbin/nologin --comment "ATLAS monitor" atlas-monitor
 fi
 
 say "Directories (owner, group, mode)"

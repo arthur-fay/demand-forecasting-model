@@ -32,6 +32,8 @@ from typing import Final
 
 SERVICE_USER: Final = "atlas"
 SERVICE_GROUP: Final = "atlas"
+#: The account of the periodic monitor (separate from the service's).
+MONITOR_USER: Final = "atlas-monitor"
 PROXY_GROUP: Final = "www-data"
 SERVICE: Final = "atlas.service"
 MONITOR_SERVICE: Final = "atlas-monitor.service"

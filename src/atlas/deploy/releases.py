@@ -305,7 +305,11 @@ class Deployment:
         files = self.rendered(release_id, config)
         backups = {item.path: self._read(item.path) for item in files}
         groups = {"root": 0, "atlas": self.service_gid, "www-data": self.proxy_gid}
-        results = write_files(files, self.layout, chown=self.chown, group_ids=groups)
+        try:
+            results = write_files(files, self.layout, chown=self.chown, group_ids=groups)
+        except OSError as exc:  # a full disk, a missing group: put back what was written
+            self._restore(files, backups, groups)
+            return False, f"the rendered files could not be written: {exc}"
         changed = [str(r.path) for r in results if r.changed]
         units_changed = any(path.startswith(str(self.layout.systemd)) for path in changed)
         if config.exposed:
@@ -368,11 +372,25 @@ class Deployment:
 
     def _start(self, release_id: str, config: DeployConfig) -> tuple[bool, list[str]]:
         """Install the release's files, switch to it, restart, reload nginx and verify.
-        Raises :class:`NotSwitched` when the files were refused before any switch."""
-        ok, detail = self.install(release_id, config)
+
+        Raises :class:`NotSwitched` when anything fails before the switch (the running
+        release is untouched). After the switch every failure, an unexpected exception
+        included, is returned, so the caller restores the previous release.
+        """
+        try:
+            ok, detail = self.install(release_id, config)
+        except Exception as exc:  # rendering or a host command failed before the switch
+            raise NotSwitched(f"installing the files failed: {type(exc).__name__}: {exc}") from exc
         if not ok:
             raise NotSwitched(detail)
         self.switch(release_id)
+        try:
+            return self._serve(release_id, config)
+        except Exception as exc:  # never leave a switched release without a verdict
+            return False, [f"unexpected error after the switch: {type(exc).__name__}: {exc}"]
+
+    def _serve(self, release_id: str, config: DeployConfig) -> tuple[bool, list[str]]:
+        """Restart the service on the switched release, reload nginx, verify."""
         # A deliberate restart by the operator: clear the unit's failure state and start
         # counter first, so earlier failures (or several activations and rollbacks in a
         # few minutes) cannot block it with "start-limit-hit". Automatic restarts keep

@@ -308,3 +308,36 @@ def test_the_preflight_on_this_machine_changes_nothing(tmp_path: Path) -> None:
     report = assess(preflight.System(), "low", release_dir=REPO_ROOT, offline=True)
     assert report.findings
     assert tree_hashes(REPO_ROOT / "docs", REPO_ROOT / "src", REPO_ROOT / "deploy") == before
+
+
+def test_the_probe_resolves_a_relative_release_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The probe's commands run in a scratch directory: a relative --release-dir must
+    still name the checkout (found by the end-to-end test)."""
+    seen: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> object:
+        seen.append(command)
+        return type("Done", (), {"returncode": 1, "stdout": "", "stderr": "stop"})()
+
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setattr(preflight.subprocess, "run", fake_run)
+    report = Report(profile="standard")
+    preflight.probe_dependencies(report, sys.executable, Path(), tmp_path)
+    assert report.findings[0].status == FAIL
+    assert seen[0][0] == sys.executable
+    monkeypatch.setattr(
+        preflight.subprocess,
+        "run",
+        lambda c, **k: (
+            seen.append(c)
+            or type("Done", (), {"returncode": 0, "stdout": "1.0 100000", "stderr": ""})()
+        ),
+    )
+    report = Report(profile="standard")
+    preflight.probe_dependencies(report, sys.executable, Path(), tmp_path)
+    requirements = next(c for c in seen if "--require-hashes" in c)[-1]
+    assert Path(requirements).is_absolute()
+    assert Path(requirements).is_file()
+    assert report.findings[0].status == PASS

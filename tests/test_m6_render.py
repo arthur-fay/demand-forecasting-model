@@ -159,7 +159,9 @@ def test_no_secret_is_rendered(tmp_path: Path) -> None:
 
 def test_the_monitor_runs_unprivileged() -> None:
     service = unit(renderer().unit("atlas-monitor.service.in"))
-    assert service["Service"]["DynamicUser"] == "yes"
+    assert service["Service"]["User"] == "atlas-monitor"
+    assert service["Service"]["SupplementaryGroups"] == "atlas systemd-journal"
+    assert "DynamicUser" not in service["Service"]
     assert service["Service"]["ExecStart"].endswith("--tls-domain atlas.example.org")
     assert service["Unit"]["OnFailure"] == "atlas-alert@%n.service"
     tunnel = unit(renderer("").unit("atlas-monitor.service.in"))

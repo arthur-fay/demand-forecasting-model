@@ -9,10 +9,14 @@ OnFailure=atlas-alert@%n.service
 [Service]
 Type=oneshot
 ExecStart={{deploy_executable}} monitor --api-port {{api_port}} --state-dir %S/atlas-monitor{{monitor_tls}}
-DynamicUser=yes
+# Its own unprivileged account, not the service's: the API cannot alter the monitor's
+# state. (A DynamicUser cannot query systemd over D-Bus, which the monitor needs.)
+User={{monitor_user}}
+Group={{monitor_user}}
 # atlas: read the release; systemd-journal: count the service's recent errors.
 SupplementaryGroups={{service_group}} systemd-journal
 StateDirectory=atlas-monitor
+StateDirectoryMode=0700
 SyslogIdentifier=atlas-monitor
 Environment=PYTHONDONTWRITEBYTECODE=1
 TimeoutStartSec=60

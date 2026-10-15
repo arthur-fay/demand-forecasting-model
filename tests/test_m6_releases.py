@@ -551,3 +551,63 @@ def test_a_repeated_activation_is_not_blocked_by_the_start_limit(tmp_path: Path)
     restarts = [i for i, call in enumerate(host.calls) if call.startswith("restart")]
     assert len(restarts) == 6
     assert all(host.calls[i - 1] == "reset-failed" for i in restarts)
+
+
+def test_an_unexpected_error_after_the_switch_restores_the_previous_release(
+    tmp_path: Path,
+) -> None:
+    deploy, _ = deployment(tmp_path)
+    make_release(tmp_path, commit=A)
+    make_release(tmp_path, commit=B)
+    deploy.activate(name(A))
+
+    def exploding(target: Target) -> Verification:
+        if target.release_dir is not None and target.release_dir.name == name(B):
+            raise OSError("the verifier crashed")
+        return verifier(set())(target)
+
+    deploy.verifier = exploding
+    record = deploy.activate(name(B))
+    assert record["outcome"] == ROLLED_BACK
+    assert "unexpected error after the switch: OSError" in record["detail"][0]
+    assert deploy.current() == name(A)
+    assert deploy.history()[-1]["outcome"] == ROLLED_BACK  # never left in progress
+
+
+def test_failures_before_the_switch_change_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import atlas.deploy.releases as releases
+
+    deploy, host = deployment(tmp_path)
+    make_release(tmp_path, commit=A)
+    make_release(tmp_path, commit=B)
+    deploy.activate(name(A))
+    unit = tmp_path / "etc/systemd/system/atlas.service"
+    before = unit.read_text()
+    calls = len(host.calls)
+
+    real_write = releases.write_files
+    failures = [1]
+
+    def full_disk(files: Any, layout: Any, **kwargs: Any) -> Any:
+        if failures:  # the first write fails half-way; the restoration succeeds
+            failures.pop()
+            unit.write_text("half-written")
+            raise OSError(28, "No space left on device")
+        return real_write(files, layout, **kwargs)
+
+    monkeypatch.setattr(releases, "write_files", full_disk)
+    record = deploy.activate(name(B))
+    monkeypatch.setattr(releases, "write_files", real_write)
+    assert record["outcome"] == REFUSED
+    assert "could not be written" in record["detail"][0]
+    assert unit.read_text() == before  # put back
+    assert deploy.current() == name(A)
+    assert not any(call.startswith("restart") for call in host.calls[calls:])
+
+    monkeypatch.setattr(deploy, "rendered", lambda *a, **k: (_ for _ in ()).throw(KeyError("x")))
+    record = deploy.activate(name(B))
+    assert record["outcome"] == REFUSED
+    assert "installing the files failed: KeyError" in record["detail"][0]
+    assert deploy.current() == name(A)

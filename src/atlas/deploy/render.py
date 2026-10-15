@@ -36,6 +36,7 @@ from atlas.deploy.layout import (
     API_HOST,
     MONITOR_SERVICE,
     MONITOR_TIMER,
+    MONITOR_USER,
     SERVICE,
     SERVICE_GROUP,
     SERVICE_USER,
@@ -147,6 +148,7 @@ class Renderer:
         values = {
             "service_user": SERVICE_USER,
             "service_group": SERVICE_GROUP,
+            "monitor_user": MONITOR_USER,
             "service": SERVICE,
             "current": str(layout.current),
             "executable": str(layout.executable),

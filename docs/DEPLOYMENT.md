@@ -63,7 +63,7 @@ Contents:
 │   WorkingDirectory=/opt/atlas/current ─► releases/<version>-<commit12> (read-only)│
 │   simulation key: systemd credential (LoadCredential), never in the environment  │
 │                                                                                    │
-│  atlas-monitor.timer (every minute) ─► atlas-monitor.service (DynamicUser)        │
+│  atlas-monitor.timer (every minute) ─► atlas-monitor.service (user atlas-monitor) │
 │        └─ a critical finding ─► atlas-alert@.service (optional operator hook)      │
 │  journald (persistent, capped)    certbot.timer (renewal ─► nginx reload)          │
 └────────────────────────────────────────────────────────────────────────────────────┘
@@ -85,6 +85,7 @@ On disk (`src/atlas/deploy/layout.py`):
 | `/etc/systemd/system/atlas*.service`, `.timer` | root, 0644 | the rendered units |
 | `/etc/systemd/journald.conf.d/60-atlas.conf` | root, 0644 | persistent journal, 200-500 MB cap, 30 days |
 | `/var/lib/atlas/deploy/` | root, 0700 | `history.jsonl` (every deployment step), locks |
+| `/var/lib/atlas-monitor/` | atlas-monitor, 0700 | the monitor's counters between runs (`StateDirectory`) |
 | `/var/cache/atlas/uv/` | root, 0700 | download cache of release builds |
 | `/var/www/atlas-acme/` | root, 0755 | ACME HTTP-01 challenge files |
 
@@ -186,7 +187,10 @@ locked runtime package has a wheel for this platform (from `uv.lock`).
 
 `--probe-dependencies` also installs the locked runtime dependencies into a temporary
 directory (with the hash-pinned uv), imports them and solves a small LP with HiGHS, then
-deletes the directory: the definitive "can the locked ATLAS dependencies execute here".
+deletes the directory: the definitive "can the locked ATLAS dependencies execute here". On
+the test server it took 16 s (it downloads about 120 MB), with a 4 s import
+and 133 MiB peak memory. It needs `python3.12-venv` (run it after the bootstrap, or install
+that package first).
 
 Each finding is `pass`, `info`, `warn` or `fail`, with the requirement and the action to
 take. Any `fail` makes the verdict **UNSUITABLE** and the exit status 1: do not use the
@@ -253,7 +257,8 @@ sudo deploy/scripts/bootstrap-host.sh --resources standard --apply    # do it
 
 It runs the preflight (and stops on UNSUITABLE), installs `nginx python3.12 python3.12-venv
 git openssl ca-certificates` (`--with-certbot` adds certbot), disables nginx's stock default
-site, creates the system user `atlas` (no login shell, no home), the directories of section 1
+site, creates the system users `atlas` (the service) and `atlas-monitor` (the monitor; no
+login shell, no home for either), the directories of section 1
 with their owners and modes, a hash-pinned uv in `/opt/atlas/tools/uv` (pip
 `--require-hashes`, the same pins as CI) and `/etc/atlas/deploy.env` from
 `deploy/deploy.env.example` (tunnel profile; an existing file is never overwritten). It
@@ -467,10 +472,13 @@ while the new one is built and checked.
 
 ## 11. Rolling back and recovering
 
-**Automatic.** An activation whose service does not start, or that fails verification,
-switches back to the previous release, renders its files, restarts it and verifies it again.
-If nginx refuses the new site, nothing is switched at all. A first deployment that fails is
-stopped. Every step is in `/var/lib/atlas/deploy/history.jsonl`.
+**Automatic.** An activation whose service does not start, that fails verification or that
+meets any unexpected error after the switch, switches back to the previous release, renders
+its files, restarts it and verifies it again. If the new files are refused before the switch
+(nginx, systemd, a write error), nothing is switched and the previous files are put back. A
+first deployment that fails is stopped. Every step is in
+`/var/lib/atlas/deploy/history.jsonl`, and every activation ends with a terminal record
+(`activated`, `refused`, `rolled_back`, `rollback_failed` or `failed_and_stopped`).
 
 **Manual.**
 
@@ -536,8 +544,9 @@ not restored (section 7); update DNS.
 
 ## 14. Monitoring and alerting
 
-`atlas-monitor.timer` runs `atlas-deploy monitor` every minute (a sandboxed `DynamicUser`
-one-shot unit; no agent, no database, no outbound network). Each run writes one JSON
+`atlas-monitor.timer` runs `atlas-deploy monitor` every minute (a sandboxed one-shot unit
+under its own account `atlas-monitor`, separate from the service's so the API cannot alter
+the monitor's state; no agent, no database, no outbound network). Each run writes one JSON
 object to the journal:
 
 ```bash
@@ -582,13 +591,13 @@ A larger observability stack (Prometheus, Grafana) is deliberately not part of M
 | Start at boot | `WantedBy=multi-user.target`; the monitor's timer too |
 | Ready means ready | `Type=notify`: the API sends `READY=1` after loading and verifying the reference data, starting the workers and binding the socket; `systemctl start` waits for it (120 s) |
 | Liveness | `WatchdogSec=30`: the event loop pings every 10 s; a hung loop is aborted and restarted |
-| Controlled restarts | `Restart=on-failure` with a growing delay (2 s to 60 s); at most 6 starts in 15 minutes, then the unit stays failed until an operator acts; exit status 2 (invalid configuration) is never restarted |
+| Controlled restarts | `Restart=on-failure` with a growing delay (2 s to 60 s); at most 6 starts in 15 minutes, then the unit stays failed until an operator acts; exit status 2 (invalid configuration) is never restarted. A deliberate restart by `atlas-deploy` (activate, rollback, recover) first clears the unit's failure state (`systemctl reset-failed`), so several operator actions in a few minutes are never blocked by the limit meant for automatic restarts |
 | Graceful shutdown | `KillMode=mixed`, SIGTERM to the server: in-flight requests finish (up to 10 s), the workers finish their simulation and stop; leftovers are killed after 30 s |
-| Lost workers | the M5 pool replaces a dead or timed-out worker; `OOMPolicy=continue` keeps the service when the OOM killer takes a worker, which it prefers (workers set `oom_score_adj` 500) |
+| Lost workers | the M5 pool replaces a worker that dies or times out during a simulation; a worker that dies while idle (the OOM killer prefers workers: they set `oom_score_adj` 500) is replaced by the next readiness check, which the monitor runs every minute, and logged as `worker_died_idle`, so no request lands on a dead worker; `OOMPolicy=continue` keeps the service running meanwhile |
 | Degraded data | per-component readiness (M5): a damaged artifact gives 503 on its endpoints, the rest serves; the monitor alerts |
 | Version identification | release id = version + commit; `release.json`; `atlas-deploy status`; verification compares the running process's directory, version and data fingerprint with the manifest |
 | Failure reporting | every activation, refusal, rollback and recovery is a JSON record with its reasons; `atlas-deploy` exits 1 on any failure |
-| Partial failures | builds clean up after themselves; activation refuses before switching when the files are refused; interrupted activations are recovered (`recover`); a lock prevents concurrent deployments |
+| Partial failures | builds clean up after themselves; any failure before the switch (nginx or systemd refusing the files, a write error, a rendering error) restores the previous files and changes nothing else; any failure after it, an unexpected error included, restores the previous release; interrupted activations are recovered (`recover`); a lock prevents concurrent deployments |
 
 ## 16. Testing
 
