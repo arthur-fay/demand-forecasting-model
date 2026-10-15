@@ -112,8 +112,8 @@ See [OPTIMIZATION.md](OPTIMIZATION.md).
   marginal-quantile stress path; the M3 calibration status on every result;
   `atlas optimize run|verify|inspect`.
 - An independent six-lens review after the freeze (including a re-implementation and
-  mutation testing), then two further independent reviews of the fixes; every confirmed
-  defect fixed with a regression test. Reference results:
+  mutation testing), then two further independent reviews of the fixes and a verification of
+  the last round; every confirmed defect fixed with a regression test. Reference results:
   [`docs/results/atlas-m4-optimization-v1/`](results/atlas-m4-optimization-v1/report.md)
   (OPTIMIZATION.md sections 9-10).
 

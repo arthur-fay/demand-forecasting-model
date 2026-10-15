@@ -76,44 +76,44 @@ b[T] <= target,  x, b >= 0               terminal backlog target (requests)
 minimise  sum (c_ot*o[t] + c_s*s[t]) + w*sum b[t] + w_T*b[T]   (penalised score)
 ```
 
-Service never exceeds the work available (`x[t] <= b[t-1] + d[t]` follows from the balance and `b >= 0`). Solved with HiGHS dual simplex; every plan is checked independently (constraints recomputed in plain loops), every optimum is certified from its primal and dual values (feasibility, dual signs, stationarity, zero duality gap), and no slack variable exists in the planning model. When no plan meets the HYPOTHETICAL terminal target, the reported plan is labelled `relaxed_terminal_target`: least target violation within the budget first, then the planning objective, then the least cash. When several plans share the optimal score, the reported plan is the least-cash one, and the ranges over all optimal plans are shown in the uniqueness table.
+Service never exceeds the work available (`x[t] <= b[t-1] + d[t]` follows from the balance and `b >= 0`). Solved with HiGHS dual simplex; every plan is checked independently (constraints recomputed in plain loops), every optimum is certified from its primal and dual values (feasibility, dual signs, stationarity, zero duality gap), and no slack variable exists in the planning model. When no plan meets the HYPOTHETICAL terminal target, the reported plan is labelled `relaxed_terminal_target`: least target violation within the budget first, then the planning objective. When several plans share the optimal score, ties are broken by the least discretionary cash, then the least terminal backlog, then the least request-days, so the reported cash, terminal backlog and request-days are determined; whether the overtime/surge split and the daily schedule are too is tested (`unique after tie-breaks` in the uniqueness table, with the ranges over all optimal plans).
 
 ## Scenarios
 
-`plan` is `strict` when a plan meets every HYPOTHETICAL constraint and `relaxed_terminal_target` otherwise; the plan shown is the least-cash optimal one. Binding constraints are read from the plan itself (slack within tolerance).
+`plan` is `strict` when a plan meets every HYPOTHETICAL constraint and `relaxed_terminal_target` otherwise; the plan shown is the tie-broken optimal one. Binding constraints are read from the plan itself (slack within tolerance; `terminal_backlog_violated` marks a relaxed plan above its target).
 
-| scenario | demand basis | demand total (vs point forecast) | regular capacity/day | discretionary budget (USD) | plan | discretionary cash (USD) | request-days | terminal backlog | peak backlog | binding constraints |
+| scenario | demand basis | demand total, requests (vs point forecast) | regular capacity (requests/day) | discretionary budget (USD) | plan | discretionary cash (USD) | request-days | terminal backlog (requests) | peak backlog (requests) | binding constraints |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `normal` | point_forecast | 333,968 (0.0 %) | 11,000 | 300,000 | `strict` | 225,276 | 48,728 | 3,712 | 6,624 | capacity (30 days), overtime_daily_limit (7 days), surge_daily_limit (2 days) |
-| `increased_demand` | point_forecast | 367,365 (10.0 %) | 11,000 | 300,000 | `relaxed_terminal_target` | 300,000 | 505,359 | 34,115 | 34,115 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
-| `reduced_capacity` | point_forecast | 333,968 (0.0 %) | 9,900 | 300,000 | `relaxed_terminal_target` | 300,000 | 502,944 | 33,718 | 33,718 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
+| `increased_demand` | point_forecast | 367,365 (10.0 %) | 11,000 | 300,000 | `relaxed_terminal_target` | 300,000 | 505,359 | 34,115 (30,115 over target) | 34,115 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
+| `reduced_capacity` | point_forecast | 333,968 (0.0 %) | 9,900 | 300,000 | `relaxed_terminal_target` | 300,000 | 502,944 | 33,718 (29,718 over target) | 33,718 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
 | `increased_costs` | point_forecast | 333,968 (0.0 %) | 11,000 | 300,000 | `strict` | 268,996 | 49,396 | 3,712 | 6,624 | capacity (30 days), overtime_daily_limit (7 days), surge_daily_limit (2 days) |
-| `reduced_budget` | point_forecast | 333,968 (0.0 %) | 11,000 | 150,000 | `relaxed_terminal_target` | 150,000 | 110,244 | 6,343 | 7,224 | budget, capacity (30 days), overtime_daily_limit (6 days), terminal_backlog_violated |
+| `reduced_budget` | point_forecast | 333,968 (0.0 %) | 11,000 | 150,000 | `relaxed_terminal_target` | 150,000 | 110,244 | 6,343 (2,343 over target) | 7,224 | budget, capacity (30 days), overtime_daily_limit (6 days), terminal_backlog_violated |
 | `delayed_surge` | point_forecast | 333,968 (0.0 %) | 11,000 | 300,000 | `strict` | 220,163 | 55,539 | 3,712 | 7,224 | capacity (30 days), overtime_daily_limit (8 days) |
-| `combined_stress` | point_forecast | 350,666 (5.0 %) | 10,450 | 225,000 | `relaxed_terminal_target` | 225,000 | 575,701 | 37,496 | 37,496 | budget, capacity (30 days), overtime_daily_limit (8 days), terminal_backlog_violated |
-| `m2_bias_shift` | point_forecast | 341,648 (2.3 %) | 11,000 | 300,000 | `relaxed_terminal_target` | 300,000 | 111,440 | 8,398 | 8,398 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
-| `m3_marginal_q90_stress` | per_day_marginal_quantile_path | 389,862 (16.7 %) | 11,000 | 300,000 | `relaxed_terminal_target` | 300,000 | 813,258 | 56,612 | 56,612 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
+| `combined_stress` | point_forecast | 350,666 (5.0 %) | 10,450 | 225,000 | `relaxed_terminal_target` | 225,000 | 575,701 | 37,496 (33,496 over target) | 37,496 | budget, capacity (30 days), overtime_daily_limit (8 days), terminal_backlog_violated |
+| `m2_bias_shift` | point_forecast | 341,648 (2.3 %) | 11,000 | 300,000 | `relaxed_terminal_target` | 300,000 | 111,440 | 8,398 (4,398 over target) | 8,398 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
+| `m3_marginal_q90_stress` | per_day_marginal_quantile_path | 389,862 (16.7 %) | 11,000 | 300,000 | `relaxed_terminal_target` | 300,000 | 813,258 | 56,612 (52,612 over target) | 56,612 | budget, capacity (30 days), overtime_daily_limit (12 days), terminal_backlog_violated |
 
-- `normal`: dropping the HYPOTHETICAL target does not change the optimal score (it forces nothing).
-- `increased_costs`: dropping the HYPOTHETICAL target does not change the optimal score (it forces nothing).
-- `delayed_surge`: dropping the HYPOTHETICAL target does not change the optimal score (it forces nothing).
+- `normal`: dropping the HYPOTHETICAL target changes neither the optimal score nor the reported plan.
+- `increased_costs`: dropping the HYPOTHETICAL target changes neither the optimal score nor the reported plan.
+- `delayed_surge`: dropping the HYPOTHETICAL target changes neither the optimal score nor the reported plan.
 - `increased_demand` has **no plan that meets every HYPOTHETICAL constraint** (DIAGNOSTIC values, not plans):
-  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,864.5 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)
+  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,864.5 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the overtime total of 6,000 staff hours (to 0.0 requests without it) (DIAGNOSTIC)
   - least terminal-target violation within the budget: 30,115 requests; with unlimited discretionary cash: 9,865 requests
 - `reduced_capacity` has **no plan that meets every HYPOTHETICAL constraint** (DIAGNOSTIC values, not plans):
-  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,467.8 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)
+  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,467.8 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the overtime total of 6,000 staff hours (to 0.0 requests without it) (DIAGNOSTIC)
   - least terminal-target violation within the budget: 29,718 requests; with unlimited discretionary cash: 9,468 requests
 - `reduced_budget` has **no plan that meets every HYPOTHETICAL constraint** (DIAGNOSTIC values, not plans):
   - under this deterministic demand path and the HYPOTHETICAL prices, no plan spending less than 212,474 USD on overtime and surge reaches the HYPOTHETICAL terminal-backlog target (62,474 USD above the HYPOTHETICAL budget; DIAGNOSTIC, not a budget request)
   - least terminal-target violation within the budget: 2,343 requests; with unlimited discretionary cash: 0 requests
 - `combined_stress` has **no plan that meets every HYPOTHETICAL constraint** (DIAGNOSTIC values, not plans):
-  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 13,866.2 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; surge unavailable on the first 7 days; daily overtime limit reached on 15 days; daily surge limit reached on 23 days)
+  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 13,866.2 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the surge delay of 7 days (to 9,666.2 requests without it); the overtime total of 6,000 staff hours (to 366.2 requests without it) (DIAGNOSTIC)
   - least terminal-target violation within the budget: 33,496 requests; with unlimited discretionary cash: 13,866 requests
 - `m2_bias_shift` has **no plan that meets every HYPOTHETICAL constraint** (DIAGNOSTIC values, not plans):
   - under this deterministic demand path and the HYPOTHETICAL prices, no plan spending less than 424,433 USD on overtime and surge reaches the HYPOTHETICAL terminal-backlog target (124,433 USD above the HYPOTHETICAL budget; DIAGNOSTIC, not a budget request)
   - least terminal-target violation within the budget: 4,398 requests; with unlimited discretionary cash: 0 requests
 - `m3_marginal_q90_stress` has **no plan that meets every HYPOTHETICAL constraint** (DIAGNOSTIC values, not plans):
-  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 32,361.7 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)
+  - the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 32,361.7 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the overtime total of 6,000 staff hours (to 18,861.7 requests without it) (DIAGNOSTIC)
   - least terminal-target violation within the budget: 52,612 requests; with unlimited discretionary cash: 32,362 requests
 
 ## Policies under the same assumptions
@@ -145,23 +145,23 @@ The last two columns compare like with like: the LP restricted to the policy's d
 
 ## Is the optimal plan unique?
 
-An active-set test over the exact optimal face (complementary slackness with the certified duals; prices tied to within solver accuracy count as tied). When the plan is not unique, the daily schedule shown is one of several equally scored HYPOTHETICAL plans and its day-by-day allocation is not determined by the model; the ranges are over all optimal plans.
+An active-set test from the optimal vertex the solver returned, over the optimal face built by complementary slackness from the certified duals (a reduced cost within 1e-9 of its column's scale, or a row dual within 1e-9 of the scale of the free columns it couples, counts as zero, so prices tied that closely count as tied). `yes` means no other optimal plan differs by more than 0.001 requests or staff hours in that distance. For an infeasible scenario the test is on its relaxed plan. When the plan is not unique, its day-by-day allocation in `plans.csv` is one of several equally scored HYPOTHETICAL plans; the ranges are over all optimal plans, and `days with extra capacity not determined` counts the days whose overtime plus surge (requests) differs between them. `unique after tie-breaks` applies the same test to the reported plan within the tie-breaks (same score, cash, terminal backlog and request-days): `no` means its overtime/surge split or daily schedule is still one of several.
 
-| scenario | unique | days not determined | discretionary cash (USD) | request-days | terminal backlog | overtime hours | surge requests |
-|---|---|---|---|---|---|---|---|
-| `normal` | yes | 0 | 225,276..225,276 | 48,728..48,728 | 3,712..3,712 | 2,988..2,988 | 1,534..1,534 |
-| `increased_demand` | yes | 0 | 300,000..300,000 | 505,359..505,359 | 34,115..34,115 | 5,000..5,000 | 0..0 |
-| `reduced_capacity` | yes | 0 | 300,000..300,000 | 502,944..502,944 | 33,718..33,718 | 5,000..5,000 | 0..0 |
-| `increased_costs` | no | 4 | 268,996..270,331 | 48,728..49,396 | 3,712..3,712 | 2,988..3,136 | 1,200..1,534 |
-| `reduced_budget` | yes | 0 | 150,000..150,000 | 110,244..110,244 | 6,343..6,343 | 2,500..2,500 | 0..0 |
-| `delayed_surge` | yes | 0 | 220,163..220,163 | 55,539..55,539 | 3,712..3,712 | 3,669..3,669 | 0..0 |
-| `combined_stress` | yes | 0 | 225,000..225,000 | 575,701..575,701 | 37,496..37,496 | 3,409..3,409 | 0..0 |
-| `m2_bias_shift` | yes | 0 | 300,000..300,000 | 111,440..111,440 | 8,398..8,398 | 5,000..5,000 | 0..0 |
-| `m3_marginal_q90_stress` | yes | 0 | 300,000..300,000 | 813,258..813,258 | 56,612..56,612 | 5,000..5,000 | 0..0 |
+| scenario | plan tested | unique | unique after tie-breaks | days with extra capacity not determined | discretionary cash (USD) | request-days | terminal backlog (requests) | overtime (staff hours) | surge (requests) |
+|---|---|---|---|---|---|---|---|---|---|
+| `normal` | strict | yes | yes | 0 | 225,276..225,276 | 48,728..48,728 | 3,712..3,712 | 2,988..2,988 | 1,534..1,534 |
+| `increased_demand` | relaxed | yes | yes | 0 | 300,000..300,000 | 505,359..505,359 | 34,115..34,115 | 5,000..5,000 | 0..0 |
+| `reduced_capacity` | relaxed | yes | yes | 0 | 300,000..300,000 | 502,944..502,944 | 33,718..33,718 | 5,000..5,000 | 0..0 |
+| `increased_costs` | strict | no | yes | 4 | 268,996..270,331 | 48,728..49,396 | 3,712..3,712 | 2,988..3,136 | 1,200..1,534 |
+| `reduced_budget` | relaxed | yes | yes | 0 | 150,000..150,000 | 110,244..110,244 | 6,343..6,343 | 2,500..2,500 | 0..0 |
+| `delayed_surge` | strict | yes | yes | 0 | 220,163..220,163 | 55,539..55,539 | 3,712..3,712 | 3,669..3,669 | 0..0 |
+| `combined_stress` | relaxed | yes | yes | 0 | 225,000..225,000 | 575,701..575,701 | 37,496..37,496 | 3,409..3,409 | 0..0 |
+| `m2_bias_shift` | relaxed | yes | yes | 0 | 300,000..300,000 | 111,440..111,440 | 8,398..8,398 | 5,000..5,000 | 0..0 |
+| `m3_marginal_q90_stress` | relaxed | yes | yes | 0 | 300,000..300,000 | 813,258..813,258 | 56,612..56,612 | 5,000..5,000 | 0..0 |
 
 ## Shadow prices (horizon-wide constraints)
 
-Derivative of the optimal penalised score with respect to one right-hand side, in USD-equivalent units (cash plus notional penalty), valid only locally. The duals of `normal`, `increased_costs`, `delayed_surge` (the scenarios listed under `shadow_prices`) are bracketed by one-sided finite differences of re-solved, certified programmes (step: the larger of 0.001 natural units and 1e-7 of the right-hand side): `locally_unique` when both slopes agree, `breakpoint` when they differ (the solver's value is then one subgradient among several); other duals show `not_computed`. The cash and penalty parts split the practical forward step. Daily rows are in `duals.csv`.
+Derivative of the optimal penalised score with respect to one right-hand side, in USD-equivalent units (cash plus notional penalty), valid only locally. The duals of `normal`, `increased_costs`, `delayed_surge` (the strictly feasible scenarios among those listed under `shadow_prices`; an infeasible scenario has no strict duals) are bracketed by one-sided finite differences of re-solved, certified programmes (step: the larger of 0.001 natural units and 1e-7 of the right-hand side): `locally_unique` when both slopes agree, `breakpoint` when they differ (the solver's value is then one subgradient among several); other duals show `not_computed`. The cash and penalty parts split the practical forward step between the tie-broken plans before and after it. Slack and `binding` describe the reported plan. Daily rows are in `duals.csv`.
 
 | scenario | constraint | binding | dual | units | backward | forward | status | cash part | penalty part |
 |---|---|---|---|---|---|---|---|---|---|
@@ -175,16 +175,16 @@ Derivative of the optimal penalised score with respect to one right-hand side, i
 | `delayed_surge` | terminal_backlog | no | 0.000 | usd_equivalent_per_request | 0.000 | 0.000 | locally_unique | 0.000 | 0.000 |
 | `delayed_surge` | budget | no | 0.000 | usd_equivalent_per_usd | 0.000 | 0.000 | locally_unique | 0.000 | 0.000 |
 
-- `normal`: 123 duals bracketed (all brackets hold); 123 locally unique, 0 at a breakpoint, 0 at a domain boundary or with an infeasible side.
-- `increased_costs`: 123 duals bracketed (all brackets hold); 123 locally unique, 0 at a breakpoint, 0 at a domain boundary or with an infeasible side.
-- `delayed_surge`: 123 duals bracketed (all brackets hold); 116 locally unique, 0 at a breakpoint, 7 at a domain boundary or with an infeasible side.
+- `normal`: 123 duals bracketed (all brackets hold); 123 locally unique, 0 at a breakpoint, 0 at a domain boundary or with an infeasible side, 0 with a backward step too small to resolve the slope (a right-hand side below the step), 0 not computed (solver failure).
+- `increased_costs`: 123 duals bracketed (all brackets hold); 123 locally unique, 0 at a breakpoint, 0 at a domain boundary or with an infeasible side, 0 with a backward step too small to resolve the slope (a right-hand side below the step), 0 not computed (solver failure).
+- `delayed_surge`: 123 duals bracketed (all brackets hold); 116 locally unique, 0 at a breakpoint, 7 at a domain boundary or with an infeasible side, 0 with a backward step too small to resolve the slope (a right-hand side below the step), 0 not computed (solver failure).
 
 ## Tradeoff frontier
 
-Least notional backlog penalty achievable for each cap on discretionary cash (budget row dropped, daily limits and totals kept), with the least cash that achieves it, the request-days and the terminal backlog of that plan (`frontier.csv`). A HYPOTHETICAL TRADEOFF under HYPOTHETICAL prices and a point forecast; no point on it is singled out as a budget.
+Least notional backlog penalty achievable for each cap on discretionary cash (budget row dropped, daily limits and totals kept), with the least cash, then the least terminal backlog and request-days among the plans that achieve it (`frontier.csv`). The day-by-day schedule, and at some points the overtime and surge totals, can still differ between such plans; `frontier.csv` flags those points (`unique_after_tie_breaks`) with the ranges of the totals. A HYPOTHETICAL TRADEOFF under HYPOTHETICAL prices and a point forecast; no point on it is singled out as a budget.
 
-- `normal`: with the terminal target kept, extra cash beyond 435,458 USD lowers the penalty no further; without the target, extra cash beyond 435,458 USD lowers the penalty no further; under this deterministic demand path and the HYPOTHETICAL prices; the curve is non-increasing: yes, convex: yes; the strict plan lies on it: passed. DIAGNOSTIC tradeoff points, not budgets.
-- `combined_stress`: with the terminal target kept, no plan meets the HYPOTHETICAL target at any cash cap; without the target, extra cash beyond 851,400 USD lowers the penalty no further; under this deterministic demand path and the HYPOTHETICAL prices; the curve is non-increasing: yes, convex: yes; the strict plan lies on it: not_applicable. DIAGNOSTIC tradeoff points, not budgets.
+- `normal`: with the terminal target kept, extra cash beyond 435,458 USD lowers the penalty no further; without the target, extra cash beyond 435,458 USD lowers the penalty no further; under this deterministic demand path and the HYPOTHETICAL prices; the curve is non-increasing: yes, convex: yes; the strict plan lies on it: passed; at 6 points other plans tie on penalty, cash, terminal backlog and request-days with a different daily schedule; the overtime or surge totals differ too at 0 of them. DIAGNOSTIC tradeoff points, not budgets.
+- `combined_stress`: with the terminal target kept, no plan meets the HYPOTHETICAL target at any cash cap; without the target, extra cash beyond 851,400 USD lowers the penalty no further; under this deterministic demand path and the HYPOTHETICAL prices; the curve is non-increasing: yes, convex: yes; the strict plan lies on it: not_applicable; every point is unique after the tie-breaks. DIAGNOSTIC tradeoff points, not budgets.
 
 ## Sensitivity
 
@@ -209,9 +209,9 @@ One HYPOTHETICAL parameter at a time on scenario `normal` (`sensitivity.csv` has
 
 Regular staff hours change capacity at a cost outside the score (the committed regular cost), so their effect on cash is reported, not asserted. The backlog penalty sweep changes only the daily weight `w`; cash alone is not asserted to rise with it when a terminal penalty is set.
 
-Values of the least-cash optimal plan at each point (`unique`: whether the optimal plan is unique; otherwise `sensitivity.csv` has the ranges over all optimal plans). An infeasible point shows the least terminal-target violation within the budget. A swept capacity that lands within 1 % of the legacy demand percentile is marked `near percentile`: it is a swept HYPOTHETICAL capacity, not that percentile.
+Values of the tie-broken optimal plan at each point (flag `not unique`: other optimal plans exist; `sensitivity.csv` has their ranges). An infeasible point shows the least terminal-target violation within the budget. A swept capacity that lands within 1 % of the legacy demand percentile is marked `near percentile`: it is a swept HYPOTHETICAL capacity, not that percentile.
 
-| parameter | value | strict model | regular capacity / mean demand of the point | discretionary cash (USD) | request-days | terminal backlog | least violation if infeasible | flags |
+| parameter | value | strict model | regular capacity / mean demand of the point | discretionary cash (USD) | request-days | terminal backlog (requests) | least violation if infeasible (requests) | flags |
 |---|---|---|---|---|---|---|---|---|
 | demand_multiplier | 0.90 | optimal | 1.098 | 0 | 17,664 | 0 | n/a | - |
 | demand_multiplier | 0.95 | optimal | 1.040 | 12,636 | 42,032 | 100 | n/a | - |
@@ -249,13 +249,18 @@ Values of the least-cash optimal plan at each point (`unique`: whether the optim
 | cost_multiplier | 1.10 | optimal | 0.988 | 247,803 | 48,728 | 3,712 | n/a | - |
 | cost_multiplier | 1.20 | optimal | 0.988 | 268,996 | 49,396 | 3,712 | n/a | not unique |
 | cost_multiplier | 1.50 | infeasible | 0.988 | n/a | n/a | n/a | 468 | - |
-| backlog_penalty | 0.00 | optimal | 0.988 | 212,474 | 156,673 | 4,000 | n/a | not unique |
+| backlog_penalty | 0.00 | optimal | 0.988 | 212,474 | 60,442 | 4,000 | n/a | not unique |
 | backlog_penalty | 0.50 | optimal | 0.988 | 214,474 | 56,242 | 4,000 | n/a | - |
 | backlog_penalty | 1.00 | optimal | 0.988 | 214,634 | 55,954 | 4,000 | n/a | - |
 | backlog_penalty | 2.00 | optimal | 0.988 | 225,276 | 48,728 | 3,712 | n/a | - |
 | backlog_penalty | 4.00 | optimal | 0.988 | 262,230 | 34,160 | 2,421 | n/a | - |
 | backlog_penalty | 8.00 | optimal | 0.988 | 300,000 | 27,272 | 2,255 | n/a | not unique |
 | backlog_penalty | 16.00 | optimal | 0.988 | 300,000 | 27,272 | 2,255 | n/a | not unique |
+
+## Run checks
+
+- Failed checks (ERRORs): 0. Any failed certificate, plan check, objective agreement, bracket or proved property is an ERROR and marks the run incomplete.
+- Stage fallbacks: 0. A lexicographic stage or optimal-face test that needed a fallback is a WARNING; `stage_fallbacks` in `metrics.json` lists them per scenario and sweep point.
 
 ## Limitations
 

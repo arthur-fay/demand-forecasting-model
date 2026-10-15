@@ -1,7 +1,8 @@
 {
  "code": {
-  "code_sha256": "ca3e45a323cb8d3379e6f3e56076c4f3b4a597f3e6d626cc9dd82e1cef806f8b",
+  "code_sha256": "b579fc3eb590c93a9953a0d3a03058ef90adaeb59f5c3f6d55a152466465623f",
   "files": 50,
+  "running_package_is_repository_src": true,
   "uv_lock_sha256": "fb4630e6d382068bf6a263dea7a82f7fdf72bc70c1fa86aaf4f684e45c19056c"
  },
  "complete": true,
@@ -500,13 +501,13 @@
  "experiment_id": "atlas-m4-optimization-v1",
  "git": {
   "available": true,
-  "commit": "a885a69e55d9ad8155f45402d051a3e60db56799",
+  "commit": "50268dc010f8cf620bf873d93843a78a98d3df06",
   "dirty": false,
   "dirty_paths": 0
  },
  "informational_not_fingerprinted": {
-  "created_at_utc": "2026-10-14T13:53:03+00:00",
-  "runtime_seconds": 19.9
+  "created_at_utc": "2026-10-15T02:28:25+00:00",
+  "runtime_seconds": 22.6
  },
  "inputs": {
   "forecast": {
@@ -606,13 +607,13 @@
  "label": "HYPOTHETICAL DECISION SIMULATION: exploratory resource-allocation scenarios computed from an unvalidated point forecast with HYPOTHETICAL operational parameters. Not a validated staffing, budget or service-capacity recommendation for any NYC agency.",
  "outputs": {
   "config.json": "966b67bdc9062583f2235d49f2df8a2532090d015654ab4dee4c2d981b8793ef",
-  "duals.csv": "bb6a14dde2b511f254811b7fd1873f000dfdad67bedf625562df69a07909d912",
-  "frontier.csv": "129c1d8196a8dee790c1d4587af5dc5cad56e7e143e37d10b2dda19dadc1995c",
-  "metrics.json": "b54ff3b9b9a27f8872bcb01085f70d96a3938c81a8efd99c752762f42e0a1500",
+  "duals.csv": "8faa918aeb6f2160fe5987068835586e46b38cf87a26550debca24cc1827e9a4",
+  "frontier.csv": "e7efb17bb15403b8c559125d295a600004b4fd3d5f84418e2762b03d11dd0bce",
+  "metrics.json": "edf8a9ec23ca67c8009115352e9dbf3326d67a44494952957cc0346dd3495b76",
   "plans.csv": "330f22231b8eaeac18a4d7175f833337226a9e9dd03d5984924079ee7deb8bf9",
-  "report.md": "3612036968c788d104d0eddbf7e8039f0d04c0f3b75d8e3577a5e87c9134f40e",
-  "scenarios.csv": "46e35bae8a051e9f80fa213c80c6282df20f6491004ebca97650b7e293120bb0",
-  "sensitivity.csv": "da9aa41fd7f7d0d9d92b8a5392e1064f3b10cdae2109dfdd29079fc95d218004"
+  "report.md": "118c856ab7c436e8ff6f61da50fc5475727ee15eff3abe7c9b35e2d1f1056a41",
+  "scenarios.csv": "9ef8d0479e8ea86842946e5c42b663a037413d1e9bec8f961631aab97e9e137a",
+  "sensitivity.csv": "d598fd6ee71dab3ed3025e3579cd773f97c29e45242d0a0b49c4157f6a1811c6"
  },
  "record_type": "hypothetical_decision_simulation",
  "result_files": [
@@ -623,7 +624,7 @@
   "frontier.csv",
   "metrics.json"
  ],
- "result_fingerprint": "bc7ec821cdc1198c32b888276bd3220f8e56701ac1a9463df1d6a969b8ef8dea",
+ "result_fingerprint": "0dc4eb0fcc4623c19d8eb5fbd0dc453bd3f75453c2b69e35d3aa470436af3c82",
  "run_id": "atlas-m4-optimization-v1-02258d28-5ab8b3a5",
  "scenarios": {
   "combined_stress": {

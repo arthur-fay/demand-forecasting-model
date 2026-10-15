@@ -2,7 +2,8 @@
  "checks": {
   "errors": 0,
   "scenarios_infeasible": 6,
-  "scenarios_strictly_feasible": 3
+  "scenarios_strictly_feasible": 3,
+  "stage_fallbacks": 0
  },
  "config_fingerprint": "02258d28d0e30759946e5aafbb83a8492d5db905c5fb77da921b191d4ce22e8a",
  "experiment_id": "atlas-m4-optimization-v1",
@@ -432,12 +433,20 @@
      "dropped": 435458.462904889,
      "kept": 435458.462904889
     },
+    "least_penalty_programme_status": {
+     "dropped": "optimal",
+     "kept": "optimal"
+    },
     "monotone_ok": true,
-    "on_frontier_check": "passed"
+    "on_frontier_check": "passed",
+    "points_not_unique_after_tie_breaks": 6,
+    "points_solver_failed": 0,
+    "points_uniqueness_not_tested": 0,
+    "points_with_overtime_or_surge_totals_open": 0
    },
    "optimal_face": {
     "bounds_fixed": 60,
-    "dual_threshold": 6.000000000000001e-08,
+    "dual_threshold": 1.365e-07,
     "max_active_distance": 0.0,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -483,12 +492,12 @@
    "relaxed": null,
    "reported_plan": {
     "certificate": {
-     "dual_objective": 225275.79752229608,
+     "dual_objective": 48728.00420845964,
      "dual_sign": 0.0,
-     "duality_gap": 1.1913533271897252e-08,
+     "duality_gap": 6.078569270020705e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 225275.79752229623,
+     "primal_objective": 48728.00420845966,
      "stationarity": 0.0
     },
     "constraints_not_checked": [],
@@ -518,18 +527,60 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 225275.79752229623,
-    "objective_value": 225275.79752229623,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 48728.00420845966,
+    "objective_value": 48728.00420845966,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least cash among the optimal plans",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 56,
+    "dual_threshold": 2.475e-08,
+    "max_active_distance": 0.0,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 225275.79752229623,
+      "low": 225275.79752229623,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 48728.00420845966,
+      "low": 48728.00420845966,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 3711.6389438347123,
+      "low": 3711.6389438347123,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 2987.7198958013882,
+      "low": 2987.7198958013882,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 1533.753459140431,
+      "low": 1533.753459140431,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 26,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "optimal score, then least cash, least terminal backlog, least request-days",
    "scenario_id": "normal",
    "shadow_prices": {
+    "backward_unresolved": 0,
     "brackets_ok": true,
     "breakpoint": 0,
     "computed": true,
@@ -570,8 +621,10 @@
      }
     ],
     "locally_unique": 123,
-    "n": 123
+    "n": 123,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "certificate": {
      "dual_objective": 322731.8059392155,
@@ -605,29 +658,30 @@
      "total_demand": 333967.7621685283,
      "total_served": 338256.1232246936
     },
-    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (least discretionary cash among the optimal plans)",
+    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (among the optimal plans: least discretionary cash, then least terminal backlog, then least request-days)",
     "highs_status": 7,
     "independent_check_passed": true,
     "iterations": 63,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
     "objective": "weighted",
     "objective_recomputed_from_plan": 322731.8059392155,
     "objective_value": 322731.8059392155,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "terminal_target_changes_optimal_score": false,
+   "terminal_target_changes_reported_plan": false,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 225275.79752229608,
+     "dual_objective": 48728.00420845964,
      "dual_sign": 0.0,
-     "duality_gap": 1.1913533271897252e-08,
+     "duality_gap": 6.078569270020705e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 225275.79752229623,
+     "primal_objective": 48728.00420845966,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -659,12 +713,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 225275.79752229623,
-    "objective_value": 225275.79752229623,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 48728.00420845966,
+    "objective_value": 48728.00420845966,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -734,15 +788,13 @@
     "label": "DIAGNOSTIC: not a plan for the stated constraints",
     "least_terminal_violation_unlimited_discretionary_cash_requests": 9864.538385381127,
     "least_terminal_violation_within_budget_requests": 30114.53838538113,
-    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
-     "capacity": 30,
-     "overtime_daily_limit": 15,
-     "overtime_total_limit": 1,
-     "surge_daily_limit": 30,
-     "terminal_backlog_violated": 1
+    "least_violation_unlimited_cash_with_one_limit_removed_requests": {
+     "citywide:overtime_daily_limit": 9864.538385381127,
+     "citywide:overtime_total_limit": 0.0,
+     "citywide:surge_daily_limit": 0.0
     },
     "reasons": [
-     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,864.5 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)"
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,864.5 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the overtime total of 6,000 staff hours (to 0.0 requests without it) (DIAGNOSTIC)"
     ],
     "relaxed_plan": "relaxed_terminal_target"
    },
@@ -751,7 +803,7 @@
    "frontier": null,
    "optimal_face": {
     "bounds_fixed": 59,
-    "dual_threshold": 6.000000000000001e-08,
+    "dual_threshold": 2.16e-07,
     "max_active_distance": 1.8189894035458565e-12,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -796,13 +848,13 @@
    "regular_capacity_mean_requests_per_day": 11000.0,
    "relaxed": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 505358.6726396866,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.159906580985911e-09,
      "holds": true,
      "primal": 5.7029151768629506e-08,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 505358.6726396867,
+     "stationarity": 8.772132540248149e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -833,24 +885,24 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 505358.6726396867,
+    "objective_value": 505358.6726396867,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "reported_plan": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 505358.6726396866,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.159906580985911e-09,
      "holds": true,
      "primal": 5.7029151768629506e-08,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 505358.6726396867,
+     "stationarity": 8.772132540248149e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -881,39 +933,84 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 505358.6726396867,
+    "objective_value": 505358.6726396867,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 59,
+    "dual_threshold": 1.08e-07,
+    "max_active_distance": 4.0745362639427185e-10,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 505358.6726396867,
+      "low": 505358.6726396867,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 34114.53838538113,
+      "low": 34114.53838538113,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, least cash, least terminal backlog, least request-days",
    "scenario_id": "increased_demand",
    "shadow_prices": {
-    "brackets_ok": true,
+    "backward_unresolved": 0,
+    "brackets_ok": null,
     "breakpoint": 0,
     "computed": false,
     "domain_boundary_or_infeasible_side": 0,
     "headline": [],
     "locally_unique": 0,
-    "n": 0
+    "n": 0,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
     "status": "infeasible"
    },
    "terminal_target_changes_optimal_score": null,
+   "terminal_target_changes_reported_plan": null,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 488258.6726396866,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.15209674683136e-09,
      "holds": true,
      "primal": 4.037055199117229e-08,
-     "primal_objective": 300000.0,
+     "primal_objective": 488258.6726396867,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -945,12 +1042,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 488258.6726396867,
+    "objective_value": 488258.6726396867,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -1020,15 +1117,13 @@
     "label": "DIAGNOSTIC: not a plan for the stated constraints",
     "least_terminal_violation_unlimited_discretionary_cash_requests": 9467.762168528267,
     "least_terminal_violation_within_budget_requests": 29717.762168528272,
-    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
-     "capacity": 30,
-     "overtime_daily_limit": 15,
-     "overtime_total_limit": 1,
-     "surge_daily_limit": 30,
-     "terminal_backlog_violated": 1
+    "least_violation_unlimited_cash_with_one_limit_removed_requests": {
+     "citywide:overtime_daily_limit": 9467.762168528268,
+     "citywide:overtime_total_limit": 0.0,
+     "citywide:surge_daily_limit": 0.0
     },
     "reasons": [
-     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,467.8 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)"
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 9,467.8 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the overtime total of 6,000 staff hours (to 0.0 requests without it) (DIAGNOSTIC)"
     ],
     "relaxed_plan": "relaxed_terminal_target"
    },
@@ -1037,7 +1132,7 @@
    "frontier": null,
    "optimal_face": {
     "bounds_fixed": 59,
-    "dual_threshold": 6.000000000000001e-08,
+    "dual_threshold": 2.16e-07,
     "max_active_distance": 0.0,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -1082,13 +1177,13 @@
    "regular_capacity_mean_requests_per_day": 9900.0,
    "relaxed": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 502944.24785426003,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.675836861902151e-09,
      "holds": true,
      "primal": 5.887427667407928e-08,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 502944.2478542601,
+     "stationarity": 8.772132540248149e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -1119,24 +1214,24 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 502944.2478542601,
+    "objective_value": 502944.2478542601,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "reported_plan": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 502944.24785426003,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.675836861902151e-09,
      "holds": true,
      "primal": 5.887427667407928e-08,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 502944.2478542601,
+     "stationarity": 8.772132540248149e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -1167,39 +1262,84 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 502944.2478542601,
+    "objective_value": 502944.2478542601,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 59,
+    "dual_threshold": 1.08e-07,
+    "max_active_distance": 0.0,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 502944.2478542601,
+      "low": 502944.2478542601,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 33717.76216852827,
+      "low": 33717.76216852827,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, least cash, least terminal backlog, least request-days",
    "scenario_id": "reduced_capacity",
    "shadow_prices": {
-    "brackets_ok": true,
+    "backward_unresolved": 0,
+    "brackets_ok": null,
     "breakpoint": 0,
     "computed": false,
     "domain_boundary_or_infeasible_side": 0,
     "headline": [],
     "locally_unique": 0,
-    "n": 0
+    "n": 0,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
     "status": "infeasible"
    },
    "terminal_target_changes_optimal_score": null,
+   "terminal_target_changes_reported_plan": null,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 485844.24785426003,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.66638859350597e-09,
      "holds": true,
      "primal": 4.166145025883247e-08,
-     "primal_objective": 300000.0,
+     "primal_objective": 485844.2478542601,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -1231,12 +1371,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 485844.2478542601,
+    "objective_value": 485844.2478542601,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -1298,7 +1438,7 @@
    "frontier": null,
    "optimal_face": {
     "bounds_fixed": 58,
-    "dual_threshold": 7.200000000000001e-08,
+    "dual_threshold": 1.6200000000000002e-07,
     "max_active_distance": 290.89763800552464,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -1344,12 +1484,12 @@
    "relaxed": null,
    "reported_plan": {
     "certificate": {
-     "dual_objective": 268995.94319019374,
+     "dual_objective": 49395.5111267405,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 9.184620763500621e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 268995.94319019374,
+     "primal_objective": 49395.51112674052,
      "stationarity": 0.0
     },
     "constraints_not_checked": [],
@@ -1379,18 +1519,60 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 268995.94319019374,
-    "objective_value": 268995.94319019374,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 49395.51112674052,
+    "objective_value": 49395.51112674052,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least cash among the optimal plans",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 57,
+    "dual_threshold": 2.475e-08,
+    "max_active_distance": 0.0,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 268995.94319019374,
+      "low": 268995.94319019374,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 49395.51112674052,
+      "low": 49395.51112674052,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 3711.6389438347123,
+      "low": 3711.6389438347123,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 3136.0547665304684,
+      "low": 3136.0547665304684,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 1200.0,
+      "low": 1200.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 27,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "optimal score, then least cash, least terminal backlog, least request-days",
    "scenario_id": "increased_costs",
    "shadow_prices": {
+    "backward_unresolved": 0,
     "brackets_ok": true,
     "breakpoint": 0,
     "computed": true,
@@ -1431,8 +1613,10 @@
      }
     ],
     "locally_unique": 123,
-    "n": 123
+    "n": 123,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "certificate": {
      "dual_objective": 367786.9654436746,
@@ -1466,29 +1650,30 @@
      "total_demand": 333967.7621685283,
      "total_served": 338256.1232246936
     },
-    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (least discretionary cash among the optimal plans)",
+    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (among the optimal plans: least discretionary cash, then least terminal backlog, then least request-days)",
     "highs_status": 7,
     "independent_check_passed": true,
     "iterations": 64,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
     "objective": "weighted",
     "objective_recomputed_from_plan": 367786.9654436748,
     "objective_value": 367786.96544367477,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "terminal_target_changes_optimal_score": false,
+   "terminal_target_changes_reported_plan": false,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 268995.94319019374,
+     "dual_objective": 49395.5111267405,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 9.184620763500621e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 268995.94319019374,
+     "primal_objective": 49395.51112674052,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -1520,12 +1705,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 268995.94319019374,
-    "objective_value": 268995.94319019374,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 49395.51112674052,
+    "objective_value": 49395.51112674052,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -1595,11 +1780,7 @@
     "label": "DIAGNOSTIC: not a plan for the stated constraints",
     "least_terminal_violation_unlimited_discretionary_cash_requests": 0.0,
     "least_terminal_violation_within_budget_requests": 2342.7621685282666,
-    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
-     "capacity": 30,
-     "overtime_daily_limit": 8,
-     "terminal_backlog": 1
-    },
+    "least_violation_unlimited_cash_with_one_limit_removed_requests": {},
     "reasons": [
      "under this deterministic demand path and the HYPOTHETICAL prices, no plan spending less than 212,474 USD on overtime and surge reaches the HYPOTHETICAL terminal-backlog target (62,474 USD above the HYPOTHETICAL budget; DIAGNOSTIC, not a budget request)"
     ],
@@ -1610,7 +1791,7 @@
    "frontier": null,
    "optimal_face": {
     "bounds_fixed": 58,
-    "dual_threshold": 6.000000000000001e-08,
+    "dual_threshold": 2.43e-07,
     "max_active_distance": 1.8189894035458565e-11,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -1655,13 +1836,13 @@
    "regular_capacity_mean_requests_per_day": 11000.0,
    "relaxed": {
     "certificate": {
-     "dual_objective": 150000.0,
+     "dual_objective": 110244.24785425999,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.466511930131875e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 150000.0,
-     "stationarity": 0.0
+     "primal_objective": 110244.24785426004,
+     "stationarity": 6.579099405186113e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -1692,24 +1873,24 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 150000.0,
-    "objective_value": 150000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 110244.24785426004,
+    "objective_value": 110244.24785426004,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "reported_plan": {
     "certificate": {
-     "dual_objective": 150000.0,
+     "dual_objective": 110244.24785425999,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 5.466511930131875e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 150000.0,
-     "stationarity": 0.0
+     "primal_objective": 110244.24785426004,
+     "stationarity": 6.579099405186113e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -1740,39 +1921,84 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 150000.0,
-    "objective_value": 150000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 110244.24785426004,
+    "objective_value": 110244.24785426004,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 58,
+    "dual_threshold": 1.215e-07,
+    "max_active_distance": 3.4924596548080444e-10,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 150000.0,
+      "low": 150000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 110244.24785426004,
+      "low": 110244.24785426004,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 6342.762168528267,
+      "low": 6342.762168528267,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 2500.0,
+      "low": 2500.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, least cash, least terminal backlog, least request-days",
    "scenario_id": "reduced_budget",
    "shadow_prices": {
-    "brackets_ok": true,
+    "backward_unresolved": 0,
+    "brackets_ok": null,
     "breakpoint": 0,
     "computed": false,
     "domain_boundary_or_infeasible_side": 0,
     "headline": [],
     "locally_unique": 0,
-    "n": 0
+    "n": 0,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
     "status": "infeasible"
    },
    "terminal_target_changes_optimal_score": null,
+   "terminal_target_changes_reported_plan": null,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 150000.0,
+     "dual_objective": 108852.26739208914,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 1.1040721231702891e-08,
      "holds": true,
      "primal": 7.446035704215767e-08,
-     "primal_objective": 150000.0,
+     "primal_objective": 108852.26739208902,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -1804,12 +2030,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 150000.0,
-    "objective_value": 150000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 108852.26739208902,
+    "objective_value": 108852.26739208902,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -1870,7 +2096,7 @@
    "frontier": null,
    "optimal_face": {
     "bounds_fixed": 60,
-    "dual_threshold": 6.000000000000001e-08,
+    "dual_threshold": 1.515e-07,
     "max_active_distance": 0.0,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -1916,12 +2142,12 @@
    "relaxed": null,
    "reported_plan": {
     "certificate": {
-     "dual_objective": 220163.28599182775,
+     "dual_objective": 55539.44413989802,
      "dual_sign": 0.0,
-     "duality_gap": 3.072501013346488e-08,
+     "duality_gap": 1.3319530412532424e-08,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 220163.2859918281,
+     "primal_objective": 55539.444139898056,
      "stationarity": 0.0
     },
     "constraints_not_checked": [],
@@ -1951,18 +2177,60 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 220163.2859918281,
-    "objective_value": 220163.2859918281,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 55539.444139898056,
+    "objective_value": 55539.444139898056,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least cash among the optimal plans",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 58,
+    "dual_threshold": 2.475e-08,
+    "max_active_distance": 0.0,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 220163.2859918281,
+      "low": 220163.2859918281,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 55539.444139898056,
+      "low": 55539.444139898056,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 3711.6389438347123,
+      "low": 3711.6389438347123,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 3669.388099863802,
+      "low": 3669.388099863802,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 28,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "optimal score, then least cash, least terminal backlog, least request-days",
    "scenario_id": "delayed_surge",
    "shadow_prices": {
+    "backward_unresolved": 0,
     "brackets_ok": true,
     "breakpoint": 0,
     "computed": true,
@@ -2003,8 +2271,10 @@
      }
     ],
     "locally_unique": 116,
-    "n": 123
+    "n": 123,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "certificate": {
      "dual_objective": 331242.1742716241,
@@ -2038,29 +2308,30 @@
      "total_demand": 333967.7621685283,
      "total_served": 338256.1232246936
     },
-    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (least discretionary cash among the optimal plans)",
+    "evaluation_note": "one optimal vertex returned by the solver; the reported plan is reported_plan (among the optimal plans: least discretionary cash, then least terminal backlog, then least request-days)",
     "highs_status": 7,
     "independent_check_passed": true,
     "iterations": 60,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
     "objective": "weighted",
     "objective_recomputed_from_plan": 331242.1742716242,
     "objective_value": 331242.17427162424,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "terminal_target_changes_optimal_score": false,
+   "terminal_target_changes_reported_plan": false,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 220163.28599182775,
+     "dual_objective": 55539.44413989802,
      "dual_sign": 0.0,
-     "duality_gap": 3.072501013346488e-08,
+     "duality_gap": 1.3319530412532424e-08,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 220163.2859918281,
+     "primal_objective": 55539.444139898056,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -2092,12 +2363,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 220163.2859918281,
-    "objective_value": 220163.2859918281,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 55539.444139898056,
+    "objective_value": 55539.444139898056,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -2191,15 +2462,14 @@
     "label": "DIAGNOSTIC: not a plan for the stated constraints",
     "least_terminal_violation_unlimited_discretionary_cash_requests": 13866.150276954693,
     "least_terminal_violation_within_budget_requests": 33495.69573150015,
-    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
-     "capacity": 30,
-     "overtime_daily_limit": 15,
-     "overtime_total_limit": 1,
-     "surge_daily_limit": 23,
-     "terminal_backlog_violated": 1
+    "least_violation_unlimited_cash_with_one_limit_removed_requests": {
+     "citywide:overtime_daily_limit": 13866.150276954693,
+     "citywide:overtime_total_limit": 366.15027695469325,
+     "citywide:surge_daily_limit": 0.0,
+     "citywide:surge_delay": 9666.150276954693
     },
     "reasons": [
-     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 13,866.2 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; surge unavailable on the first 7 days; daily overtime limit reached on 15 days; daily surge limit reached on 23 days)"
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 13,866.2 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the surge delay of 7 days (to 9,666.2 requests without it); the overtime total of 6,000 staff hours (to 366.2 requests without it) (DIAGNOSTIC)"
     ],
     "relaxed_plan": "relaxed_terminal_target"
    },
@@ -2211,12 +2481,20 @@
      "dropped": 851400.0,
      "kept": null
     },
+    "least_penalty_programme_status": {
+     "dropped": "optimal",
+     "kept": "infeasible"
+    },
     "monotone_ok": true,
-    "on_frontier_check": "not_applicable"
+    "on_frontier_check": "not_applicable",
+    "points_not_unique_after_tie_breaks": 0,
+    "points_solver_failed": 0,
+    "points_uniqueness_not_tested": 0,
+    "points_with_overtime_or_surge_totals_open": 0
    },
    "optimal_face": {
     "bounds_fixed": 59,
-    "dual_threshold": 6.600000000000001e-08,
+    "dual_threshold": 2.34e-07,
     "max_active_distance": 2.7284841053187847e-12,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -2261,12 +2539,12 @@
    "regular_capacity_mean_requests_per_day": 10450.0,
    "relaxed": {
     "certificate": {
-     "dual_objective": 225000.0,
+     "dual_objective": 575701.4602469732,
      "dual_sign": 0.0,
      "duality_gap": 0.0,
      "holds": true,
      "primal": 3.269119062819547e-08,
-     "primal_objective": 225000.0,
+     "primal_objective": 575701.4602469732,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -2298,23 +2576,23 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 225000.0,
-    "objective_value": 225000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 575701.4602469732,
+    "objective_value": 575701.4602469732,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "reported_plan": {
     "certificate": {
-     "dual_objective": 225000.0,
+     "dual_objective": 575701.4602469732,
      "dual_sign": 0.0,
      "duality_gap": 0.0,
      "holds": true,
      "primal": 3.269119062819547e-08,
-     "primal_objective": 225000.0,
+     "primal_objective": 575701.4602469732,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -2346,39 +2624,84 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 225000.0,
-    "objective_value": 225000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 575701.4602469732,
+    "objective_value": 575701.4602469732,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 59,
+    "dual_threshold": 1.17e-07,
+    "max_active_distance": 2.9103830456733704e-10,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 225000.0,
+      "low": 225000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 575701.4602469732,
+      "low": 575701.4602469732,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 37495.69573150015,
+      "low": 37495.69573150015,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 3409.090909090909,
+      "low": 3409.090909090909,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, least cash, least terminal backlog, least request-days",
    "scenario_id": "combined_stress",
    "shadow_prices": {
-    "brackets_ok": true,
+    "backward_unresolved": 0,
+    "brackets_ok": null,
     "breakpoint": 0,
     "computed": false,
     "domain_boundary_or_infeasible_side": 0,
     "headline": [],
     "locally_unique": 0,
-    "n": 0
+    "n": 0,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
     "status": "infeasible"
    },
    "terminal_target_changes_optimal_score": null,
+   "terminal_target_changes_reported_plan": null,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 225000.0,
+     "dual_objective": 575701.4602469732,
      "dual_sign": 0.0,
      "duality_gap": 0.0,
      "holds": true,
      "primal": 3.269119062819547e-08,
-     "primal_objective": 225000.0,
+     "primal_objective": 575701.4602469732,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -2410,12 +2733,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 3.637978807091713e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 225000.0,
-    "objective_value": 225000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 575701.4602469732,
+    "objective_value": 575701.4602469732,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -2485,13 +2808,7 @@
     "label": "DIAGNOSTIC: not a plan for the stated constraints",
     "least_terminal_violation_unlimited_discretionary_cash_requests": 0.0,
     "least_terminal_violation_within_budget_requests": 4397.762168528267,
-    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
-     "capacity": 30,
-     "overtime_daily_limit": 13,
-     "overtime_total_limit": 1,
-     "surge_daily_limit": 3,
-     "terminal_backlog": 1
-    },
+    "least_violation_unlimited_cash_with_one_limit_removed_requests": {},
     "reasons": [
      "under this deterministic demand path and the HYPOTHETICAL prices, no plan spending less than 424,433 USD on overtime and surge reaches the HYPOTHETICAL terminal-backlog target (124,433 USD above the HYPOTHETICAL budget; DIAGNOSTIC, not a budget request)"
     ],
@@ -2502,7 +2819,7 @@
    "frontier": null,
    "optimal_face": {
     "bounds_fixed": 59,
-    "dual_threshold": 6.000000000000001e-08,
+    "dual_threshold": 2.0250000000000002e-07,
     "max_active_distance": 1.8189894035458565e-12,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -2547,13 +2864,13 @@
    "regular_capacity_mean_requests_per_day": 11000.0,
    "relaxed": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 111440.01155606956,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 4.231626653529147e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 111440.01155606951,
+     "stationarity": 9.288140336733335e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -2584,24 +2901,24 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 111440.01155606951,
+    "objective_value": 111440.01155606951,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "reported_plan": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 111440.01155606956,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 4.231626653529147e-09,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 111440.01155606951,
+     "stationarity": 9.288140336733335e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -2632,40 +2949,85 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 111440.01155606951,
+    "objective_value": 111440.01155606951,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 59,
+    "dual_threshold": 1.0125000000000001e-07,
+    "max_active_distance": 4.0745362639427185e-10,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 111440.01155606951,
+      "low": 111440.01155606951,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 8397.762168528267,
+      "low": 8397.762168528267,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, least cash, least terminal backlog, least request-days",
    "scenario_id": "m2_bias_shift",
    "shadow_prices": {
-    "brackets_ok": true,
+    "backward_unresolved": 0,
+    "brackets_ok": null,
     "breakpoint": 0,
     "computed": false,
     "domain_boundary_or_infeasible_side": 0,
     "headline": [],
     "locally_unique": 0,
-    "n": 0
+    "n": 0,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
     "status": "infeasible"
    },
    "terminal_target_changes_optimal_score": null,
+   "terminal_target_changes_reported_plan": null,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 98543.8366624845,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 1.235412577145573e-08,
      "holds": true,
      "primal": 0.0,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 98543.83666248461,
+     "stationarity": 8.772132540248149e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -2696,12 +3058,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 98543.83666248461,
+    "objective_value": 98543.83666248461,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -2764,15 +3126,13 @@
     "label": "DIAGNOSTIC: not a plan for the stated constraints",
     "least_terminal_violation_unlimited_discretionary_cash_requests": 32361.67251028413,
     "least_terminal_violation_within_budget_requests": 52611.67251028413,
-    "limits_binding_in_least_violation_plan_with_unlimited_cash": {
-     "capacity": 30,
-     "overtime_daily_limit": 15,
-     "overtime_total_limit": 1,
-     "surge_daily_limit": 30,
-     "terminal_backlog_violated": 1
+    "least_violation_unlimited_cash_with_one_limit_removed_requests": {
+     "citywide:overtime_daily_limit": 32361.67251028413,
+     "citywide:overtime_total_limit": 18861.672510284123,
+     "citywide:surge_daily_limit": 0.0
     },
     "reasons": [
-     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 32,361.7 requests (in the least-violation plan: overtime total (6,000 staff hours) used up; daily overtime limit reached on 15 days; daily surge limit reached on 30 days)"
+     "the HYPOTHETICAL terminal-backlog target cannot be reached with any amount of discretionary cash: the least violation is 32,361.7 requests; removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a day; a total dropped; a delayed surge available from the first day), these limits would lower it: the daily surge limit of 600 requests (to 0.0 requests without it); the overtime total of 6,000 staff hours (to 18,861.7 requests without it) (DIAGNOSTIC)"
     ],
     "relaxed_plan": "relaxed_terminal_target"
    },
@@ -2781,7 +3141,7 @@
    "frontier": null,
    "optimal_face": {
     "bounds_fixed": 59,
-    "dual_threshold": 6.000000000000001e-08,
+    "dual_threshold": 2.16e-07,
     "max_active_distance": 1.8189894035458565e-12,
     "method": "complementary_slackness_with_certified_duals",
     "ranges": [
@@ -2826,13 +3186,13 @@
    "regular_capacity_mean_requests_per_day": 11000.0,
    "relaxed": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 813257.6323102305,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 1.0045626121731159e-08,
      "holds": true,
      "primal": 4.458022111860087e-08,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 813257.6323102306,
+     "stationarity": 8.772132540248149e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -2863,24 +3223,24 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 813257.6323102306,
+    "objective_value": 813257.6323102306,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
    "reported_plan": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 813257.6323102305,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 1.0045626121731159e-08,
      "holds": true,
      "primal": 4.458022111860087e-08,
-     "primal_objective": 300000.0,
-     "stationarity": 0.0
+     "primal_objective": 813257.6323102306,
+     "stationarity": 8.772132540248149e-08
     },
     "constraints_not_checked": [
      "terminal_backlog"
@@ -2911,39 +3271,84 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 1.8189894035458565e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 813257.6323102306,
+    "objective_value": 813257.6323102306,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    },
-   "reported_plan_selection": "least target violation within the budget, then optimal score, then least cash",
+   "reported_plan_after_tie_breaks": {
+    "bounds_fixed": 59,
+    "dual_threshold": 1.08e-07,
+    "max_active_distance": 4.0745362639427185e-10,
+    "method": "complementary_slackness_with_certified_duals",
+    "ranges": [
+     {
+      "high": 300000.0,
+      "low": 300000.0,
+      "quantity": "discretionary_cash",
+      "units": "usd"
+     },
+     {
+      "high": 813257.6323102306,
+      "low": 813257.6323102306,
+      "quantity": "backlog_request_days",
+      "units": "request_days"
+     },
+     {
+      "high": 56611.67251028413,
+      "low": 56611.67251028413,
+      "quantity": "terminal_backlog",
+      "units": "requests"
+     },
+     {
+      "high": 5000.0,
+      "low": 5000.0,
+      "quantity": "overtime_hours",
+      "units": "staff_hours"
+     },
+     {
+      "high": 0.0,
+      "low": 0.0,
+      "quantity": "surge_requests",
+      "units": "requests"
+     }
+    ],
+    "rows_tight": 31,
+    "undetermined_days": 0,
+    "unique": true
+   },
+   "reported_plan_selection": "least target violation within the budget, then optimal score, least cash, least terminal backlog, least request-days",
    "scenario_id": "m3_marginal_q90_stress",
    "shadow_prices": {
-    "brackets_ok": true,
+    "backward_unresolved": 0,
+    "brackets_ok": null,
     "breakpoint": 0,
     "computed": false,
     "domain_boundary_or_infeasible_side": 0,
     "headline": [],
     "locally_unique": 0,
-    "n": 0
+    "n": 0,
+    "solver_failed": 0
    },
+   "stage_fallbacks": [],
    "strict_programme": {
     "message": "The problem is infeasible. (HiGHS Status 8: model_status is Infeasible; primal_status is None)",
     "status": "infeasible"
    },
    "terminal_target_changes_optimal_score": null,
+   "terminal_target_changes_reported_plan": null,
    "without_terminal_target": {
     "certificate": {
-     "dual_objective": 300000.0,
+     "dual_objective": 796157.6323102305,
      "dual_sign": 0.0,
-     "duality_gap": 0.0,
+     "duality_gap": 1.0030824829810037e-08,
      "holds": true,
      "primal": 4.409392221040902e-08,
-     "primal_objective": 300000.0,
+     "primal_objective": 796157.6323102306,
      "stationarity": 0.0
     },
     "constraints_not_checked": [
@@ -2975,12 +3380,12 @@
     "independent_check_passed": true,
     "iterations": 0,
     "largest_snap": 0.0,
-    "lexicographic_epsilon_fallback": false,
     "max_balance_residual": 7.275957614183426e-12,
-    "objective": "discretionary_cash",
-    "objective_recomputed_from_plan": 300000.0,
-    "objective_value": 300000.0,
+    "objective": "backlog_days",
+    "objective_recomputed_from_plan": 796157.6323102306,
+    "objective_value": 796157.6323102306,
     "retried_without_presolve": false,
+    "stage_fallback": null,
     "status": "optimal",
     "values_snapped_to_bounds": 0
    }
@@ -3112,6 +3517,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 35327.24843379418,
     "parameter": "demand_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 0.0,
     "unique_optimal_plan": true,
@@ -3126,6 +3532,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 96701.2167771028,
     "parameter": "demand_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 99.89641578009105,
     "unique_optimal_plan": true,
@@ -3140,6 +3547,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 201286.49941100721,
     "parameter": "demand_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 1492.5247236468313,
     "unique_optimal_plan": true,
@@ -3154,6 +3562,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "demand_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3168,6 +3577,7 @@
     "least_terminal_violation_within_budget": 3397.1174118988383,
     "optimal_score": null,
     "parameter": "demand_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3182,6 +3592,7 @@
     "least_terminal_violation_within_budget": 13416.150276954693,
     "optimal_score": null,
     "parameter": "demand_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3196,6 +3607,7 @@
     "least_terminal_violation_within_budget": 30114.53838538113,
     "optimal_score": null,
     "parameter": "demand_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3210,6 +3622,7 @@
     "least_terminal_violation_within_budget": 7967.762168528267,
     "optimal_score": null,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3224,6 +3637,7 @@
     "least_terminal_violation_within_budget": 5155.262168528267,
     "optimal_score": null,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3238,6 +3652,7 @@
     "least_terminal_violation_within_budget": 2342.7621685282666,
     "optimal_score": null,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3252,6 +3667,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322786.96544367477,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": false,
@@ -3266,6 +3682,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3280,6 +3697,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3294,6 +3712,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3308,6 +3727,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3322,6 +3742,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "discretionary_budget_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3336,6 +3757,7 @@
     "least_terminal_violation_within_budget": 29717.762168528272,
     "optimal_score": null,
     "parameter": "regular_hours_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3350,6 +3772,7 @@
     "least_terminal_violation_within_budget": 13217.762168528265,
     "optimal_score": null,
     "parameter": "regular_hours_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3364,6 +3787,7 @@
     "least_terminal_violation_within_budget": 3317.7621685282666,
     "optimal_score": null,
     "parameter": "regular_hours_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3378,6 +3802,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "regular_hours_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3392,6 +3817,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 202080.0896320266,
     "parameter": "regular_hours_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 1540.9435955579938,
     "unique_optimal_plan": true,
@@ -3406,6 +3832,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 97741.63169519587,
     "parameter": "regular_hours_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 220.94359555799383,
     "unique_optimal_plan": true,
@@ -3420,6 +3847,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 34922.66074679929,
     "parameter": "regular_hours_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 0.0,
     "unique_optimal_plan": true,
@@ -3434,6 +3862,7 @@
     "least_terminal_violation_within_budget": 30842.762168528272,
     "optimal_score": null,
     "parameter": "productivity_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3448,6 +3877,7 @@
     "least_terminal_violation_within_budget": 13780.262168528265,
     "optimal_score": null,
     "parameter": "productivity_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3462,6 +3892,7 @@
     "least_terminal_violation_within_budget": 3542.7621685282666,
     "optimal_score": null,
     "parameter": "productivity_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
@@ -3476,6 +3907,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "productivity_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3490,6 +3922,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 200360.23435114106,
     "parameter": "productivity_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 1540.9435955579938,
     "unique_optimal_plan": true,
@@ -3504,6 +3937,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 97201.79912491617,
     "parameter": "productivity_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 220.94359555799383,
     "unique_optimal_plan": true,
@@ -3518,6 +3952,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 34922.66074679929,
     "parameter": "productivity_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 0.0,
     "unique_optimal_plan": true,
@@ -3532,6 +3967,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 277076.6464347563,
     "parameter": "cost_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 2811.6389438347123,
     "unique_optimal_plan": true,
@@ -3546,6 +3982,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 300204.2261869859,
     "parameter": "cost_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3560,6 +3997,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "cost_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3574,6 +4012,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 345259.38569144515,
     "parameter": "cost_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3588,6 +4027,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 367786.96544367477,
     "parameter": "cost_multiplier",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": false,
@@ -3602,13 +4042,14 @@
     "least_terminal_violation_within_budget": 467.76216852826656,
     "optimal_score": null,
     "parameter": "cost_multiplier",
+    "stage_fallbacks": [],
     "status": "infeasible",
     "terminal_backlog": null,
     "unique_optimal_plan": null,
     "value": 1.5
    },
    {
-    "backlog_request_days": 156673.19918014697,
+    "backlog_request_days": 60441.58209470795,
     "capacity_to_point_forecast_mean_ratio": 0.9881193258212568,
     "capacity_to_scenario_demand_mean_ratio": 0.9881193258212568,
     "capacity_within_1pct_of_legacy_demand_percentile": false,
@@ -3616,6 +4057,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 212473.65782742045,
     "parameter": "backlog_penalty",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 4000.0,
     "unique_optimal_plan": false,
@@ -3630,6 +4072,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 242594.44887477442,
     "parameter": "backlog_penalty",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 4000.0,
     "unique_optimal_plan": true,
@@ -3644,6 +4087,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 270587.2994659883,
     "parameter": "backlog_penalty",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 4000.0,
     "unique_optimal_plan": true,
@@ -3658,6 +4102,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 322731.8059392155,
     "parameter": "backlog_penalty",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 3711.6389438347123,
     "unique_optimal_plan": true,
@@ -3672,6 +4117,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 398871.34240523755,
     "parameter": "backlog_penalty",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 2420.943595557994,
     "unique_optimal_plan": true,
@@ -3686,6 +4132,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 518176.093970304,
     "parameter": "backlog_penalty",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 2255.3906590651586,
     "unique_optimal_plan": false,
@@ -3700,6 +4147,7 @@
     "least_terminal_violation_within_budget": null,
     "optimal_score": 736352.187940608,
     "parameter": "backlog_penalty",
+    "stage_fallbacks": [],
     "status": "optimal",
     "terminal_backlog": 2255.3906590651586,
     "unique_optimal_plan": false,
