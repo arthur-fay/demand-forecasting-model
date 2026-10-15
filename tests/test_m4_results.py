@@ -196,3 +196,49 @@ def test_documentation_names_the_reference_run(manifest: dict[str, Any]) -> None
     assert manifest["result_fingerprint"] in text
     assert manifest["config_fingerprint"] in text
     assert re.search(r"FAILED_CALIBRATION", text)
+
+
+#: The feasibility switch points of the one-parameter sweeps of ``normal`` that
+#: docs/OPTIMIZATION.md section 9.4 quotes (four decimals), computed here by bisection on the
+#: strict model with the run's own code (they are not part of the run's outputs).
+SWITCH_POINTS = {
+    "demand_multiplier": (1.0, 1.02, 1.0098),
+    "regular_hours_multiplier": (0.98, 1.0, 0.9901),
+    "productivity_multiplier": (0.98, 1.0, 0.9904),
+    "discretionary_budget_multiplier": (0.5, 0.75, 0.7082),
+    "cost_multiplier": (1.2, 1.5, 1.4119),
+}
+
+
+def test_feasibility_switch_points_quoted_in_section_9() -> None:
+    from atlas.decision_analysis import apply_sweep, solve_problem
+    from atlas.optimization_runner import solver_settings
+    from atlas.optimizer import SolveStatus
+    from atlas.scenarios import build_scenarios
+
+    config = load_optimization_config(CONFIG)
+    settings = load_settings(repo_root=REPO_ROOT, env={})
+    _, data = load_series(settings, "m4_switch_points")
+    assert data is not None
+    inputs = load_inputs(settings, config, data)
+    dates, point = inputs.projection.first(config.horizon_days)
+    scenarios = build_scenarios(config, dates, point, inputs.quantiles, inputs.demand_percentile)
+    base = next(s for s in scenarios if s.scenario_id == "normal").problem
+    solver = solver_settings(config)
+
+    def feasible(parameter: str, value: float) -> bool:
+        attempt = solve_problem(apply_sweep(base, parameter, value), solver)
+        return attempt.status is SolveStatus.OPTIMAL
+
+    text = DOC.read_text(encoding="utf-8")
+    for parameter, (low, high, quoted) in SWITCH_POINTS.items():
+        at_low = feasible(parameter, low)
+        assert at_low != feasible(parameter, high), parameter
+        for _ in range(30):
+            middle = (low + high) / 2
+            if feasible(parameter, middle) == at_low:
+                low = middle
+            else:
+                high = middle
+        assert round((low + high) / 2, 4) == quoted, parameter
+        assert f"{quoted:.4f}".rstrip("0") in text or f"{quoted:.3f}" in text, parameter

@@ -19,8 +19,10 @@ Sections 1-8 describe the method and were committed, with the code, the tests an
 configuration `configs/optimization/atlas-m4-optimization-v1.json`, **before the first run
 of that configuration** (commit `af10ddd`). The independent review (section 10) ran the
 reference configuration on that frozen code; the changes to the method it led to are marked
-**Amended (R)** below, each with its reason in section 10. The configuration file was not
-changed. The results (section 9) come from the amended code.
+**Amended (R)** below, each with its reason in section 10. Two further independent reviews
+examined the fixes, and a verification checked the last round's; their changes are marked
+**Amended (R2)** and **Amended (R3)**. The configuration file was not changed. The results
+(section 9) come from the code after all of them.
 
 ```bash
 uv run atlas optimize run --require-clean --output-dir runs/m4     # reference configuration
