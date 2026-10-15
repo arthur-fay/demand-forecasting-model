@@ -16,6 +16,7 @@ of ``repr`` and never logged.
 
 from __future__ import annotations
 
+import hmac
 import ipaddress
 import os
 import re
@@ -30,6 +31,8 @@ from atlas.errors import ConfigError
 ENV_CORS_ORIGINS: Final = "ATLAS_API_CORS_ORIGINS"
 ENV_ALLOWED_HOSTS: Final = "ATLAS_API_ALLOWED_HOSTS"
 ENV_API_KEY: Final = "ATLAS_API_KEY"
+#: The request header carrying the API key.
+API_KEY_HEADER: Final = "X-API-Key"
 ENV_MAX_BODY_BYTES: Final = "ATLAS_API_MAX_BODY_BYTES"
 ENV_MAX_SIMULATIONS: Final = "ATLAS_API_MAX_CONCURRENT_SIMULATIONS"
 ENV_SIMULATION_TIMEOUT: Final = "ATLAS_API_SIMULATION_TIMEOUT_SECONDS"
@@ -113,6 +116,13 @@ class ApiSettings:
     @property
     def simulation_requires_key(self) -> bool:
         return self.api_key is not None
+
+
+def api_key_matches(presented: str | None, expected: str) -> bool:
+    """Whether ``presented`` is the configured API key (constant-time comparison)."""
+    return presented is not None and hmac.compare_digest(
+        presented.encode("utf-8"), expected.encode("utf-8")
+    )
 
 
 def available_cpus() -> int:

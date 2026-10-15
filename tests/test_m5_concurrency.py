@@ -412,3 +412,26 @@ def test_the_lifespan_stops_the_workers_it_started(api_store: ReferenceStore) ->
         assert started
     time.sleep(0.5)
     assert not set(_new_workers(before)) & started
+
+
+def test_an_unauthenticated_body_is_refused_before_it_is_read(api_store: ReferenceStore) -> None:
+    key = "k" * 32
+    with live_server(api_store, api_key=key) as port:
+        sock = socket.create_connection(("127.0.0.1", port), timeout=10)
+        try:
+            # Headers only: the promised body never comes. Without a key, the answer must
+            # not wait for it (no in-flight slot is held by a slow, unauthenticated body).
+            sock.sendall(
+                b"POST /api/v1/simulations HTTP/1.1\r\nHost: localhost\r\n"
+                b"Content-Type: application/json\r\nContent-Length: 200\r\n\r\n{"
+            )
+            started = time.perf_counter()
+            head = sock.recv(4096)
+            assert time.perf_counter() - started < 2.0
+        finally:
+            sock.close()
+        assert head.startswith(b"HTTP/1.1 401")
+        assert b"www-authenticate: x-api-key" in head.lower()
+        status, _, data, _ = call(port, "POST", "/api/v1/simulations", {"horizon_days": 2})
+        assert status == 401
+        assert json.loads(data)["error"]["code"] == "unauthorized"

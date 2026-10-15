@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import hmac
 import json
 from http import HTTPStatus
 from types import UnionType
-from typing import Annotated, Any, Final, Union, get_args, get_origin
+from typing import Annotated, Any, Union, get_args, get_origin
 
 from fastapi import Depends, Request
 from fastapi.concurrency import run_in_threadpool
@@ -16,10 +15,9 @@ from fastapi.security import APIKeyHeader
 
 from atlas.api.problems import ApiError
 from atlas.api.reference import ReferenceStore
-from atlas.api.settings import ApiSettings
+from atlas.api.settings import API_KEY_HEADER, ApiSettings, api_key_matches
 from atlas.api.simulation import SimulationService
 
-API_KEY_HEADER: Final = "X-API-Key"
 _API_KEY = APIKeyHeader(
     name=API_KEY_HEADER,
     auto_error=False,
@@ -58,7 +56,7 @@ def require_api_key(
     expected = settings.api_key
     if expected is None:
         return
-    if key is None or not hmac.compare_digest(key.encode("utf-8"), expected.encode("utf-8")):
+    if not api_key_matches(key, expected):
         raise ApiError(
             HTTPStatus.UNAUTHORIZED,
             "unauthorized",

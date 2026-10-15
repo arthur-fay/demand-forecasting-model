@@ -25,7 +25,15 @@ from atlas.api.middleware import (
     RequestContextMiddleware,
 )
 from atlas.api.reference import ReferenceStore, load_reference_store
-from atlas.api.routers import forecasts, health, scenarios, simulations, system, uncertainty
+from atlas.api.routers import (
+    API_PREFIX,
+    forecasts,
+    health,
+    scenarios,
+    simulations,
+    system,
+    uncertainty,
+)
 from atlas.api.settings import ApiSettings, load_api_settings
 from atlas.api.simulation import SimulationService
 
@@ -131,5 +139,7 @@ def create_app(
         max_body_bytes=resolved.max_body_bytes,
         docs_paths=DOCS_PATHS if docs else (),
         cors_origins=resolved.cors_origins,
+        api_key=resolved.api_key,
+        protected=[("POST", f"{API_PREFIX}/simulations")],
     )
     return app

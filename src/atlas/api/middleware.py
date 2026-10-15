@@ -33,6 +33,7 @@ from atlas.api.context import (
 )
 from atlas.api.logs import truncated_path
 from atlas.api.problems import ErrorCode, error_payload
+from atlas.api.settings import API_KEY_HEADER, api_key_matches
 
 LOGGER: Final = logging.getLogger("atlas.api")
 
@@ -123,8 +124,12 @@ class RequestContextMiddleware:
         docs_paths: Sequence[str] = (),
         max_in_flight: int = MAX_IN_FLIGHT,
         cors_origins: Sequence[str] = (),
+        api_key: str | None = None,
+        protected: Sequence[tuple[str, str]] = (),
     ) -> None:
         self.app = app
+        self.api_key = api_key
+        self.protected = frozenset(protected)
         self.cors_origins = frozenset(cors_origins)
         self.allowed_hosts = tuple(allowed_hosts)
         self.max_body_bytes = max_body_bytes
@@ -186,6 +191,22 @@ class RequestContextMiddleware:
                     HTTPStatus.BAD_REQUEST,
                     "invalid_host",
                     "the Host header names a host this server does not serve",
+                )
+                return
+            if (
+                self.api_key is not None
+                and (str(scope.get("method")), path) in self.protected
+                and not api_key_matches(headers.get(API_KEY_HEADER.lower()), self.api_key)
+            ):
+                # Refused before the body is read: an unauthenticated client cannot hold an
+                # in-flight slot by sending a body slowly (the route checks the key again).
+                await self._error(
+                    send_with_headers,
+                    request_id,
+                    HTTPStatus.UNAUTHORIZED,
+                    "unauthorized",
+                    f"a valid {API_KEY_HEADER} header is required for this endpoint",
+                    www_authenticate=True,
                 )
                 return
             declared = headers.get("content-length")
@@ -257,6 +278,7 @@ class RequestContextMiddleware:
         message: str,
         *,
         retry_after: bool = False,
+        www_authenticate: bool = False,
     ) -> None:
         if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
             LOGGER.warning(
@@ -271,5 +293,7 @@ class RequestContextMiddleware:
         ]
         if retry_after:
             headers.append((b"retry-after", b"1"))
+        if www_authenticate:
+            headers.append((b"www-authenticate", API_KEY_HEADER.encode("ascii")))
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})
