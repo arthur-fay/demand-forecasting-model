@@ -435,12 +435,16 @@ def _context_middleware(api: TestClient) -> RequestContextMiddleware:
     return layer
 
 
-def test_requests_in_flight_are_capped_with_a_json_503(api_store: ReferenceStore) -> None:
-    with client(api_store) as test_client:
+def test_requests_in_flight_are_capped_with_a_json_503(
+    api_store: ReferenceStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    with client(api_store) as test_client, caplog.at_level(logging.WARNING, "atlas.api"):
         middleware = _context_middleware(test_client)
         middleware.in_flight = MAX_IN_FLIGHT  # as if 64 requests were being served
         try:
             response = test_client.get("/api/v1/system")
+            logged = [r for r in caplog.records if getattr(r, "event", None) == "api_error"]
+            assert [getattr(r, "code", None) for r in logged] == ["server_busy"]
             body = assert_safe_error(response, 503, "server_busy")
             assert response.headers["retry-after"] == "1"
             assert "64" in body["error"]["message"]

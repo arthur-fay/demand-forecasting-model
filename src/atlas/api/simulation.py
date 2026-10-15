@@ -41,6 +41,7 @@ from pydantic import BaseModel
 from atlas.api.problems import ApiError, invalid
 from atlas.api.reference import SIMULATION, ReferenceStore, day_plan, plan_variant
 from atlas.api.schemas import (
+    NULLABLE_PARAMETERS,
     STRESS_QUANTILE_LEVELS,
     ComponentStatus,
     DayPlan,
@@ -108,9 +109,7 @@ PARAMETER_UNITS: Final = {
     "discretionary_budget": "usd",
 }
 #: Parameters for which an explicit ``null`` removes the limit.
-NULLABLE: Final = frozenset(
-    {"overtime_total_hours", "surge_total", "terminal_backlog_max", "discretionary_budget"}
-)
+NULLABLE: Final = NULLABLE_PARAMETERS
 UNIT_PARAMETERS: Final = tuple(name for name in PARAMETER_UNITS if name != "discretionary_budget")
 #: Limits that apply to the whole horizon (never prorated to a shorter one).
 HORIZON_TOTALS: Final = ("overtime_total_hours", "surge_total", "discretionary_budget")

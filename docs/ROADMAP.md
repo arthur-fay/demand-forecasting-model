@@ -133,7 +133,7 @@ See [API.md](API.md) and the contract [`docs/api/openapi.json`](api/openapi.json
 - A FastAPI modular monolith (`atlas.api`): routers and Pydantic contracts (transport),
   a reference store, views and a simulation service (application), and the unchanged M0-M4
   modules (domain), wired by dependency injection.
-- Fourteen versioned, documented endpoints:
+- Fourteen documented endpoints (twelve under `/api/v1`, plus unversioned health probes):
   - health and readiness, system metadata;
   - the M2 models, projection, observed history and backtest metrics;
   - the M3 calibration status and projection quantiles;
@@ -152,7 +152,7 @@ See [API.md](API.md) and the contract [`docs/api/openapi.json`](api/openapi.json
   requests unblocked. Inputs are bounded, there is no queue (503), and a deadline kills the
   worker (504). Lost workers are replaced, logged, counted and reported by readiness.
 - Honest by construction: the M2 H1 result (not significant after Holm) travels with every
-  forecast response; intervals are labelled as failing calibration; holiday-related days
+  response serving M2 numbers; intervals are labelled as failing calibration; holiday-related days
   carry M3's flag; comparisons never subtract a DIAGNOSTIC plan from a feasible one; a test
   applies the M4 wording rules to every string the API sends.
 - Security:
@@ -161,7 +161,8 @@ See [API.md](API.md) and the contract [`docs/api/openapi.json`](api/openapi.json
   - a host allow-list (IPv6 included), explicit CORS with JSON rejections, security headers;
   - an optional API key, and refusal of a public bind without one;
   - a generic 500 with the traceback only in the log;
-  - no filesystem paths from requests, no writes, no subprocess, no outbound access.
+  - no filesystem paths from requests, no writes, no shell or outbound access; the only
+    processes started are the fixed-argument simulation workers.
 - Structured JSON logging; `atlas api serve|openapi|bench`; measured latency and memory
   (API.md section 9).
 - GitHub Actions are pinned to commit SHAs (the M0 limitation below).

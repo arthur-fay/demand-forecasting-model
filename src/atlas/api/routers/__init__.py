@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal
 
+from atlas.api.problems import MEANING, STATUS_OF, ErrorCode
 from atlas.api.schemas import API_VERSION, ErrorResponse
 
 #: Prefix of every versioned route.
@@ -12,23 +13,25 @@ API_PREFIX: Final = f"/api/{API_VERSION}"
 COST_KEY: Final = "x-atlas-cost"
 Cost = Literal["static", "precomputed", "bounded_computation"]
 
-_DESCRIPTIONS: Final = {
-    400: "Invalid Host header (invalid_host).",
-    401: "Missing or wrong API key (unauthorized).",
-    404: "Unknown resource (not_found).",
-    413: "Request body above the limit (payload_too_large).",
-    415: "Body is not application/json (unsupported_media_type).",
-    422: "Invalid request or rejected simulation input (validation_error, simulation_rejected).",
-    500: "Unexpected failure or no certified result (internal_error, simulation_failed).",
-    503: "Reference data unavailable, or all simulation workers busy "
-    "(artifact_unavailable, simulations_busy).",
-    504: "Simulation stopped at its deadline (simulation_timeout).",
-}
+#: Errors any operation can return: an unknown or repeated query parameter, a Host the
+#: server does not serve, an unexpected failure.
+COMMON: Final[tuple[ErrorCode, ...]] = ("validation_error", "invalid_host", "internal_error")
+#: ... and, on every versioned operation, the in-flight cap and an uninitialised store.
+VERSIONED: Final[tuple[ErrorCode, ...]] = (*COMMON, "server_busy", "artifact_unavailable")
 
 
-def errors(*codes: int) -> dict[int | str, dict[str, Any]]:
-    """OpenAPI ``responses`` for the error statuses a route can return."""
-    return {code: {"model": ErrorResponse, "description": _DESCRIPTIONS[code]} for code in codes}
+def errors(*codes: ErrorCode) -> dict[int | str, dict[str, Any]]:
+    """OpenAPI ``responses`` for the error codes a route can return, grouped by status."""
+    by_status: dict[int, list[ErrorCode]] = {}
+    for code in dict.fromkeys(codes):
+        by_status.setdefault(STATUS_OF[code], []).append(code)
+    return {
+        status: {
+            "model": ErrorResponse,
+            "description": "; ".join(f"{code}: {MEANING[code]}" for code in names) + ".",
+        }
+        for status, names in sorted(by_status.items())
+    }
 
 
 def cost(kind: Cost) -> dict[str, Any]:

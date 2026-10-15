@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, Response
 from atlas import __version__
 from atlas.api.dependencies import get_store, reject_unknown_query
 from atlas.api.reference import ReferenceStore
-from atlas.api.routers import cost, errors
+from atlas.api.routers import COMMON, cost, errors
 from atlas.api.schemas import ComponentStatus, LiveResponse, ReadyResponse
 from atlas.api.simulation import WORKERS, SimulationService
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/health", tags=["health"], dependencies=[Depends(reje
     "/live",
     name="getLive",
     summary="Process liveness",
-    responses=errors(422),
+    responses=errors(*COMMON),
     openapi_extra=cost("static"),
 )
 async def live() -> LiveResponse:
@@ -41,7 +41,7 @@ async def live_head() -> Response:
     response_model=ReadyResponse,
     summary="Readiness of every reference component",
     responses={
-        **errors(422),
+        **errors(*COMMON),
         503: {"model": ReadyResponse, "description": "A component is not ready."},
     },
     openapi_extra=cost("static"),

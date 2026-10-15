@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from atlas.api import views
 from atlas.api.dependencies import get_settings, get_store, reject_unknown_query
 from atlas.api.reference import ReferenceStore
-from atlas.api.routers import API_PREFIX, COST_KEY, cost, errors
+from atlas.api.routers import API_PREFIX, COST_KEY, VERSIONED, cost, errors
 from atlas.api.schemas import EndpointInfo, ModelsResponse, SystemResponse
 from atlas.api.settings import ApiSettings
 from atlas.api.simulation import SimulationService
@@ -42,7 +42,7 @@ def endpoint_inventory(document: Mapping[str, Any]) -> list[EndpointInfo]:
     name="getSystem",
     tags=["system"],
     summary="Versions, provenance, scientific status and limits",
-    responses=errors(422),
+    responses=errors(*VERSIONED),
     openapi_extra=cost("precomputed"),
 )
 async def system(
@@ -67,7 +67,7 @@ async def system(
     name="listModels",
     tags=["forecasts"],
     summary="Forecasting models evaluated by M2",
-    responses=errors(422, 503),
+    responses=errors(*VERSIONED),
     openapi_extra=cost("precomputed"),
 )
 async def models(store: Store) -> ModelsResponse:

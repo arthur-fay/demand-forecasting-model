@@ -113,6 +113,10 @@ def assert_envelope(body: dict[str, Any], data_status: str) -> None:
     for source in provenance["sources"]:
         assert not Path(source["path"]).is_absolute()
         assert ".." not in Path(source["path"]).parts
+        # Every hash names its file, and is the hash of that committed file.
+        for name, sha256 in source["files"].items():
+            path = REPO_ROOT / source["path"] / name
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == sha256, (source, name)
 
 
 def free_port() -> int:

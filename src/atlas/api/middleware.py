@@ -258,6 +258,12 @@ class RequestContextMiddleware:
         *,
         retry_after: bool = False,
     ) -> None:
+        if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            LOGGER.warning(
+                "request failed: %s",
+                code,
+                extra={"event": "api_error", "code": code, "status": status},
+            )
         body = json.dumps(error_payload(code, message, request_id)).encode("utf-8")
         headers = [
             (b"content-type", b"application/json"),

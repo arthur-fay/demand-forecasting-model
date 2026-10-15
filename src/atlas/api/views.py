@@ -326,7 +326,7 @@ def _m2_sources(store: ReferenceStore) -> list[Source]:
             run_id=m2.run_id,
             result_fingerprint=m2.result_fingerprint,
             config_fingerprint=m2.config_fingerprint,
-            sha256=m2.metrics_sha256,
+            files={"metrics.json": m2.metrics_sha256},
         )
     ]
 
@@ -631,7 +631,7 @@ def intervals(store: ReferenceStore, horizon_days: int) -> IntervalsResponse:
         store,
         record_type="future_projection_intervals",
         data_status="projected",
-        notices=[INTERVALS_LABEL, point_forecast_notice(store)],
+        notices=[INTERVALS_LABEL, point_forecast_notice(store), selection_test_notice(store)],
         status_first=True,
     )
     return envelope(
@@ -659,9 +659,13 @@ def _m4_integrity(store: ReferenceStore, outcomes: Sequence[ScenarioOutcome]) ->
     )
 
 
-def _m4_sources(store: ReferenceStore, outcomes: Sequence[ScenarioOutcome]) -> list[Source]:
+def _m4_sources(
+    store: ReferenceStore,
+    outcomes: Sequence[ScenarioOutcome],
+    files: Sequence[str] = ("metrics.json",),
+) -> list[Source]:
     sources = [
-        store.m4_source(),
+        store.m4_source(files),
         store.config_source(),
         store.forecast_source(),
         store.status_source(),
@@ -758,7 +762,7 @@ def scenario_detail(store: ReferenceStore, scenario_id: str) -> ScenarioDetailRe
         store,
         data,
         _m4_integrity(store, [outcome]),
-        _m4_sources(store, [outcome]),
+        _m4_sources(store, [outcome], ("metrics.json", "plans.csv", "scenarios.csv")),
     )
 
 
@@ -786,9 +790,8 @@ def comparison(
             raise not_found("scenario", identifier, known, field="scenario_id")
     if baseline not in m4.outcomes:
         raise not_found("scenario", baseline, known, field="baseline")
-    chosen = list(dict.fromkeys(scenario_ids)) or known
-    if baseline not in chosen:
-        chosen.insert(0, baseline)
+    # The baseline is always the first row, followed by the others in request order.
+    chosen = [baseline, *(i for i in dict.fromkeys(scenario_ids or known) if i != baseline)]
     base = m4.outcomes[baseline]
     rows = []
     for identifier in chosen:
@@ -840,7 +843,7 @@ def comparison(
         store,
         data,
         _m4_integrity(store, outcomes),
-        _m4_sources(store, outcomes),
+        _m4_sources(store, outcomes, ("metrics.json", "scenarios.csv")),
     )
 
 

@@ -76,13 +76,15 @@ uv sync --locked          # creates .venv with the exact versions in uv.lock
 
 Runtime dependencies are deliberately small: `pandas`, `pydantic` and, from M4, `scipy`
 for its bundled HiGHS linear-programming solver (NumPy and the rest come with them). M5 adds
-`fastapi` (0.141; 0.142 would add an OpenTelemetry dependency ATLAS does not use) and
-`uvicorn` (without extras). The tests use `httpx2`, the HTTP client Starlette's test client
-asks for.
+`fastapi` (0.141; 0.142 would add an OpenTelemetry dependency ATLAS does not use),
+`uvicorn` (without extras) and `h11`, uvicorn's HTTP/1.1 implementation, which the API's
+request-read deadline builds on. The tests use `httpx2`, the HTTP client Starlette's test
+client asks for.
 Development tools (`pytest`, `pytest-cov`, `hypothesis`, `ruff`, `mypy`, `pandas-stubs`,
-`scipy-stubs`) are in the `dev` dependency group, installed by default. `optype`, a
-typing-only dependency of `scipy-stubs`, is constrained to a release older than two weeks
-when M4 was resolved (`tool.uv.constraint-dependencies`).
+`scipy-stubs`) are in the `dev` dependency group, installed by default. Releases younger
+than two weeks are held back through `tool.uv.constraint-dependencies`: `optype` (a
+typing-only dependency of `scipy-stubs`, since M4), and `starlette` and `truststore` (since
+M5).
 
 ## Run the checks
 

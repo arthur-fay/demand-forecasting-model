@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, Query
 from atlas.api import views
 from atlas.api.dependencies import get_store, reject_unknown_query
 from atlas.api.reference import ReferenceStore
-from atlas.api.routers import API_PREFIX, cost, errors
-from atlas.api.schemas import IntervalsResponse, QueryInt, UncertaintyStatusResponse
+from atlas.api.routers import API_PREFIX, VERSIONED, cost, errors
+from atlas.api.schemas import HorizonDaysQuery, IntervalsResponse, UncertaintyStatusResponse
 from atlas.planning import MAX_HORIZON_DAYS
 
 router = APIRouter(
@@ -26,7 +26,7 @@ Store = Annotated[ReferenceStore, Depends(get_store)]
     "/status",
     name="getUncertaintyStatus",
     summary="M3 calibration status",
-    responses=errors(422, 503),
+    responses=errors(*VERSIONED),
     openapi_extra=cost("precomputed"),
 )
 async def status(store: Store) -> UncertaintyStatusResponse:
@@ -39,14 +39,14 @@ async def status(store: Store) -> UncertaintyStatusResponse:
     "/intervals",
     name="getUncertaintyIntervals",
     summary="M3 projection quantiles (failed calibration)",
-    responses=errors(422, 503),
+    responses=errors(*VERSIONED),
     openapi_extra=cost("precomputed"),
 )
 async def intervals(
     store: Store,
-    horizon_days: Annotated[
-        QueryInt, Query(ge=1, le=MAX_HORIZON_DAYS, description="Days to return.")
-    ] = MAX_HORIZON_DAYS,
+    horizon_days: Annotated[HorizonDaysQuery, Query(description="Days to return.")] = (
+        MAX_HORIZON_DAYS
+    ),
 ) -> IntervalsResponse:
     """Marginal quantiles of the projected days from the sealed M3 method, with the M3
     holiday-related flag. The method failed its calibration criteria: the quantiles carry

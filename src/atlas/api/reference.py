@@ -25,7 +25,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Final
 
 import pandas as pd
@@ -290,11 +290,11 @@ class ReferenceStore:
 
     def snapshot_source(self) -> Source:
         provenance = {} if self.snapshot is None else self.snapshot.provenance
-        return Source(
-            kind="legacy_snapshot",
-            path=str(provenance.get("table_path", "01 Data/daily_total.csv")),
+        return _file_source(
+            "legacy_snapshot",
+            str(provenance.get("table_path", "01 Data/daily_total.csv")),
+            _opt_str(provenance.get("table_sha256")),
             record_type="observed_daily_total",
-            sha256=provenance.get("table_sha256"),
         )
 
     def forecast_source(self) -> Source:
@@ -306,7 +306,7 @@ class ReferenceStore:
             record_type=str(p.get("record_type")),
             run_id=_opt_str(p.get("run_id")),
             config_fingerprint=_opt_str(p.get("config_fingerprint")),
-            sha256=_opt_str(p.get("projections_sha256")),
+            files=_files(("projections.csv", _opt_str(p.get("projections_sha256")))),
         )
 
     def accuracy_source(self) -> Source:
@@ -320,20 +320,20 @@ class ReferenceStore:
             result_fingerprint=_opt_str(s.get("result_fingerprint")),
             # load_inputs checked that the backtest run used the projection's configuration.
             config_fingerprint=_opt_str(inputs.projection.provenance.get("config_fingerprint")),
-            sha256=_opt_str(s.get("metrics_sha256")),
+            files=_files(("metrics.json", _opt_str(s.get("metrics_sha256")))),
         )
 
     def status_source(self) -> Source:
         inputs = _present(self.inputs)
         s = inputs.status.provenance
-        return Source(
-            kind="m3_calibration_status",
-            path=str(s.get("path")),
+        return _file_source(
+            "m3_calibration_status",
+            str(s.get("path")),
+            _opt_str(s.get("sha256")),
             record_type="calibration_status",
             run_id=_opt_str(s.get("run_id")),
             result_fingerprint=_opt_str(s.get("result_fingerprint")),
             config_fingerprint=inputs.status.config_fingerprint,
-            sha256=_opt_str(s.get("sha256")),
         )
 
     def intervals_source(self) -> Source:
@@ -347,10 +347,13 @@ class ReferenceStore:
             record_type="future_projection_intervals",
             run_id=None if intervals is None else intervals.run_id,
             config_fingerprint=None if intervals is None else intervals.config_fingerprint,
-            sha256=config.uncertainty.projection_intervals_sha256,
+            files=_files(
+                ("projection_intervals.csv", config.uncertainty.projection_intervals_sha256)
+            ),
         )
 
-    def m4_source(self) -> Source:
+    def m4_source(self, files: Sequence[str] = ("metrics.json",)) -> Source:
+        """The M4 reference run, with the verified files the response was built from."""
         m4 = _present(self.m4)
         return Source(
             kind="m4_reference_run",
@@ -359,17 +362,17 @@ class ReferenceStore:
             run_id=m4.run_id,
             result_fingerprint=m4.result_fingerprint,
             config_fingerprint=m4.config_fingerprint,
-            sha256=m4.sha256.get("metrics.json"),
+            files=_files(*((name, m4.sha256.get(name)) for name in files)),
         )
 
     def config_source(self) -> Source:
         config = _present(self.config)
-        return Source(
-            kind="m4_reference_configuration",
-            path=REFERENCE_CONFIG,
+        return _file_source(
+            "m4_reference_configuration",
+            REFERENCE_CONFIG,
+            self.config_sha256,
             record_type="optimization_config",
             config_fingerprint=config.fingerprint(),
-            sha256=self.config_sha256,
         )
 
 
@@ -381,6 +384,17 @@ def _present[T](value: T | None) -> T:
 
 def _opt_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _files(*entries: tuple[str, str | None]) -> dict[str, str]:
+    """``{file name: SHA-256}`` of the files served from a source (unknown hashes left out)."""
+    return {name: sha for name, sha in entries if sha is not None}
+
+
+def _file_source(kind: str, file_path: str, sha256: str | None, **fields: Any) -> Source:
+    """A source that is one file: its directory as ``path``, the file in ``files``."""
+    path = PurePosixPath(file_path)
+    return Source(kind=kind, path=str(path.parent), files=_files((path.name, sha256)), **fields)
 
 
 # --- Loading ----------------------------------------------------------------------------

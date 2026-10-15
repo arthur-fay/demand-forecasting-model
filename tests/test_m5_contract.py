@@ -15,7 +15,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from atlas.api.reference import ReferenceStore
-from atlas.api.schemas import SimulationParameters
+from atlas.api.schemas import (
+    MIN_NONZERO_RATE,
+    NULLABLE_PARAMETERS,
+    RATE_PARAMETERS,
+    SimulationParameters,
+)
 from atlas.api.server import openapi_document
 from atlas.api.simulation import PARAMETER_UNITS, SimulationService
 from atlas.optimization_config import ServiceUnitConfig
@@ -127,15 +132,45 @@ def test_request_schema_matches_the_validation(document: dict[str, Any]) -> None
     assert schema["additionalProperties"] is False
     for name, field in SimulationParameters.model_fields.items():
         prop = schema["properties"][name]
-        bounds = next(option for option in prop["anyOf"] if option["type"] != "null")
+        assert "default" not in prop  # omitted means the reference value, not null
+        options = prop.get("anyOf", [prop])
+        # null is published exactly where the server accepts it.
+        assert ({"type": "null"} in options) is (name in NULLABLE_PARAMETERS), name
+        numbers = [o for o in options if o.get("type") != "null"]
+        if name in RATE_PARAMETERS:  # 0, or at least 0.01 (never null)
+            zero, material = numbers
+            assert zero["const"] == 0
+            assert material["minimum"] == MIN_NONZERO_RATE
+            bounds = material
+        else:
+            (bounds,) = numbers
         lows = [getattr(m, "ge", None) for m in field.metadata]
         highs = [getattr(m, "le", None) for m in field.metadata]
-        assert bounds["minimum"] == next(v for v in lows if v is not None)
+        if name not in RATE_PARAMETERS:
+            assert bounds["minimum"] == next(v for v in lows if v is not None)
         assert bounds["maximum"] == next(v for v in highs if v is not None)
     examples = document["paths"]["/api/v1/simulations"]["post"]["requestBody"]["content"][
         "application/json"
     ]["examples"]
     assert set(examples) == {"reference", "smaller_budget", "two_weeks_more_surge", "stress_path"}
+
+
+def _keys(value: Any) -> Iterator[str]:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _keys(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _keys(item)
+
+
+def test_contract_uses_standard_json_schema_bounds(document: dict[str, Any]) -> None:
+    assert not {"ge", "le", "gt", "lt"} & set(_keys(document))
+    for path in ("/api/v1/forecasts", "/api/v1/uncertainty/intervals"):
+        (parameter,) = document["paths"][path]["get"]["parameters"]
+        assert parameter["schema"]["minimum"] == 1
+        assert parameter["schema"]["maximum"] == 30
 
 
 def test_parameter_units_are_the_m4_units() -> None:
@@ -354,3 +389,74 @@ def test_live_docs_render(api_store: ReferenceStore) -> None:
 def test_testclient_import_has_no_deprecation() -> None:
     # pytest turns warnings into errors: importing the client must stay warning-free.
     assert TestClient.__module__.startswith("starlette")
+
+
+def _operation(document: dict[str, Any], method: str, url: str) -> dict[str, Any]:
+    path = url.split("?", 1)[0]
+    for template, item in document["paths"].items():
+        if re.fullmatch(re.sub(r"\{[^}]+\}", "[^/]+", template), path) and method in item:
+            operation: dict[str, Any] = item[method]
+            return operation
+    raise AssertionError(f"no operation for {method} {path}")
+
+
+ERROR_CASES: list[tuple[str, str, dict[str, Any], str]] = [
+    ("get", "/health/live?x=1", {}, "validation_error"),
+    ("get", "/health/ready", {"headers": {"host": "evil.example"}}, "invalid_host"),
+    ("get", "/api/v1/system?x=1", {}, "validation_error"),
+    ("get", "/api/v1/models?x=1", {}, "validation_error"),
+    ("get", "/api/v1/forecasts?horizon_days=31", {}, "validation_error"),
+    ("get", "/api/v1/forecasts/history?end=0001-01-01", {}, "validation_error"),
+    ("get", "/api/v1/forecasts/metrics?model_id=nope", {}, "not_found"),
+    ("get", "/api/v1/uncertainty/status", {"headers": {"host": "evil.example"}}, "invalid_host"),
+    ("get", "/api/v1/uncertainty/intervals?horizon_days=0", {}, "validation_error"),
+    ("get", "/api/v1/scenarios?x=1", {}, "validation_error"),
+    ("get", "/api/v1/scenarios/nope", {}, "not_found"),
+    ("get", "/api/v1/scenarios/comparison?baseline=nope", {}, "not_found"),
+    ("get", "/api/v1/simulations/parameters?x=1", {}, "validation_error"),
+    ("post", "/api/v1/simulations", {"content": b"{}"}, "unsupported_media_type"),
+    (
+        "post",
+        "/api/v1/simulations",
+        {"content": b'{"horizon_days": "\xff"}', "headers": {"content-type": "application/json"}},
+        "bad_request",
+    ),
+    (
+        "post",
+        "/api/v1/simulations",
+        {"content": b"{" + b" " * 20_000 + b"}", "headers": {"content-type": "application/json"}},
+        "payload_too_large",
+    ),
+    ("post", "/api/v1/simulations", {"json": {"horizon_days": 0}}, "validation_error"),
+    (
+        "post",
+        "/api/v1/simulations",
+        {"json": {"parameters": {"regular_hours_per_day": 4643.5}}},
+        "simulation_rejected",
+    ),
+]
+
+
+def test_observed_errors_are_documented_on_their_operation(
+    api_store: ReferenceStore, api_simulator: SimulationService, document: dict[str, Any]
+) -> None:
+    with client(api_store, api_simulator) as api:
+        observed = [
+            (method, url, api.request(method.upper(), url, **kwargs), code)
+            for method, url, kwargs, code in ERROR_CASES
+        ]
+    with client(api_store, api_simulator, api_key="k" * 32) as api:
+        observed.append(
+            (
+                "post",
+                "/api/v1/simulations",
+                api.post("/api/v1/simulations", json={}),
+                "unauthorized",
+            )
+        )
+    for method, url, response, code in observed:
+        assert response.json()["error"]["code"] == code, (url, response.text)
+        documented = _operation(document, method, url)["responses"]
+        status = str(response.status_code)
+        assert status in documented, (method, url, status)
+        assert code in documented[status]["description"], (method, url, code)

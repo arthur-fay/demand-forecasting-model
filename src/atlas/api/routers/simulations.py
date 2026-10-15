@@ -16,7 +16,7 @@ from atlas.api.dependencies import (
     require_json,
 )
 from atlas.api.reference import ReferenceStore
-from atlas.api.routers import API_PREFIX, cost, errors
+from atlas.api.routers import API_PREFIX, VERSIONED, cost, errors
 from atlas.api.schemas import (
     SimulationParametersResponse,
     SimulationRequest,
@@ -61,7 +61,7 @@ EXAMPLES: Final[dict[str, Any]] = {
     "/parameters",
     name="getSimulationParameters",
     summary="Defaults and ranges of the simulation inputs",
-    responses=errors(422, 503),
+    responses=errors(*VERSIONED),
     openapi_extra=cost("precomputed"),
 )
 async def parameters(store: Store) -> SimulationParametersResponse:
@@ -75,7 +75,17 @@ async def parameters(store: Store) -> SimulationParametersResponse:
     name="runSimulation",
     summary="Run one bounded HYPOTHETICAL simulation",
     dependencies=[Depends(require_api_key), Depends(require_json)],
-    responses=errors(401, 413, 415, 422, 500, 503, 504),
+    responses=errors(
+        *VERSIONED,
+        "bad_request",
+        "unauthorized",
+        "payload_too_large",
+        "unsupported_media_type",
+        "simulation_rejected",
+        "simulation_failed",
+        "simulations_busy",
+        "simulation_timeout",
+    ),
     # The key is required only when the server sets ATLAS_API_KEY: {} makes it optional
     # (FastAPI appends this to the APIKeyHeader requirement it derives).
     openapi_extra={**cost("bounded_computation"), "security": [{}]},

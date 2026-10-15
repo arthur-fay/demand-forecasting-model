@@ -22,6 +22,7 @@ import re
 from datetime import date
 from typing import Annotated, Any, Final, Literal
 
+from annotated_types import Ge, Le
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from atlas.api.problems import ErrorCode
@@ -61,8 +62,10 @@ def _decimal_digits(value: object) -> object:
     return value
 
 
-#: An integer query parameter (``horizon_days=7``; ``+7``, ``7.0`` and ``7_0`` are refused).
-QueryInt = Annotated[int, BeforeValidator(_decimal_digits)]
+#: The ``horizon_days`` query parameter: plain digits (``+7``, ``7.0`` and ``7_0`` are
+#: refused), 1..MAX_HORIZON_DAYS. The bounds sit on the type so that the contract states
+#: them as ``minimum``/``maximum``.
+HorizonDaysQuery = Annotated[int, Ge(1), Le(MAX_HORIZON_DAYS), BeforeValidator(_decimal_digits)]
 
 
 class _Model(BaseModel):
@@ -87,7 +90,8 @@ class _Request(_Model):
 
 # --- Envelope ---------------------------------------------------------------------------
 
-#: The four M3 decision statuses (machine values; reports print them upper-case).
+#: The three M3 decision statuses (machine values; reports print them upper-case), and
+#: ``unavailable`` when the status file could not be loaded.
 IntervalStatus = Literal[
     "decision_grade", "failed_calibration", "insufficient_evidence", "unavailable"
 ]
@@ -139,12 +143,16 @@ class Source(_Model):
     """One committed input, checked when the API started."""
 
     kind: str
-    path: str = Field(description="Repository-relative path of the file or run directory.")
+    path: str = Field(description="Repository-relative directory of the run or file.")
     record_type: str | None = None
     run_id: str | None = None
     result_fingerprint: str | None = None
     config_fingerprint: str | None = None
-    sha256: str | None = Field(default=None, description="SHA-256 of the file served.")
+    files: dict[str, str] = Field(
+        default_factory=dict,
+        description="SHA-256 of each file this response was built from, by file name in path "
+        "(each verified against its run's record at startup).",
+    )
 
 
 class Provenance(_Model):
@@ -916,6 +924,44 @@ class DemandSettings(_Request):
 #: Money and penalty rates are 0 or at least this: a smaller nonzero rate would put a
 #: coefficient of 1e-9 or less into the programme, which HiGHS drops silently (M4 rejects it).
 MIN_NONZERO_RATE: Final = 0.01
+#: Parameters for which an explicit ``null`` removes the limit (every other one refuses it).
+NULLABLE_PARAMETERS: Final = frozenset(
+    {"overtime_total_hours", "surge_total", "terminal_backlog_max", "discretionary_budget"}
+)
+RATE_PARAMETERS: Final = (
+    "regular_wage",
+    "overtime_wage",
+    "surge_price",
+    "backlog_penalty",
+    "terminal_penalty",
+)
+
+
+def _parameters_schema(schema: dict[str, Any]) -> None:
+    """The published schema of :class:`SimulationParameters`, stated as validated.
+
+    Every field is ``X | None`` in Python so that an omitted field (the reference value) and
+    an explicit ``null`` can be told apart. The contract shows ``null`` only where it is
+    accepted, no ``null`` default (omitted means the reference value), and the rate rule
+    ``0, or at least 0.01``.
+    """
+    for name, prop in schema.get("properties", {}).items():
+        prop.pop("default", None)
+        options = [o for o in prop.pop("anyOf", []) if o.get("type") != "null"]
+        if not options:
+            continue
+        (number,) = options
+        if name in RATE_PARAMETERS:
+            number = {
+                "anyOf": [
+                    {"type": number["type"], "const": 0},
+                    {**number, "minimum": MIN_NONZERO_RATE},
+                ]
+            }
+        if name in NULLABLE_PARAMETERS:
+            prop["anyOf"] = [number, {"type": "null"}]
+        else:
+            prop.update(number)
 
 
 class SimulationParameters(_Request):
@@ -927,6 +973,8 @@ class SimulationParameters(_Request):
     explicit ``null`` removes the limit; for every other field ``null`` is rejected. The
     ranges keep every programme at the scale the M4 solver layer was reviewed at.
     """
+
+    model_config = ConfigDict(json_schema_extra=_parameters_schema)
 
     initial_backlog: float | None = Field(
         default=None, ge=0, le=200_000, allow_inf_nan=False, description="requests"

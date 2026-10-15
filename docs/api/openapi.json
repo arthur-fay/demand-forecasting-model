@@ -4168,30 +4168,24 @@
           "backlog_penalty": {
             "anyOf": [
               {
-                "maximum": 1000.0,
-                "minimum": 0.0,
+                "const": 0,
                 "type": "number"
               },
               {
-                "type": "null"
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
               }
             ],
             "description": "usd_per_request_day (notional weight, not cash)",
             "title": "Backlog Penalty"
           },
           "backlog_trigger": {
-            "anyOf": [
-              {
-                "maximum": 1000000.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "requests (trigger of the backlog-trigger comparison policy)",
-            "title": "Backlog Trigger"
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Backlog Trigger",
+            "type": "number"
           },
           "discretionary_budget": {
             "anyOf": [
@@ -4208,46 +4202,25 @@
             "title": "Discretionary Budget"
           },
           "initial_backlog": {
-            "anyOf": [
-              {
-                "maximum": 200000.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "requests",
-            "title": "Initial Backlog"
+            "maximum": 200000.0,
+            "minimum": 0.0,
+            "title": "Initial Backlog",
+            "type": "number"
           },
           "overtime_max_hours_per_day": {
-            "anyOf": [
-              {
-                "maximum": 5000.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "staff_hours_per_day",
-            "title": "Overtime Max Hours Per Day"
+            "maximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Overtime Max Hours Per Day",
+            "type": "number"
           },
           "overtime_productivity": {
-            "anyOf": [
-              {
-                "maximum": 10.0,
-                "minimum": 0.1,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "requests_per_staff_hour",
-            "title": "Overtime Productivity"
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Overtime Productivity",
+            "type": "number"
           },
           "overtime_total_hours": {
             "anyOf": [
@@ -4266,96 +4239,71 @@
           "overtime_wage": {
             "anyOf": [
               {
-                "maximum": 1000.0,
-                "minimum": 0.0,
+                "const": 0,
                 "type": "number"
               },
               {
-                "type": "null"
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
               }
             ],
             "description": "usd_per_staff_hour",
             "title": "Overtime Wage"
           },
           "regular_hours_per_day": {
-            "anyOf": [
-              {
-                "maximum": 12000.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "staff_hours_per_day",
-            "title": "Regular Hours Per Day"
+            "maximum": 12000.0,
+            "minimum": 0.0,
+            "title": "Regular Hours Per Day",
+            "type": "number"
           },
           "regular_productivity": {
-            "anyOf": [
-              {
-                "maximum": 10.0,
-                "minimum": 0.1,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "requests_per_staff_hour",
-            "title": "Regular Productivity"
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Regular Productivity",
+            "type": "number"
           },
           "regular_wage": {
             "anyOf": [
               {
-                "maximum": 1000.0,
-                "minimum": 0.0,
+                "const": 0,
                 "type": "number"
               },
               {
-                "type": "null"
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
               }
             ],
             "description": "usd_per_staff_hour",
             "title": "Regular Wage"
           },
           "surge_available_from_day": {
-            "anyOf": [
-              {
-                "maximum": 31.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "planning_day (1-based); horizon_days + 1 means never within the horizon",
-            "title": "Surge Available From Day"
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Surge Available From Day",
+            "type": "integer"
           },
           "surge_max_per_day": {
-            "anyOf": [
-              {
-                "maximum": 50000.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "requests_per_day",
-            "title": "Surge Max Per Day"
+            "maximum": 50000.0,
+            "minimum": 0.0,
+            "title": "Surge Max Per Day",
+            "type": "number"
           },
           "surge_price": {
             "anyOf": [
               {
-                "maximum": 1000.0,
-                "minimum": 0.0,
+                "const": 0,
                 "type": "number"
               },
               {
-                "type": "null"
+                "maximum": 1000.0,
+                "minimum": 0.01,
+                "type": "number"
               }
             ],
             "description": "usd_per_request",
@@ -4392,12 +4340,13 @@
           "terminal_penalty": {
             "anyOf": [
               {
-                "maximum": 10000.0,
-                "minimum": 0.0,
+                "const": 0,
                 "type": "number"
               },
               {
-                "type": "null"
+                "maximum": 10000.0,
+                "minimum": 0.01,
+                "type": "number"
               }
             ],
             "description": "usd_per_request (notional weight, not cash)",
@@ -4566,12 +4515,20 @@
             ],
             "title": "Config Fingerprint"
           },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "SHA-256 of each file this response was built from, by file name in path (each verified against its run's record at startup).",
+            "title": "Files",
+            "type": "object"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
           },
           "path": {
-            "description": "Repository-relative path of the file or run directory.",
+            "description": "Repository-relative directory of the run or file.",
             "title": "Path",
             "type": "string"
           },
@@ -4607,18 +4564,6 @@
               }
             ],
             "title": "Run Id"
-          },
-          "sha256": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "SHA-256 of the file served.",
-            "title": "Sha256"
           }
         },
         "required": [
@@ -4628,7 +4573,7 @@
           "run_id",
           "result_fingerprint",
           "config_fingerprint",
-          "sha256"
+          "files"
         ],
         "title": "Source",
         "type": "object"
@@ -4962,8 +4907,8 @@
             "schema": {
               "default": 30,
               "description": "Days to return.",
-              "ge": 1,
-              "le": 30,
+              "maximum": 30,
+              "minimum": 1,
               "title": "Horizon Days",
               "type": "integer"
             }
@@ -4980,6 +4925,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4988,7 +4943,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -4998,7 +4963,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "The future projection (projected, not validated)",
@@ -5063,6 +5028,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5071,7 +5046,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5081,7 +5066,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "Observed daily demand (legacy-v0 snapshot)",
@@ -5162,6 +5147,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -5170,7 +5165,7 @@
                 }
               }
             },
-            "description": "Unknown resource (not_found)."
+            "description": "not_found: unknown resource."
           },
           "422": {
             "content": {
@@ -5180,7 +5175,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5190,7 +5195,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "M2 backtest accuracy by model, period and horizon",
@@ -5215,6 +5220,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5223,7 +5238,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5233,7 +5258,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "Forecasting models evaluated by M2",
@@ -5258,6 +5283,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5266,7 +5301,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5276,7 +5321,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "M4 reference scenarios (HYPOTHETICAL)",
@@ -5356,6 +5401,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -5364,7 +5419,7 @@
                 }
               }
             },
-            "description": "Unknown resource (not_found)."
+            "description": "not_found: unknown resource."
           },
           "422": {
             "content": {
@@ -5374,7 +5429,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5384,7 +5449,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "Compare M4 reference scenarios",
@@ -5423,6 +5488,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -5431,7 +5506,7 @@
                 }
               }
             },
-            "description": "Unknown resource (not_found)."
+            "description": "not_found: unknown resource."
           },
           "422": {
             "content": {
@@ -5441,7 +5516,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5451,7 +5536,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "One M4 reference scenario with its daily plans",
@@ -5518,6 +5603,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve; bad_request: the body cannot be read (invalid UTF-8, an oversized number)."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -5526,7 +5621,7 @@
                 }
               }
             },
-            "description": "Missing or wrong API key (unauthorized)."
+            "description": "unauthorized: missing or wrong X-API-Key (when the server sets one)."
           },
           "413": {
             "content": {
@@ -5536,7 +5631,7 @@
                 }
               }
             },
-            "description": "Request body above the limit (payload_too_large)."
+            "description": "payload_too_large: request body above the limit."
           },
           "415": {
             "content": {
@@ -5546,7 +5641,7 @@
                 }
               }
             },
-            "description": "Body is not application/json (unsupported_media_type)."
+            "description": "unsupported_media_type: body is not application/json."
           },
           "422": {
             "content": {
@@ -5556,7 +5651,7 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter); simulation_rejected: an input M4's own rules refuse."
           },
           "500": {
             "content": {
@@ -5566,7 +5661,7 @@
                 }
               }
             },
-            "description": "Unexpected failure or no certified result (internal_error, simulation_failed)."
+            "description": "internal_error: unexpected failure (details only in the server log); simulation_failed: no certified result, or the worker died."
           },
           "503": {
             "content": {
@@ -5576,7 +5671,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready; simulations_busy: every simulation worker is busy; retry after Retry-After."
           },
           "504": {
             "content": {
@@ -5586,7 +5681,7 @@
                 }
               }
             },
-            "description": "Simulation stopped at its deadline (simulation_timeout)."
+            "description": "simulation_timeout: the simulation missed its deadline and was stopped."
           }
         },
         "security": [
@@ -5617,6 +5712,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5625,7 +5730,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5635,7 +5750,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "Defaults and ranges of the simulation inputs",
@@ -5660,6 +5775,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5668,7 +5793,27 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "Versions, provenance, scientific status and limits",
@@ -5691,8 +5836,8 @@
             "schema": {
               "default": 30,
               "description": "Days to return.",
-              "ge": 1,
-              "le": 30,
+              "maximum": 30,
+              "minimum": 1,
               "title": "Horizon Days",
               "type": "integer"
             }
@@ -5709,6 +5854,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5717,7 +5872,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5727,7 +5892,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "M3 projection quantiles (failed calibration)",
@@ -5752,6 +5917,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5760,7 +5935,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {
@@ -5770,7 +5955,7 @@
                 }
               }
             },
-            "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
+            "description": "server_busy: too many requests in flight; retry after Retry-After; artifact_unavailable: the reference data behind this endpoint is not ready."
           }
         },
         "summary": "M3 calibration status",
@@ -5795,6 +5980,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5803,7 +5998,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           }
         },
         "summary": "Process liveness",
@@ -5828,6 +6033,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "invalid_host: the Host header names a host this server does not serve."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5836,7 +6051,17 @@
                 }
               }
             },
-            "description": "Invalid request or rejected simulation input (validation_error, simulation_rejected)."
+            "description": "validation_error: the request does not match the schema (or an unknown or repeated query parameter)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "internal_error: unexpected failure (details only in the server log)."
           },
           "503": {
             "content": {

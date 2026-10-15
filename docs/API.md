@@ -11,7 +11,7 @@ package: no database, no message broker, no recomputation of any research experi
 > - The M3 prediction intervals have the status **FAILED_CALIBRATION** (`failed_calibration`).
 > - Every M4 operational parameter is **HYPOTHETICAL**.
 >
-> Every response says so in a machine-readable `integrity` block. Its
+> Every data response says so in a machine-readable `integrity` block. Its
 > `validated_recommendation` and `point_forecast_validated` flags are fixed to `false` by
 > the schema itself. **Nothing the API returns is a validated staffing, budget or
 > service-capacity recommendation.**
@@ -37,7 +37,7 @@ Contents:
 uv sync --locked                       # installs fastapi, uvicorn (runtime) and httpx2 (tests)
 uv run atlas api serve                 # http://127.0.0.1:8000 (loopback only)
 curl -s http://127.0.0.1:8000/health/ready
-curl -s http://127.0.0.1:8000/api/v1/forecasts?horizon_days=7
+curl -s 'http://127.0.0.1:8000/api/v1/forecasts?horizon_days=7'
 curl -s -X POST http://127.0.0.1:8000/api/v1/simulations \
      -H 'content-type: application/json' -d '{"parameters": {"discretionary_budget": 150000}}'
 uv run atlas api openapi > docs/api/openapi.json   # regenerate the committed contract
@@ -162,20 +162,27 @@ processes does them (spawned, not forked: the API process is multi-threaded):
 
 | Method | Path | operationId | Data | Cost | Statuses |
 |---|---|---|---|---|---|
-| GET | `/health/live` | `getLive` | process liveness | static | 200, 422 |
-| GET | `/health/ready` | `getReady` | readiness of every component | static | 200, 503, 422 |
-| GET | `/api/v1/system` | `getSystem` | versions, provenance, scientific status, limits, workers, endpoint costs | precomputed | 200, 422 |
-| GET | `/api/v1/models` | `listModels` | the seven M2 models, selection, recommendation and its tests | precomputed | 200, 422, 503 |
-| GET | `/api/v1/forecasts` | `getForecast` | the 30-day M2 projection (`projected`) | precomputed | 200, 422, 503 |
-| GET | `/api/v1/forecasts/history` | `getHistory` | observed daily demand (`observed`) | precomputed | 200, 422, 503 |
-| GET | `/api/v1/forecasts/metrics` | `getForecastMetrics` | M2 backtest accuracy | precomputed | 200, 404, 422, 503 |
-| GET | `/api/v1/uncertainty/status` | `getUncertaintyStatus` | M3 calibration status | precomputed | 200, 422, 503 |
-| GET | `/api/v1/uncertainty/intervals` | `getUncertaintyIntervals` | M3 projection quantiles (failed calibration) | precomputed | 200, 422, 503 |
-| GET | `/api/v1/scenarios` | `listScenarios` | the nine M4 reference scenarios | precomputed | 200, 422, 503 |
-| GET | `/api/v1/scenarios/comparison` | `compareScenarios` | scenarios side by side with differences | precomputed | 200, 404, 422, 503 |
-| GET | `/api/v1/scenarios/{scenario_id}` | `getScenario` | one scenario with daily plans | precomputed | 200, 404, 422, 503 |
-| GET | `/api/v1/simulations/parameters` | `getSimulationParameters` | defaults and ranges of simulation inputs | precomputed | 200, 422, 503 |
-| POST | `/api/v1/simulations` | `runSimulation` | one bounded HYPOTHETICAL simulation | bounded computation | 200, 401, 413, 415, 422, 500, 503, 504 |
+| GET | `/health/live` | `getLive` | process liveness | static | 200 |
+| GET | `/health/ready` | `getReady` | readiness of every component | static | 200, 503 (`ReadyResponse`) |
+| GET | `/api/v1/system` | `getSystem` | versions, provenance, scientific status, limits, workers, endpoint costs | precomputed | 200, 503 |
+| GET | `/api/v1/models` | `listModels` | the seven M2 models, selection, recommendation and its tests | precomputed | 200, 503 |
+| GET | `/api/v1/forecasts` | `getForecast` | the 30-day M2 projection (`projected`) | precomputed | 200, 503 |
+| GET | `/api/v1/forecasts/history` | `getHistory` | observed daily demand (`observed`) | precomputed | 200, 503 |
+| GET | `/api/v1/forecasts/metrics` | `getForecastMetrics` | M2 backtest accuracy | precomputed | 200, 404, 503 |
+| GET | `/api/v1/uncertainty/status` | `getUncertaintyStatus` | M3 calibration status | precomputed | 200, 503 |
+| GET | `/api/v1/uncertainty/intervals` | `getUncertaintyIntervals` | M3 projection quantiles (failed calibration) | precomputed | 200, 503 |
+| GET | `/api/v1/scenarios` | `listScenarios` | the nine M4 reference scenarios | precomputed | 200, 503 |
+| GET | `/api/v1/scenarios/comparison` | `compareScenarios` | scenarios side by side with differences | precomputed | 200, 404, 503 |
+| GET | `/api/v1/scenarios/{scenario_id}` | `getScenario` | one scenario with daily plans | precomputed | 200, 404, 503 |
+| GET | `/api/v1/simulations/parameters` | `getSimulationParameters` | defaults and ranges of simulation inputs | precomputed | 200, 503 |
+| POST | `/api/v1/simulations` | `runSimulation` | one bounded HYPOTHETICAL simulation | bounded computation | 200, 400, 401, 413, 415, 422 (`simulation_rejected`), 500 (`simulation_failed`), 503, 504 |
+
+Every operation can also answer 400 `invalid_host`, 422 `validation_error` (an unknown or
+repeated query parameter) and 500 `internal_error`; every `/api/v1` operation can answer
+503 `server_busy` and `artifact_unavailable`. The OpenAPI document lists, for each
+operation and status, exactly these codes (a test checks that the errors observed on each
+operation are documented on it). Not listed per operation: 405 for a method a path does
+not serve, and 413 for a GET sent with an oversized body.
 
 *Cost* is the `x-atlas-cost` extension of each operation in the OpenAPI document:
 `static` (process state only), `precomputed` (committed results checked at startup) or
@@ -205,17 +212,27 @@ Scenario comparison is a sub-resource of `scenarios`.
 | `record_type` | the ATLAS record type of the source (`future_projection`, `historical_backtest`, `hypothetical_decision_simulation`, ...) |
 | `data_status` | `observed`, `projected`, `historical_evaluation`, `calibration_assessment`, `hypothetical_reference_run`, `hypothetical_simulation` or `metadata` |
 | `point_forecast_validated` | always `false` (schema `const`) |
-| `uncertainty_interval_status` | the M3 status read from the committed file: `failed_calibration` (one of four M3 values, or `unavailable`) |
+| `uncertainty_interval_status` | the M3 status read from the committed file: `failed_calibration` (one of the three M3 statuses `decision_grade`, `failed_calibration`, `insufficient_evidence`, or `unavailable` when the status file could not be loaded) |
 | `uncertainty_decision_grade` | `false` |
 | `parameter_provenance` | `HYPOTHETICAL` on every M4 result, otherwise `null` |
 | `validated_recommendation` | always `false` (schema `const`) |
 | `notices` | the labels ATLAS writes with these numbers: M2's record-type label, the M3 status guidance, the M4 simulation label, the DIAGNOSTIC and stress-path notices |
 
 `provenance` gives the ATLAS and API versions, the snapshot and its data fingerprint, and
-every committed source of the data. Each source has its repository-relative path, run id,
-result and configuration fingerprints, and the SHA-256 of the file served (`null` where the
-source records none: the snapshot has no run). A response built from the M3 projection (the
-intervals, the q0.9 reference scenario, a quantile stress simulation) lists it as a source.
+every committed source of the data. Each source has its repository-relative directory
+(`path`), run id, result and configuration fingerprints (`null` where the source records
+none: the snapshot has no run), and `files`: the SHA-256 of each file the response was built
+from, by file name in `path`, each verified at startup. For example, a scenario's detail
+lists `metrics.json`, `plans.csv` and `scenarios.csv` of the M4 run. A response built from
+the M3 projection (the intervals, the q0.9 reference scenario, a quantile stress simulation)
+lists it as a source.
+
+```json
+{"kind": "m4_reference_run", "path": "docs/results/atlas-m4-optimization-v1",
+ "record_type": "hypothetical_decision_simulation", "run_id": "atlas-m4-optimization-v1-…",
+ "result_fingerprint": "0dc4eb0f…", "config_fingerprint": "02258d28…",
+ "files": {"metrics.json": "edf8a9ec…", "plans.csv": "330f2223…", "scenarios.csv": "9ef8d047…"}}
+```
 
 **Units.** Requests/day for demand and service; requests for backlog; request-days for the
 sum of end-of-day backlogs; staff hours; USD for cash. Penalties and the penalised score are
@@ -253,6 +270,7 @@ a form control with that one rule.
 | `simulations_busy` | 503 | every worker busy; `Retry-After: 1` |
 | `server_busy` | 503 | more than 64 requests in flight (health probes excepted); `Retry-After: 1` |
 | `simulation_timeout` | 504 | deadline passed; the worker was replaced |
+| `http_error` | other | any other HTTP error the framework raises (not expected; kept so every error has a code) |
 
 Every response the application produces, including errors, has an `X-Request-ID` header.
 A client-supplied `X-Request-ID` matching `[A-Za-z0-9._-]{8,64}` is reused; anything else is
@@ -313,11 +331,13 @@ Returns:
 
 H1, the recommended regression against the best baseline, has an MAE difference of
 -127 requests/day, an interval of -256 to +2, and an adjusted p of 0.054: it is **not**
-significant after the Holm adjustment. The integrity notices of every M2 endpoint and of
-`/forecasts` say so in a sentence computed from these numbers: *"On M2's confirmation period
-the recommended model's lead over the best baseline (H1) is not statistically established:
-MAE difference -127 requests/day (interval -256 to +2), Holm-adjusted p 0.054, not below
-0.05."* They also carry M2's backtest label and the legacy 4.93 % MAPE note.
+significant after the Holm adjustment. The integrity notices of every response that serves
+M2 numbers (`/models`, `/forecasts/metrics`, `/forecasts`, `/uncertainty/intervals`) and the
+limitations in `/system` say so in a sentence computed from these numbers: *"On M2's
+confirmation period the recommended model's lead over the best baseline (H1) is not
+statistically established: MAE difference -127 requests/day (interval -256 to +2),
+Holm-adjusted p 0.054, not below 0.05."* The notices of `/models` and `/forecasts/metrics`
+also carry M2's backtest label and the legacy 4.93 % MAPE note.
 
 ### `GET /api/v1/forecasts?horizon_days=1..30`
 
@@ -591,7 +611,7 @@ which can be protected with a key.
 | Oversized or hostile bodies | `Content-Length` and streamed bodies capped at 16 KiB (413) before parsing; JSON only (415); duplicate keys at any depth (422), checked in linear time off the event loop; deep nesting and invalid UTF-8 give 400/422, never 500; strict Pydantic models (`extra=forbid`, no type coercion, no NaN/inf) |
 | Ambiguous queries | Unknown query parameters and repeated values of a non-list parameter are 422 (never ignored or last-wins); integers must be plain digits (`+5`, `5.0`, `1_0` are refused); dates exactly `YYYY-MM-DD` |
 | Filesystem access | No path is built from request data. Scenario ids, models and periods are regex-checked dictionary keys. Every file read is fixed by the pinned configuration and read once at startup. The API never writes (tested by hashing the repository before and after) |
-| Shell, eval, outbound URLs | None in any request path. The only subprocess is the developer command `atlas api bench`, which starts this interpreter with fixed arguments |
+| Shell, eval, outbound URLs | No shell, eval or outbound URL in any request path. The only processes started are the fixed-argument simulation workers (multiprocessing *spawn*, re-spawned after a timeout or crash) and the multiprocessing resource tracker; the developer command `atlas api bench` starts a server with fixed arguments |
 | Information leakage | One error body; unexpected exceptions get a generic 500, with the traceback only in the server log under the request id. Readiness details have no absolute paths. No `Server` header |
 | Host header and DNS rebinding | Explicit allowed hosts (default `localhost`, `127.0.0.1`, `::1`); bracketed IPv6 hosts are parsed, the port must be 1-5 digits, wildcards need two labels (`*.example.org`); others get 400 |
 | Cross-origin use | CORS off by default. Explicit origins only (no `*`), GET/POST, no credentials; rejected preflights get the JSON `cors_rejected` error. A JSON content type is required for POST, so a cross-site form cannot submit a simulation without a preflight. Errors made before the CORS layer (413, invalid host, the last-resort 500, `server_busy`) still carry CORS headers for an allowed origin, so a dashboard can read them |
@@ -615,9 +635,11 @@ which can be protected with a key.
   answer 503 `artifact_unavailable`; everything else keeps serving.
 - **Fail closed.** Any break in the M2/M3 provenance chain takes down the forecast,
   uncertainty, M4 and simulation components together, because they all rest on it. An edited
-  M4 file or configuration takes down the M4 reference component and simulations (whose
-  defaults must be those of the verified run). An edited snapshot takes down everything
-  except liveness and system metadata (`tests/test_m5_reliability.py`).
+  M4 file or an edited configuration value takes down the M4 reference component and
+  simulations (whose defaults must be those of the verified run); a configuration that cannot
+  be read takes down every component loaded through it (all but the snapshot). An edited
+  snapshot takes down everything except liveness and system metadata
+  (`tests/test_m5_reliability.py`).
 - **Immutable artifacts.** The store is built once, held in memory and never written. Files
   are opened read-only; the API's own parsers read each file once (see §2).
 - **Logging** (`atlas api serve`) writes one JSON object per line on stderr:
@@ -627,8 +649,10 @@ which can be protected with a key.
   - for simulations: `simulation_id`, `horizon_days`, `feasibility`, `compute_ms`;
   - component readiness at startup (`component_ready`, `component_not_ready`, with
     `component` and `duration_ms`);
-  - every 5xx error the application answers (`api_error`, with its `code`), and
-    `unhandled_exception` with the traceback;
+  - every 5xx error the application answers, including `server_busy` and the last-resort
+    500 (`api_error`, with its `code`), and `unhandled_exception` with the traceback;
+  - `startup` (with `ready`), `simulation` (each answered simulation), `simulation_error`
+    (an unexpected worker error, with its traceback) and `workers_not_started`;
   - worker events: `simulation_timeout` and `worker_crashed` (with `worker_pid` and
     `exit_code`), `worker_start_failed`, `simulation_failed`.
 
@@ -638,6 +662,8 @@ which can be protected with a key.
 {"duration_ms": 312.4, "event": "request", "level": "INFO", "logger": "atlas.api", "message": "request", "method": "POST", "path": "/api/v1/simulations", "request_id": "…", "status": 200, "ts": "2026-10-15T10:42:00.123+00:00"}
 ```
 
+- **Exit status.** `atlas api serve` exits 0 after a graceful shutdown, by Ctrl+C or SIGTERM,
+  with JSON-only logs; 2 for invalid settings or a refused bind.
 - **Shutdown.** The lifespan stops the worker processes. They are also daemon processes, so
   they never outlive the server; a worker whose server disappears sees its pipe close and
   leaves.
@@ -734,7 +760,8 @@ uv run pytest tests/test_m5_*.py --no-cov              # the M5 tests only
 | `test_m5_contract.py` | committed OpenAPI equals the code; every operation documents its errors and cost; every response field required; fixed integrity flags; optional API key; request bounds equal the validation; units equal M4's; the M4 wording rules (no unnegated "probability", no "recommend" outside a not-a-recommendation phrase or the M2 model recommendation, no "calibrated" unless negated, no promotional terms) over every string of every response and every description in the contract |
 | `test_m5_settings_cli.py` | settings ranges, environment parsing, `atlas api serve/openapi/bench`, JSON logging, a real benchmark run |
 
-CI runs the whole suite, including the M5 tests, on every push and pull request. It also
+CI runs the whole suite, including the M5 tests, on pushes to `main` and on pull requests
+(and on demand). It also
 regenerates the OpenAPI document and requires it to equal the committed one.
 
 ## 11. Scientific limitations
@@ -743,7 +770,7 @@ The API inherits every limitation of M2-M4 and adds none of its own claims:
 - The forecast is an unvalidated point forecast. Its accuracy context is historical (M2's
   confirmation period, already used to confirm the model), not prospective. The recommended
   model's lead over the best baseline is not significant after the Holm adjustment
-  (p = 0.054); every M2 and forecast response says so in its notices.
+  (p = 0.054); every response that serves M2 numbers says so in its notices.
 - The M3 intervals **failed** their pre-registered calibration criteria. No interval,
   quantile or probability the API serves is decision-grade. Quantile stress paths are marginal
   per day, not joint, and carry no probability.
@@ -797,9 +824,11 @@ The API inherits every limitation of M2-M4 and adds none of its own claims:
 **Caching.** Responses say `Cache-Control: no-store`. Equal simulation requests give equal
 results within one deployment: the client may memoise by the canonical request body together
 with `provenance.atlas_version` and the solver versions of `/api/v1/system` (an upgrade may
-change results). `simulation_id` identifies the resolved configuration: a value sent
-explicitly and the same value left to its default give different ids, because their
-assumptions differ; `0` and `-0.0` give the same one.
+change results). `simulation_id` identifies only the resolved M4 configuration, not the
+whole response: a value sent explicitly and the same value left to its default give
+different ids (their assumptions differ), while removing a limit that the reference leaves
+unlimited (`surge_total: null`) gives the same id with a different parameter `source`;
+`0` and `-0.0` give the same id.
 
 **Deployment settings for the dashboard**
 - Same origin as the API is simplest. Otherwise set `ATLAS_API_CORS_ORIGINS` to the

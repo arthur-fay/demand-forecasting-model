@@ -33,9 +33,9 @@ An end-to-end analytics project that transforms historical operational request d
 > recommendation. See [Decision simulation and optimisation (M4)](docs/OPTIMIZATION.md).
 >
 > **M5 HTTP API:** a FastAPI service that serves the committed M2-M4 outputs and runs
-> bounded HYPOTHETICAL simulations with the M4 engine. Every response says what its numbers
-> are and carries the M3 status, with `validated_recommendation: false` fixed by the
-> schema. Start it with `uv run atlas api serve`; see [HTTP API (M5)](docs/API.md).
+> bounded HYPOTHETICAL simulations with the M4 engine. Every data response says what its
+> numbers are and carries the M3 status, with `validated_recommendation: false` fixed by
+> the schema. Start it with `uv run atlas api serve`; see [HTTP API (M5)](docs/API.md).
 >
 > Quick start: `uv sync --locked && uv run atlas check && uv run atlas quality` ·
 > [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·

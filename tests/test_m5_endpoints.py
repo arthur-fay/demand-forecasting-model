@@ -316,7 +316,10 @@ def test_intervals_are_labelled_and_equal_the_committed_file(api: TestClient) ->
     source = {s["kind"]: s for s in body["provenance"]["sources"]}["m3_projection_run"]
     assert source["run_id"] == manifest["run_id"]
     assert source["config_fingerprint"] == manifest["config_fingerprint"]
-    assert source["sha256"] == manifest["outputs"]["projection_intervals.csv"]
+    assert source["files"] == {
+        "projection_intervals.csv": manifest["outputs"]["projection_intervals.csv"]
+    }
+    assert any("(H1) is not statistically established" in n for n in notices)
 
 
 # --- M4 ---------------------------------------------------------------------------------
@@ -406,6 +409,11 @@ def test_scenario_detail_has_daily_plans_and_variants(api: TestClient) -> None:
     assert [v["terminal_backlog_max"] for v in data["plans"]] == [
         float(r["terminal_backlog_max"]) for r in variants
     ]
+    m4 = {s["kind"]: s for s in body["provenance"]["sources"]}["m4_reference_run"]
+    outputs = read_json(M4_RUN / "manifest.json")["outputs"]
+    assert m4["files"] == {
+        name: outputs[name] for name in ("metrics.json", "plans.csv", "scenarios.csv")
+    }
     assert all(p["provenance"] == "HYPOTHETICAL" for p in data["hypothetical_parameters"])
     scopes = {p["scope"] for p in data["hypothetical_parameters"]}
     assert not any(s.startswith("scenario:") and s != "scenario:normal" for s in scopes)
@@ -552,3 +560,20 @@ def test_responses_are_deterministic(api: TestClient) -> None:
         first, second = api.get(path), api.get(path)
         assert first.content == second.content
         assert first.headers["x-request-id"] != second.headers["x-request-id"]
+
+
+def test_comparison_baseline_is_always_the_first_row(api: TestClient) -> None:
+    listed = get(
+        api,
+        "/api/v1/scenarios/comparison?scenario_id=increased_costs&scenario_id=delayed_surge"
+        "&baseline=delayed_surge&metric=overtime_hours",
+    )["data"]
+    assert [r["scenario_id"] for r in listed["rows"]] == ["delayed_surge", "increased_costs"]
+    every = get(api, "/api/v1/scenarios/comparison?baseline=delayed_surge")["data"]
+    ids = [r["scenario_id"] for r in every["rows"]]
+    assert ids[0] == "delayed_surge"
+    assert sorted(ids) == sorted(
+        {s["scenario_id"] for s in read_json(M4_RUN / "metrics.json")["scenarios"]}
+    )
+    assert len(ids) == len(set(ids))
+    assert every["rows"][0]["difference_from_baseline"]["overtime_hours"] == 0

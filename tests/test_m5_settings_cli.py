@@ -173,6 +173,25 @@ def test_cli_serve_runs_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.http is DeadlineH11Protocol  # every request has a read deadline
 
 
+def test_ctrl_c_after_the_graceful_shutdown_exits_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
+    import uvicorn
+
+    def interrupted(server: uvicorn.Server, sockets: Any = None) -> None:
+        raise KeyboardInterrupt  # what uvicorn re-raises after a Ctrl+C shutdown
+
+    monkeypatch.setattr(uvicorn.Server, "run", interrupted)
+    monkeypatch.delenv("ATLAS_API_KEY", raising=False)
+    try:
+        assert main(["--repo-root", str(REPO_ROOT), "api", "serve", "--port", "8124"]) == EXIT_OK
+    finally:
+        for name in logs.LOGGER_NAMES:
+            logger = logging.getLogger(name)
+            logger.handlers = [h for h in logger.handlers if h.get_name() != "atlas-api-json"]
+            logger.propagate = True
+            logger.setLevel(logging.NOTSET)
+        logging.getLogger("uvicorn.access").disabled = False
+
+
 def test_cli_bench_validates_its_arguments(capsys: pytest.CaptureFixture[str]) -> None:
     code = main(["--repo-root", str(REPO_ROOT), "api", "bench", "--requests", "0"])
     assert code == EXIT_USAGE

@@ -33,6 +33,45 @@ ErrorCode = Literal[
     "http_error",
 ]
 
+#: The HTTP status of each code, and what it means (the OpenAPI response descriptions).
+STATUS_OF: Final[dict[ErrorCode, int]] = {
+    "bad_request": 400,
+    "invalid_host": 400,
+    "cors_rejected": 400,
+    "unauthorized": 401,
+    "not_found": 404,
+    "method_not_allowed": 405,
+    "payload_too_large": 413,
+    "unsupported_media_type": 415,
+    "validation_error": 422,
+    "simulation_rejected": 422,
+    "simulation_failed": 500,
+    "internal_error": 500,
+    "artifact_unavailable": 503,
+    "simulations_busy": 503,
+    "server_busy": 503,
+    "simulation_timeout": 504,
+}
+MEANING: Final[dict[ErrorCode, str]] = {
+    "bad_request": "the body cannot be read (invalid UTF-8, an oversized number)",
+    "invalid_host": "the Host header names a host this server does not serve",
+    "cors_rejected": "a CORS preflight from an origin, method or header not allowed",
+    "unauthorized": "missing or wrong X-API-Key (when the server sets one)",
+    "not_found": "unknown resource",
+    "method_not_allowed": "method not allowed on this path",
+    "payload_too_large": "request body above the limit",
+    "unsupported_media_type": "body is not application/json",
+    "validation_error": "the request does not match the schema (or an unknown or repeated "
+    "query parameter)",
+    "simulation_rejected": "an input M4's own rules refuse",
+    "simulation_failed": "no certified result, or the worker died",
+    "internal_error": "unexpected failure (details only in the server log)",
+    "artifact_unavailable": "the reference data behind this endpoint is not ready",
+    "simulations_busy": "every simulation worker is busy; retry after Retry-After",
+    "server_busy": "too many requests in flight; retry after Retry-After",
+    "simulation_timeout": "the simulation missed its deadline and was stopped",
+}
+
 #: Validation messages are cut to this length (they may echo client input).
 MAX_DETAIL_MESSAGE: Final = 300
 #: At most this many problems are returned.

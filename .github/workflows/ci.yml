@@ -95,4 +95,4 @@ jobs:
           curl -sf -X POST http://127.0.0.1:8765/api/v1/simulations \
             -H 'content-type: application/json' -d '{"horizon_days": 7}' > /dev/null
           kill -INT "$server"
-          wait "$server" || true
+          wait "$server"  # Ctrl+C is a clean shutdown: exit status 0

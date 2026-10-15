@@ -130,7 +130,11 @@ def serve(settings: ApiSettings, host: str = DEFAULT_HOST, port: int = DEFAULT_P
 
     check_bind(host, port, settings)
     configure_logging(settings.log_level)
-    uvicorn.Server(server_config(create_app(settings), host, port)).run()
+    server = uvicorn.Server(server_config(create_app(settings), host, port))
+    try:
+        server.run()
+    except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C after its graceful shutdown
+        return
 
 
 def openapi_document(settings: ApiSettings) -> dict[str, Any]:

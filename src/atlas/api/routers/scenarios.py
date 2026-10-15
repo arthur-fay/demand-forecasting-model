@@ -10,7 +10,7 @@ from pydantic import StringConstraints
 from atlas.api import views
 from atlas.api.dependencies import get_store, reject_unknown_query
 from atlas.api.reference import ReferenceStore
-from atlas.api.routers import API_PREFIX, cost, errors
+from atlas.api.routers import API_PREFIX, VERSIONED, cost, errors
 from atlas.api.schemas import (
     ComparisonMetric,
     ComparisonResponse,
@@ -36,7 +36,7 @@ MAX_COMPARED: Final = 32
     "",
     name="listScenarios",
     summary="M4 reference scenarios (HYPOTHETICAL)",
-    responses=errors(422, 503),
+    responses=errors(*VERSIONED),
     openapi_extra=cost("precomputed"),
 )
 async def scenario_list(store: Store) -> ScenarioListResponse:
@@ -49,7 +49,7 @@ async def scenario_list(store: Store) -> ScenarioListResponse:
     "/comparison",
     name="compareScenarios",
     summary="Compare M4 reference scenarios",
-    responses=errors(404, 422, 503),
+    responses=errors(*VERSIONED, "not_found"),
     openapi_extra=cost("precomputed"),
 )
 async def comparison(
@@ -78,7 +78,7 @@ async def comparison(
     "/{scenario_id}",
     name="getScenario",
     summary="One M4 reference scenario with its daily plans",
-    responses=errors(404, 422, 503),
+    responses=errors(*VERSIONED, "not_found"),
     openapi_extra=cost("precomputed"),
 )
 async def scenario_detail(
