@@ -250,9 +250,13 @@ gaps:
   inconclusive is re-solved by the interior-point method with crossover (`highs-ipm`, named
   in the programme's message); its optimum is used only if the certificate holds on the
   original programme.
-- **The planning programme itself is not a fallback.** If no method solves it, the run
-  still stops with `solver_failed` and writes no results, as before; only the analyses
-  built on it fail soft.
+- **The first programmes are not fallbacks.** If no method solves a scenario's planning
+  programme or its programme without the target, a sweep point's planning programme or
+  least-violation programme, or the diagnosis's least-violation programmes (with unlimited
+  cash and within the budget) or its minimum-spend programme, the run still stops with
+  `solver_failed` and writes no results, as before. Every later programme fails soft: the
+  tie-break and face stages, the uniqueness tests, the policy comparisons, the frontier
+  points, the finite differences and the limit relaxations.
 
 ## 5. Infeasibility, relaxed plans and diagnostics
 
@@ -658,9 +662,10 @@ each from one angle: **formulation against code**, an **independent re-implement
 model and of all nine scenarios, **numerical robustness**, **scientific integrity** of every
 output, **mutation testing** of the test suite (108 planted bugs) and **edge cases and
 failure paths**. Each major or critical finding was then given to a separate skeptic told to
-refute it by reproducing it from scratch. Every finding verified against the frozen code was
-upheld; later verifiers, who ran after the fixes had landed, reported each defect as no
-longer reproducible and re-ran their own reproductions against the fix. Every confirmed
+refute it by reproducing it from scratch: 51 agents in all, the six reviewers and 45
+skeptics. Every finding verified against the frozen code was upheld (15 findings); the 30
+later verifiers, who ran after the fixes had landed, reported each defect as no longer
+reproducible and re-ran their own reproductions against the fix. Every confirmed
 defect was fixed, with a regression test that fails on the frozen code
 (`tests/test_m4_review_fixes.py`, `tests/test_m4_mutation_kills.py`), and the reference
 configuration was run for the first time on the fixed code (section 9).
@@ -764,8 +769,10 @@ findings, three were upheld as major:
 - A draft of section 9.5 overstated what the independent re-implementation had checked. It
   was corrected before it was committed.
 
-The other findings (wording, untested branches, edge cases of the new checks) were fixed,
-with mutation-checked tests (`tests/test_m4_verification_*.py`).
+The other findings (wording, untested branches, edge cases of the new checks) were fixed.
+The test modules written for them (`tests/test_m4_verification_solver.py`, `_diagnosis.py`
+and `_runner.py`) were mutation-checked: every non-equivalent planted mutant is killed. The
+gaps their authors found are fixed and pinned in `tests/test_m4_verification_followups.py`.
 
 ## 11. Limitations
 
