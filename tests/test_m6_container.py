@@ -212,11 +212,13 @@ def server() -> Iterator[Server]:
         "atlas-vps",
         "--privileged",
         *cgroups,
-        "-v",
-        f"{work / 'atlas.git'}:/srv/atlas.git:ro",
         *run_net,
         IMAGE,
     )
+    # Copied in and given to root: the build's git refuses a repository another user owns
+    # ("dubious ownership"), and a mount or a copy keeps the CI runner's uid.
+    docker("cp", str(work / "atlas.git"), f"{NAME}:/srv/atlas.git")
+    docker("exec", NAME, "chown", "-R", "root:root", "/srv/atlas.git")
     env_lines = ["export NO_PROXY=127.0.0.1,localhost,::1 no_proxy=127.0.0.1,localhost,::1"]
     if network == "host":
         for name in ("HTTPS_PROXY", "https_proxy"):

@@ -294,7 +294,8 @@ validation, reproduction), `atlas optimize inspect` and `atlas optimize verify` 
 M4 reference run reproduced byte for byte on this machine; `--skip-reproduction` omits it),
 and the API contract equal to `docs/api/openapi.json`. The project's own code is compiled
 to bytecode during the build, so no later run writes into the release. `--repo` takes an
-`https://` or `file:///` URL or an absolute path only. Only then is `release.json` written
+`https://` or `file:///` URL or an absolute path only; git refuses a local repository that
+root does not own ("dubious ownership"), and the build does not override that. Only then is `release.json` written
 ([section 10](#10-upgrading)). A failed or interrupted build removes its directory; an
 existing complete release is checked and kept.
 
