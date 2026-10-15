@@ -36,8 +36,9 @@ OUT_OF_REACH = (
     "discretionary cash"
 )
 REMOVED = (
-    "removed one at a time (a daily limit lifted above all the work of the horizon, a total "
-    "dropped, a delayed surge available from the first day), these limits would lower it: "
+    "removed one at a time (a daily limit lifted to all the work of the horizon, at most 5e8 a "
+    "day; a total dropped; a delayed surge available from the first day), these limits would "
+    "lower it: "
 )
 NONE_LOWERS = (
     "no configured limit lowers it when removed alone (the limits and the regular capacity "
@@ -280,26 +281,19 @@ def test_a_limit_lifted_beyond_the_magnitude_bound_is_an_error_not_an_abort() ->
     )
     assert result.feasibility == "relaxed_terminal_target"
     # Lifting a daily limit to all the work of the horizon (1.2e9 requests) would exceed the
-    # input bound, so both lifts are capped at 5e8; the relaxed plans use the full caps, so
-    # neither removal is exact: both are reported as not computed (ERRORs), and the run
-    # completes instead of aborting.
-    assert result.problems == (
-        "limit relaxation u:overtime_daily_limit: the lifted limit binds at its cap of 5e+08, "
-        "so the removal is not exact",
-        "limit relaxation u:surge_daily_limit: the lifted limit binds at its cap of 5e+08, "
-        "so the removal is not exact",
-    )
+    # input bound, so both lifts are capped at 5e8 a day. The capped relaxations reach the
+    # target with capacity to spare (idle capacity parked at the cap does not bind), so both
+    # removals are exact: no ERROR, and both limits are named.
+    assert result.problems == ()
     assert result.diagnosis is not None
     assert result.diagnosis.limit_relaxations == {
-        "u:overtime_daily_limit": None,
-        "u:surge_daily_limit": None,
+        "u:overtime_daily_limit": pytest.approx(0.0, abs=1e-6),
+        "u:surge_daily_limit": pytest.approx(0.0, abs=1e-6),
     }
-    reason = result.diagnosis.reasons[0]
-    assert "no configured limit whose removal could be computed lowers it" in reason
-    assert "bind together" not in reason
-    assert reason.endswith(
-        "not computed (an ERROR of this run): the daily overtime limit of 1,000,000 staff "
-        "hours; the daily surge limit of 1,000,000 requests (DIAGNOSTIC)"
+    assert result.diagnosis.reasons[0].endswith(
+        REMOVED + "the daily overtime limit of 1,000,000 staff hours (to 0.0 requests without "
+        "it); the daily surge limit of 1,000,000 requests (to 0.0 requests without it) "
+        "(DIAGNOSTIC)"
     )
 
 
@@ -401,9 +395,10 @@ def test_a_removal_that_reaches_the_target_is_named(gap: float) -> None:
     assert diagnosis.borderline is False
     assert diagnosis.limit_relaxations == {"u:overtime_daily_limit": pytest.approx(0.0, abs=1e-9)}
     assert diagnosis.reasons[0].startswith(OUT_OF_REACH)
+    # The configured limit is 10 - gap staff hours, printed as configured.
     assert diagnosis.reasons[0].endswith(
-        REMOVED + "the daily overtime limit of 10 staff hours (to 0.0 requests without it) "
-        "(DIAGNOSTIC)"
+        REMOVED + f"the daily overtime limit of {10.0 - gap:,} staff hours (to 0.0 requests "
+        "without it) (DIAGNOSTIC)"
     )
 
 

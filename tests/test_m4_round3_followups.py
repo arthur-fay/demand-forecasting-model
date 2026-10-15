@@ -66,7 +66,7 @@ def test_one_units_violation_is_not_hidden_by_another_units_tolerance() -> None:
     text = " ".join(diagnosis.reasons)
     assert "cannot be reached with any amount of discretionary cash" in text
     assert "within the checking tolerance" not in text
-    assert "a: the daily overtime limit of 10 staff hours" in text
+    assert f"a: the daily overtime limit of {10.0 - 1.5e-6:,} staff hours" in text
     assert diagnosis.limit_relaxations["a:overtime_daily_limit"] == pytest.approx(0.0, abs=1e-9)
 
 

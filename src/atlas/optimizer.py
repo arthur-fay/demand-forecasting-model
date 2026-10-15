@@ -644,7 +644,7 @@ def _solve_scaled(lp: LinearProgram, settings: SolverSettings, factor: float) ->
         infeasible = LPResult(
             status,
             int(result.status),
-            str(result.message),
+            f"{result.message} [{INTERIOR_POINT}]" if interior else str(result.message),
             int(getattr(result, "nit", 0) or 0),
             highs,
             retried,

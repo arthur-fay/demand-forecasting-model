@@ -945,8 +945,10 @@ def limit_relaxations(
                         "the soft-target programme is always feasible",
                     ),
                 )
-            if attempt.solved is not None and _cap_binds(
-                attempt.solved.plan.units[k], limit, unit, relaxed_unit
+            if (
+                attempt.solved is not None
+                and attempt.solved.objective_value > reach_tolerance(problem)
+                and _cap_binds(attempt.solved.plan.units[k], limit, unit, relaxed_unit)
             ):
                 # The lift was capped (LIFT_CAP) and the relaxed plan uses all of it: the
                 # removal is not exact, so its violation is not reported.
@@ -979,7 +981,21 @@ def _cap_binds(decisions: Any, limit: str, unit: ServiceUnit, relaxed: ServiceUn
         return False
     if max(lifted, default=0.0) >= full:
         return False
-    return any(cap > 0 and v >= cap - tolerance(cap) for v, cap in zip(used, lifted, strict=True))
+    # The cap matters only on a day where the column sits at it and the capacity row is
+    # tight; idle capacity parked at an upper bound does not limit anything.
+    for day, (value, cap) in enumerate(zip(used, lifted, strict=True)):
+        capacity = (
+            unit.regular_capacity(day)
+            + unit.overtime_productivity * decisions.overtime_hours[day]
+            + decisions.surge[day]
+        )
+        if (
+            cap > 0
+            and value >= cap - tolerance(cap)
+            and decisions.served[day] >= capacity - tolerance(capacity)
+        ):
+            return True
+    return False
 
 
 def _limits_text(
@@ -1000,9 +1016,9 @@ def _limits_text(
     failed = [prefix(r) + r.description for r in relaxations if r.least_violation is None]
     if named:
         text = (
-            "removed one at a time (a daily limit lifted above all the work of the horizon, "
-            "a total dropped, a delayed surge available from the first day), these limits "
-            "would lower it: " + "; ".join(named)
+            "removed one at a time (a daily limit lifted to all the work of the horizon, at "
+            "most 5e8 a day; a total dropped; a delayed surge available from the first day), "
+            "these limits would lower it: " + "; ".join(named)
         )
     elif failed:
         text = "no configured limit whose removal could be computed lowers it when removed alone"
@@ -1017,13 +1033,11 @@ def _limits_text(
 
 
 def _limit(value: float) -> str:
-    """A configured limit or target as given: whole numbers without decimals, others with
-    up to two (three significant digits below one unit), so 1.5 never prints as 2."""
+    """A configured limit or target as given: whole numbers with separators and without
+    decimals, others in the shortest form that reproduces them (1.5, 4,000.4, 0.004)."""
     if float(value).is_integer():
         return f"{value:,.0f}"
-    if abs(value) < 1:
-        return f"{value:.3g}"
-    return f"{value:,.2f}".rstrip("0").rstrip(".")
+    return format(value, ",")  # the shortest form that reproduces the value
 
 
 def _amount(value: float, decimals: int) -> str:
@@ -1529,17 +1543,15 @@ def _least_cash(
     """Least discretionary cash among the optimal plans of ``lp`` (certified, and kept at
     the optimum by :func:`minimise_on_face`), and the fallback used, if any."""
     cash, _ = objective_vector(lp.problem, lp.layout, Objective.DISCRETIONARY_CASH)
-    try:
-        restricted, solution, fallback = minimise_on_face(
-            lp, result, settings, Objective.DISCRETIONARY_CASH, cash
-        )
-    except OptimizationError as error:
-        problems.append(f"{what}: least cash: {error}")
-        return None, "epsilon_cap"
+    # minimise_on_face returns a solver failure as a FAILED result, never raises.
+    restricted, solution, fallback = minimise_on_face(
+        lp, result, settings, Objective.DISCRETIONARY_CASH, cash
+    )
     if solution.x is None:
+        # No plan, so no fallback "keeps the earlier optimum": the failure is the problem.
         detail = f": {solution.message}" if solution.status is SolveStatus.FAILED else ""
         problems.append(f"{what}: least-cash programme is {solution.status}{detail}")
-        return None, fallback
+        return None, None
     _certified(restricted, solution, f"{what}: least cash", problems)
     if result.x is not None and not _keeps_optimum(lp, lp.value(result.x), solution):
         problems.append(f"{what}: the least-cash plan does not keep the optimal score")

@@ -497,15 +497,20 @@ def _dual_section(scenarios: Sequence[Mapping[str, Any]]) -> list[str]:
 def _tied_points(frontier: Mapping[str, Any]) -> str:
     tied = frontier.get("points_not_unique_after_tie_breaks")
     failed = frontier.get("points_solver_failed") or 0
+    not_tested = frontier.get("points_uniqueness_not_tested") or 0
     untested = (
         f"; {_n(failed)} points could not be computed (solver failure: no plan, no uniqueness test)"
         if failed
         else ""
+    ) + (
+        f"; at {_n(not_tested)} points the uniqueness test could not be completed"
+        if not_tested
+        else ""
     )
     if not tied:
         return (
-            "every computed point is unique after the tie-breaks" + untested
-            if failed
+            "every tested point is unique after the tie-breaks" + untested
+            if failed or not_tested
             else "every point is unique after the tie-breaks"
         )
     open_totals = frontier.get("points_with_overtime_or_surge_totals_open")

@@ -893,6 +893,11 @@ def _scenario_metrics(result: ScenarioResult, scenario: Scenario) -> dict[str, A
             "points_solver_failed": sum(
                 1 for point in result.frontier.points if point.status is SolveStatus.FAILED
             ),
+            "points_uniqueness_not_tested": sum(
+                1
+                for point in result.frontier.points
+                if point.status is SolveStatus.OPTIMAL and point.unique_after_tie_breaks is None
+            ),
             "least_penalty_programme_status": dict(result.frontier.least_penalty_status),
         },
         "problems": list(result.problems),
@@ -1196,6 +1201,8 @@ def running_package_is_repository(repo_root: Path) -> bool:
     # git status: such a layout does not identify the code either.
     if expected.is_symlink() or expected.parent.is_symlink():
         return False
+    if any(path.is_symlink() for path in expected.rglob("*")):
+        return False
     running = Path(atlas.__file__).resolve().parent
     return running == expected.resolve() and running.is_relative_to(repo_root.resolve())
 
@@ -1413,12 +1420,6 @@ def _manifest_copy_issues(
     }
     copies["data"] = (manifest.get("data"), inputs.get("snapshot"))
     copies["solver"] = (manifest.get("solver"), metrics.get("solver"))
-    copies["result_files"] = (manifest.get("result_files"), list(RESULT_FILES))
-    copies["run_id"] = (
-        manifest.get("run_id"),
-        f"{manifest.get('experiment_id')}-{str(fingerprint)[:8]}-"
-        f"{str(data.get('data_fingerprint'))[:8]}",
-    )
     issues = [
         Issue(
             "manifest_field_differs",
@@ -1429,6 +1430,29 @@ def _manifest_copy_issues(
         for key, (recorded_value, expected) in copies.items()
         if recorded_value != expected
     ]
+    if manifest.get("result_files") != list(RESULT_FILES):
+        issues.append(
+            Issue(
+                "manifest_field_differs",
+                Severity.ERROR,
+                "manifest.json",
+                "The manifest's 'result_files' differs from the result files an M4 run writes.",
+            )
+        )
+    run_id = (
+        f"{manifest.get('experiment_id')}-{str(fingerprint)[:8]}-"
+        f"{str(data.get('data_fingerprint'))[:8]}"
+    )
+    if manifest.get("run_id") != run_id:
+        issues.append(
+            Issue(
+                "manifest_field_differs",
+                Severity.ERROR,
+                "manifest.json",
+                "The manifest's 'run_id' differs from the one its experiment id and its "
+                "configuration and data fingerprints give.",
+            )
+        )
     recorded = _obj(manifest.get("scenarios"))
     scenarios = metrics.get("scenarios")
     computed = {
@@ -1463,10 +1487,30 @@ def _missing_issues(absent: Sequence[str]) -> list[Issue]:
     ]
 
 
+def _no_lone_surrogates(value: Any, path: Path, what: str) -> None:
+    """JSON escapes can encode lone surrogates, which no text output can print: such a
+    file is malformed (a usage error), not a crash of the renderer."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            try:
+                item.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ConfigError(f"{path}: the {what} contains text that is not valid") from exc
+        elif isinstance(item, dict):
+            stack.extend(item.keys())
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
 def _read_run_json(path: Path, what: str) -> Any:
     """:func:`_read_json`, with undecodable bytes a usage error too."""
     try:
-        return _read_json(path, what)
+        payload = _read_json(path, what)
+        _no_lone_surrogates(payload, path, what)
+        return payload
     except UnicodeDecodeError as exc:
         raise ConfigError(f"{path}: the {what} is not valid UTF-8 ({exc.reason})") from exc
     except RecursionError as exc:

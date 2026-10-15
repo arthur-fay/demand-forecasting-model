@@ -296,7 +296,8 @@ Below 1 USD of shortfall the least spend is printed to nine significant digits i
 whole USD (the shortfall keeps three), so the spend no longer appears to be below the budget.
 
 **Amended (R3).** The third review found the wording and tolerances of these reasons loose:
-- **"Relaxed" means removed.** A daily limit is lifted above all the work of the horizon,
+- **"Relaxed" means removed.** A daily limit is lifted to all the work of the horizon (at most
+  `5e8` a day, see below),
   a total is dropped, and a delayed surge becomes available from the first day. The reason
   now says so, and gives the violation that would remain "without it". The metrics key is
   `least_violation_unlimited_cash_with_one_limit_removed_requests`.
@@ -315,9 +316,11 @@ whole USD (the shortfall keeps three), so the spend no longer appears to be belo
   solver refuses, is now an ERROR. The reason names it as not computed, and then claims
   only that no removal that could be computed lowers the violation; it is no longer
   silently left out. A lifted daily limit is capped at half the input magnitude bound
-  (`5e8`). If the relaxed plan uses that cap fully, the removal is not exact, and it is
-  reported as not computed too.
-- **Configured limits and targets** are printed as configured (1.5 staff hours, not 2).
+  (`5e8`). If the relaxed plan still misses the target and uses that cap fully on a day
+  whose capacity binds, the removal is not exact, and it is reported as not computed too.
+  Idle capacity parked at the cap does not count.
+- **Configured limits and targets** are printed as configured (1.5 staff hours, not 2;
+  9.999997, not 10).
 - **Limits below one unit and the analytic bound.** Limits below one unit keep three
   significant digits. The analytic-bound reason gives the excess over the target.
 
