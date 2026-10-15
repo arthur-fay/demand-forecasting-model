@@ -559,7 +559,77 @@ which can be protected with a key.
 
 ## 9. Performance (measured)
 
-PERFORMANCE-PLACEHOLDER
+Measured with `uv run atlas api bench --requests 100 --simulations 20` on commit `e839f9a`:
+- **Machine:** a 4-core Intel Xeon at 2.10 GHz, 16 GB RAM, Linux, Python 3.12.3, SciPy 1.18.1
+  with HiGHS 1.12.0.
+- **Server:** `atlas api serve` as its own process, with 2 simulation workers.
+- **Client:** the same machine over loopback, Python's `http.client`, one connection per
+  request.
+
+Re-run the command to measure another machine; the numbers below are this machine's only.
+
+**Startup.** The process takes 2.34 s from start until `/health/ready` answers 200. That
+includes about 1 s to load and check every committed artifact (the snapshot validation alone
+is about 0.9 s).
+
+The first simulation took 1.49 s because its worker was still importing ATLAS. Workers
+announce themselves when their imports are done. Import time is never counted against the
+deadline.
+
+**Read endpoints** (100 sequential requests each, after one warm-up request):
+
+| Endpoint | Median | p95 | Max | Body |
+|---|---|---|---|---|
+| `/health/live` | 1.4 ms | 2.0 ms | 2.7 ms | 42 B |
+| `/health/ready` | 1.7 ms | 2.1 ms | 3.3 ms | 0.4 KB |
+| `/api/v1/system` | 2.5 ms | 2.9 ms | 3.1 ms | 6.8 KB |
+| `/api/v1/models` | 2.0 ms | 2.8 ms | 6.9 ms | 8.9 KB |
+| `/api/v1/forecasts` | 2.0 ms | 2.9 ms | 3.9 ms | 6.3 KB |
+| `/api/v1/forecasts/history` (180 days) | 1.9 ms | 2.9 ms | 6.5 ms | 15.9 KB |
+| `/api/v1/forecasts/history` (all 1,277 days) | 3.0 ms | 3.6 ms | 8.2 ms | 105.5 KB |
+| `/api/v1/forecasts/metrics` (buckets) | 3.0 ms | 3.4 ms | 4.0 ms | 37.7 KB |
+| `/api/v1/forecasts/metrics?scope=horizon` | 6.3 ms | 7.8 ms | 15.2 ms | 208.9 KB |
+| `/api/v1/uncertainty/status` | 1.9 ms | 4.0 ms | 6.4 ms | 3.9 KB |
+| `/api/v1/uncertainty/intervals` | 1.7 ms | 3.2 ms | 4.9 ms | 11.2 KB |
+| `/api/v1/scenarios` | 2.5 ms | 2.9 ms | 3.7 ms | 12.5 KB |
+| `/api/v1/scenarios/normal` | 2.8 ms | 3.1 ms | 6.8 ms | 59.2 KB |
+| `/api/v1/scenarios/comparison` (all) | 2.4 ms | 3.0 ms | 4.1 ms | 8.7 KB |
+| `/api/v1/simulations/parameters` | 2.0 ms | 3.5 ms | 5.3 ms | 7.5 KB |
+
+**Simulations** (20 sequential requests each, warm workers). *Compute* is the worker's time
+from `Server-Timing`; *total* is the client's.
+
+| Request | Result | Compute median (max) | Total median (max) | Body |
+|---|---|---|---|---|
+| `{}` (reference defaults, 30 days) | strict | 289 ms (386) | 300 ms (396) | 57.5 KB |
+| `discretionary_budget: 100000` | relaxed (diagnosis) | 334 ms (395) | 345 ms (406) | 58.4 KB |
+| q0.9 stress path | relaxed (diagnosis) | 369 ms (493) | 382 ms (506) | 59.2 KB |
+| 14 days, no terminal target | strict | 197 ms (243) | 207 ms (254) | 38.6 KB |
+
+**Isolation.** `/api/v1/forecasts` had a median of 2.6 ms (p95 3.3 ms) when idle, and
+2.2 ms (p95 3.6 ms) while both workers computed simulations continuously. Metadata is
+not blocked by solves.
+
+**Bounded concurrency.** Six simultaneous simulations against 2 workers gave two 200s and
+four immediate 503 `simulations_busy` responses: no queue, no unbounded work.
+
+**Memory (RSS).**
+- The server process: 176 MiB (FastAPI and the reference data).
+- Each simulation worker: 134-136 MiB (NumPy, SciPy, pandas and the ATLAS engine).
+- The `multiprocessing` resource tracker: 12 MiB.
+
+A default deployment (2 workers) therefore needs about 0.5 GiB.
+
+**What is interactive.**
+- Every GET endpoint answers in single-digit milliseconds and suits interactive use.
+- A simulation takes about 0.2-0.5 s, enough for a debounced control, not for every
+  keystroke.
+- With the default 2 workers the API runs 2 simulations at a time, about 5 per second in
+  total. A third concurrent request is refused, not queued.
+- The 10 s deadline is more than 20 times the slowest measured simulation.
+- The expensive research analyses never run on request. A full reference run takes about
+  20 s and a scenario with shadow-price brackets and a frontier about 5 s; both are served
+  precomputed.
 
 ## 10. Testing
 
