@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import traceback
 from collections.abc import Sequence
@@ -64,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
             "assess data quality and describe forecast features (M1); rolling-origin "
             "backtests and labelled future projections (M2); prediction intervals and "
             "exceedance probabilities (M3); HYPOTHETICAL decision simulation and "
-            "optimisation (M4)."
+            "optimisation (M4); an HTTP API over these outputs (M5)."
         ),
     )
     parser.add_argument("--version", action="version", version=f"atlas {__version__}")
@@ -166,7 +167,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_uncertainty_parser(commands)
     _add_optimization_parser(commands)
+    _add_api_parser(commands)
     return parser
+
+
+def _add_api_parser(commands: Any) -> None:
+    api = commands.add_parser(
+        "api", help="HTTP API over the M2-M4 outputs and bounded simulations (M5)."
+    )
+    sub = api.add_subparsers(dest="api_command", required=True)
+    serve = sub.add_parser(
+        "serve", help="Run the API locally (one uvicorn process; loopback by default)."
+    )
+    serve.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1).")
+    serve.add_argument("--port", type=int, default=8000, help="Port (default: 8000).")
+    sub.add_parser("openapi", help="Print the OpenAPI document as JSON (never writes a file).")
+    bench = sub.add_parser(
+        "bench", help="Measure endpoint latency and memory on a local server (loopback only)."
+    )
+    bench.add_argument(
+        "--requests", type=int, default=50, help="Requests per endpoint (default: 50)."
+    )
+    bench.add_argument(
+        "--simulations", type=int, default=10, help="Simulation requests (default: 10)."
+    )
 
 
 DEFAULT_CONFIG = Path("configs/backtest/atlas-m2-rolling-origin-v1.json")
@@ -688,6 +712,31 @@ def _optimize(args: argparse.Namespace, settings: Settings) -> list[CheckReport]
     return inspect_optimization_command(args.run_dir)
 
 
+def _api(args: argparse.Namespace, out: TextIO) -> int:
+    """``atlas api``: imported lazily, so other commands never load the web stack."""
+    from atlas.api.settings import load_api_settings
+
+    env = dict(os.environ)
+    if args.snapshot:
+        env["ATLAS_SNAPSHOT_ID"] = args.snapshot
+    settings = load_api_settings(repo_root=args.repo_root, env=env)
+    if args.api_command == "openapi":
+        from atlas.api.server import write_openapi
+
+        write_openapi(settings, out)
+        return EXIT_OK
+    if args.api_command == "bench":
+        from atlas.api.benchmark import run_benchmark
+
+        report = run_benchmark(settings, requests=args.requests, simulations=args.simulations)
+        out.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        return EXIT_OK
+    from atlas.api.server import serve
+
+    serve(settings, host=args.host, port=args.port)
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int:
     out = stdout if stdout is not None else sys.stdout
     parser = build_parser()
@@ -695,6 +744,8 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
     try:
         if args.command == "features":
             return _features(args.format, out)
+        if args.command == "api":
+            return _api(args, out)
         settings = load_settings(repo_root=args.repo_root, snapshot_id=args.snapshot)
         if args.command == "snapshot" and args.snapshot_command == "manifest":
             return _manifest(settings, out)
