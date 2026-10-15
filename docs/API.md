@@ -30,6 +30,7 @@ Contents:
 11. Scientific limitations
 12. Integration requirements for M7
 13. Readiness for M6 deployment
+14. Independent review
 
 ## 1. Quick start
 
@@ -670,74 +671,81 @@ which can be protected with a key.
 
 ## 9. Performance (measured)
 
-Measured with `uv run atlas api bench --requests 100 --simulations 20` on commit `e839f9a`:
+Measured with `uv run atlas api bench --requests 100 --simulations 20` on commit `ce5f0ec`:
 - **Machine:** a 4-core Intel Xeon at 2.10 GHz, 16 GB RAM, Linux, Python 3.12.3, SciPy 1.18.1
-  with HiGHS 1.12.0.
+  with HiGHS 1.12.0; quiet (load average below 1).
 - **Server:** `atlas api serve` as its own process, with 2 simulation workers.
 - **Client:** the same machine over loopback, Python's `http.client`, one connection per
-  request.
+  request. Body sizes are in bytes (1 KB = 1,000 bytes).
 
 Re-run the command to measure another machine; the numbers below are this machine's only.
 
-**Startup.** The process takes 2.34 s from start until `/health/ready` answers 200. That
-includes about 1 s to load and check every committed artifact (the snapshot validation alone
-is about 0.9 s).
-
-The first simulation took 1.49 s because its worker was still importing ATLAS. Workers
-announce themselves when their imports are done. Import time is never counted against the
-deadline.
+**Startup.** The process takes 2.84 s from start until `/health/ready` answers 200. That
+includes loading and checking every committed artifact (about 1 s, the snapshot validation
+alone about 0.9 s) and building the OpenAPI document. The first simulation took 1.42 s
+because its worker was still importing ATLAS. Workers announce themselves when their imports
+are done; import time is never counted against the deadline.
 
 **Read endpoints** (100 sequential requests each, after one warm-up request):
 
 | Endpoint | Median | p95 | Max | Body |
 |---|---|---|---|---|
-| `/health/live` | 1.4 ms | 2.0 ms | 2.7 ms | 42 B |
-| `/health/ready` | 1.7 ms | 2.1 ms | 3.3 ms | 0.4 KB |
-| `/api/v1/system` | 2.5 ms | 2.9 ms | 3.1 ms | 6.8 KB |
-| `/api/v1/models` | 2.0 ms | 2.8 ms | 6.9 ms | 8.9 KB |
-| `/api/v1/forecasts` | 2.0 ms | 2.9 ms | 3.9 ms | 6.3 KB |
-| `/api/v1/forecasts/history` (180 days) | 1.9 ms | 2.9 ms | 6.5 ms | 15.9 KB |
-| `/api/v1/forecasts/history` (all 1,277 days) | 3.0 ms | 3.6 ms | 8.2 ms | 105.5 KB |
-| `/api/v1/forecasts/metrics` (buckets) | 3.0 ms | 3.4 ms | 4.0 ms | 37.7 KB |
-| `/api/v1/forecasts/metrics?scope=horizon` | 6.3 ms | 7.8 ms | 15.2 ms | 208.9 KB |
-| `/api/v1/uncertainty/status` | 1.9 ms | 4.0 ms | 6.4 ms | 3.9 KB |
-| `/api/v1/uncertainty/intervals` | 1.7 ms | 3.2 ms | 4.9 ms | 11.2 KB |
-| `/api/v1/scenarios` | 2.5 ms | 2.9 ms | 3.7 ms | 12.5 KB |
-| `/api/v1/scenarios/normal` | 2.8 ms | 3.1 ms | 6.8 ms | 59.2 KB |
-| `/api/v1/scenarios/comparison` (all) | 2.4 ms | 3.0 ms | 4.1 ms | 8.7 KB |
-| `/api/v1/simulations/parameters` | 2.0 ms | 3.5 ms | 5.3 ms | 7.5 KB |
+| `/health/live` | 1.2 ms | 1.5 ms | 2.2 ms | 42 B |
+| `/health/ready` | 1.5 ms | 2.5 ms | 5.2 ms | 0.5 KB |
+| `/api/v1/system` | 2.5 ms | 3.2 ms | 10.4 ms | 7.2 KB |
+| `/api/v1/models` | 2.5 ms | 3.0 ms | 3.4 ms | 9.2 KB |
+| `/api/v1/forecasts` | 2.3 ms | 2.8 ms | 3.1 ms | 7.4 KB |
+| `/api/v1/forecasts/history` (180 days) | 2.5 ms | 3.6 ms | 6.9 ms | 20.2 KB |
+| `/api/v1/forecasts/history` (all 1,277 days) | 2.8 ms | 4.2 ms | 6.6 ms | 136.1 KB |
+| `/api/v1/forecasts/metrics` (buckets) | 3.1 ms | 4.4 ms | 12.7 ms | 37.9 KB |
+| `/api/v1/forecasts/metrics?scope=horizon` | 6.9 ms | 10.8 ms | 11.4 ms | 209.1 KB |
+| `/api/v1/uncertainty/status` | 1.7 ms | 4.6 ms | 17.1 ms | 3.9 KB |
+| `/api/v1/uncertainty/intervals` | 2.1 ms | 6.0 ms | 12.2 ms | 12.4 KB |
+| `/api/v1/scenarios` | 2.6 ms | 3.5 ms | 11.8 ms | 12.9 KB |
+| `/api/v1/scenarios/normal` | 2.9 ms | 4.9 ms | 8.3 ms | 59.7 KB |
+| `/api/v1/scenarios/comparison` (all) | 3.1 ms | 3.7 ms | 4.6 ms | 12.7 KB |
+| `/api/v1/simulations/parameters` | 2.6 ms | 3.3 ms | 8.0 ms | 8.0 KB |
 
 **Simulations** (20 sequential requests each, warm workers). *Compute* is the worker's time
 from `Server-Timing`; *total* is the client's.
 
-| Request | Result | Compute median (max) | Total median (max) | Body |
+| Request | Result | Compute median (p95, max) | Total median (max) | Body |
 |---|---|---|---|---|
-| `{}` (reference defaults, 30 days) | strict | 289 ms (386) | 300 ms (396) | 57.5 KB |
-| `discretionary_budget: 100000` | relaxed (diagnosis) | 334 ms (395) | 345 ms (406) | 58.4 KB |
-| q0.9 stress path | relaxed (diagnosis) | 369 ms (493) | 382 ms (506) | 59.2 KB |
-| 14 days, no terminal target | strict | 197 ms (243) | 207 ms (254) | 38.6 KB |
+| `{}` (reference defaults, 30 days) | strict | 327 ms (411, 488) | 337 ms (498) | 62.6 KB |
+| `discretionary_budget: 100000` | relaxed (diagnosis) | 383 ms (518, 547) | 405 ms (563) | 63.3 KB |
+| q0.9 stress path | relaxed (diagnosis) | 375 ms (473, 536) | 385 ms (546) | 64.7 KB |
+| 14 days, no terminal target | strict | 196 ms (245, 249) | 205 ms (258) | 43.6 KB |
+| a slow corner case (30 days, non-unique optimum) | strict | 803 ms (932, 976) | 818 ms (988) | 63.0 KB |
 
-**Isolation.** `/api/v1/forecasts` had a median of 2.6 ms (p95 3.3 ms) when idle, and
-2.2 ms (p95 3.6 ms) while both workers computed simulations continuously. Metadata is
-not blocked by solves.
+The last request is one of the slowest valid inputs the performance review found: a
+non-unique optimal face adds the per-day ranges (about 60 more solves). Across the input
+space, the review ran 1,644 random and corner-case valid requests in-process, under
+contention from a second sweep: median 0.24-0.27 s, p95 0.69-0.74 s, slowest 1.5 s, all
+certified. The 10 s deadline is therefore about 7-10 times the slowest simulation observed.
+
+**Isolation.** `/api/v1/forecasts` had a median of 2.2 ms (p95 3.3 ms) when idle, and
+1.8 ms (p95 3.2 ms) while both workers computed simulations continuously. Metadata is not
+blocked by solves.
 
 **Bounded concurrency.** Six simultaneous simulations against 2 workers gave two 200s and
 four immediate 503 `simulations_busy` responses: no queue, no unbounded work.
 
 **Memory (RSS).**
-- The server process: 176 MiB (FastAPI and the reference data).
-- Each simulation worker: 134-136 MiB (NumPy, SciPy, pandas and the ATLAS engine).
+- The server process: 175 MiB (FastAPI and the reference data).
+- Each simulation worker: 121-123 MiB (NumPy, SciPy, pandas and the ATLAS engine; no web
+  stack).
 - The `multiprocessing` resource tracker: 12 MiB.
 
-A default deployment (2 workers) therefore needs about 0.5 GiB.
+A default deployment (2 workers) therefore needs about 0.43 GiB; each extra worker about
+0.12 GiB, and one CPU (§1).
 
 **What is interactive.**
-- Every GET endpoint answers in single-digit milliseconds and suits interactive use.
-- A simulation takes about 0.2-0.5 s, enough for a debounced control, not for every
-  keystroke.
-- With the default 2 workers the API runs 2 simulations at a time, about 5 per second in
+- Every GET endpoint answers in single-digit milliseconds (p95 at most 11 ms) and suits
+  interactive use.
+- A simulation typically takes 0.2-0.4 s of compute and at worst about 1-1.5 s: enough for a
+  debounced control (send on release, not on every slider step).
+- With the default 2 workers the API runs 2 simulations at a time, a few per second in
   total. A third concurrent request is refused, not queued.
-- The 10 s deadline is more than 20 times the slowest measured simulation.
 - The expensive research analyses never run on request. A full reference run takes about
   20 s and a scenario with shadow-price brackets and a frontier about 5 s; both are served
   precomputed.
@@ -757,7 +765,7 @@ uv run pytest tests/test_m5_*.py --no-cov              # the M5 tests only
 | `test_m5_security.py` | hosts (IPv6, ports, wildcards), CORS (JSON rejections, headers on middleware errors), security headers and the exact docs exemption, body limits (declared and streamed), JSON-only, duplicate keys in linear time, deep nesting, strict and non-repeating query parameters, history dates far out of range, the in-flight cap, HEAD probes, API key, generic 500 with a logged traceback, bind policy |
 | `test_m5_concurrency.py` | a real uvicorn server and worker processes: parallel reads, bounded parallel simulations with identical results, metadata latency while every worker computes, idle and slow connections closed, deadline kill and replacement (logged), busy refusal, crashes counted and reported by readiness, recovery after failed restarts, Ctrl+C and SIGTERM, the HTTP mapping of uncertified and unexpected worker results (the worker's own fail-closed rule is in `test_m5_guards.py`), the API key checked before a slow body |
 | `test_m5_reliability.py` | twelve kinds of damaged or missing artifacts; degraded startup; no writes |
-| `test_m5_guards.py` | the guards ordinary damage never reaches: self-consistent forged M4 runs (a claimed validated recommendation, unlabelled rows), a file swapped after its check, cross-references between the M2, M3 and M4 runs, readiness over presence, and the worker failing closed on an uncertified result (each test kills the mutant that deletes its guard) |
+| `test_m5_guards.py` | the guards ordinary damage never reaches: self-consistent forged M4 runs (a claimed validated recommendation, unlabelled rows), a file swapped after its check, cross-references between the M2, M3 and M4 runs, readiness over presence, and the worker failing closed on an uncertified result (mutation-checked, §14) |
 | `test_m5_contract.py` | committed OpenAPI equals the code; every operation documents its errors and cost; every response field required; fixed integrity flags; optional API key; request bounds equal the validation; units equal M4's; the M4 wording rules (no unnegated "probability", no "recommend" outside a not-a-recommendation phrase or the M2 model recommendation, no "calibrated" unless negated, no promotional terms) over every string of every response and every description in the contract |
 | `test_m5_settings_cli.py` | settings ranges, environment parsing, `atlas api serve/openapi/bench`, JSON logging, a real benchmark run |
 
@@ -813,7 +821,8 @@ The API inherits every limitation of M2-M4 and adds none of its own claims:
 - Build the controls from `GET /api/v1/simulations/parameters`: defaults, ranges, units,
   assumptions and nullability. Send only the fields the user changed; omitted means the
   reference default.
-- Debounce slider input. A simulation takes about 0.3 s of compute.
+- Debounce slider input. A simulation typically takes 0.2-0.4 s of compute, at worst about
+  1.5 s.
 
 **Simulation errors**
 - 503 `simulations_busy` or `server_busy`: retry after `Retry-After`.
@@ -847,7 +856,7 @@ What is in place:
 - configuration from environment variables with hard ranges;
 - refusal of unauthenticated public binds;
 - a host allow-list;
-- bounded memory, about 0.13 GiB per worker process and 0.18 GiB for the server (§9);
+- bounded memory, about 0.12 GiB per worker process and 0.18 GiB for the server (§9);
 - no writes and no outbound network;
 - a measured startup time;
 - a reproducible lock (`uv sync --locked`).
@@ -867,3 +876,39 @@ What M6 must add:
 
 `proxy_headers` is off, so client addresses are not trusted from `X-Forwarded-For`. The
 access log does not record them.
+
+## 14. Independent review
+
+Seven independent reviewers examined the first complete M5 commit (`6f8b9b6`), each in its
+own checkout, through one lens: scientific integrity, architecture, security (black-box and
+white-box attacks on a running server), correctness and concurrency, tests (mutation testing:
+107 planted mutants), performance and reproducibility, and documentation and contract
+accuracy (on `02bcdd8`, after the first fixes).
+
+| Lens | Major | Minor | Nit |
+|---|---|---|---|
+| Scientific integrity | 0 | 5 | 1 |
+| Architecture | 0 | 9 | 6 |
+| Security | 2 | 2 | 2 |
+| Correctness and concurrency | 2 | 6 | 3 |
+| Tests (mutation) | 5 | 8 | 1 |
+| Performance | 0 | 4 | 1 |
+| Documentation and contract | 0 | 11 | 7 |
+
+No reviewer found a critical defect: no path presents FAILED_CALIBRATION intervals as
+decision-grade or an M4 plan as a recommendation, every number the docs quote matched the
+live output, and the documented reference reuse reproduced exactly. The nine major reports
+(seven distinct problems) were:
+- 64 idle connections locking out every endpoint (security, correctness);
+- a quadratic duplicate-key check on the event loop (security, tests);
+- a worker slot left dead after a failed restart;
+- four test gaps: the worker's fail-closed rule, the guards against a self-consistent forged
+  M4 run, the verified-bytes check, and provenance completeness.
+
+Every finding was addressed (`02bcdd8` to `ce5f0ec`); the fixes are listed in the commit
+messages, and each has a test. A skeptic then re-checked each major report against the
+branch: six no longer reproduced, and three were test gaps, closed by
+`tests/test_m5_guards.py`. Twelve mutants planted in the guards it covers were then run
+against it: eleven were killed; the twelfth deletes one of two checks of the M2
+configuration fingerprint (against the run's manifest and its `metrics.json`), and the other
+check still refuses the run.

@@ -3,8 +3,9 @@
 A damaged file is caught first by M4's own checks (``load_inputs``, ``optimize inspect``).
 The checks below are what stands behind them: a *self-consistent forgery* (files edited and
 every hash recomputed), a file swapped between its check and its read, a cross-reference that
-disagrees, and a simulation whose result failed an independent check. Each test was written
-so that deleting the guard it names makes it fail.
+disagrees, and a simulation whose result failed an independent check. Each test fails when
+the guard it names is deleted (checked with planted mutants, docs/API.md section 14), except
+where a second check guards the same property (the M2 configuration fingerprint).
 """
 
 from __future__ import annotations
