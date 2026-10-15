@@ -1,7 +1,7 @@
 [project]
 name = "atlas"
-version = "0.3.0"
-description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals and exceedance probabilities for NYC 311 demand analysis (milestones M0-M3)."
+version = "0.4.0"
+description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals, exceedance probabilities and a hypothetical decision simulation with linear optimisation for NYC 311 demand analysis (milestones M0-M4)."
 readme = "docs/DEVELOPMENT.md"
 requires-python = ">=3.12"
 authors = [{ name = "Arthur Fay" }]
@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=2.0,<3",
     "pandas>=3.0,<3.1",
     "pydantic>=2.9,<3",
+    "scipy>=1.18.1,<1.19",
 ]
 
 [project.scripts]
@@ -27,6 +28,7 @@ dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "ruff>=0.8",
+    "scipy-stubs>=1.18.1.1,<1.19",
 ]
 
 [build-system]
@@ -35,6 +37,9 @@ build-backend = "uv_build"
 
 [tool.uv]
 default-groups = ["dev"]
+# optype is a typing-only dependency of scipy-stubs; 0.19.0 was released less than two weeks
+# before M4 was resolved, so the lock keeps the previous release (dependency cooldown).
+constraint-dependencies = ["optype<0.19"]
 
 [tool.ruff]
 line-length = 100

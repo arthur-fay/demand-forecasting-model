@@ -82,6 +82,18 @@ src/atlas/
   probabilistic.py       Issue, score, select and judge probabilistic forecasts
   uncertainty_report.py  Deterministic Markdown report from the metrics payload
   uncertainty_runner.py  Fail-closed M3 commands (uncertainty run/verify/inspect/project)
+
+  M4 additions
+  planning.py             Planning problem, plan, independent evaluation and constraint check
+  optimizer.py            LP matrices, HiGHS solve and status classification, certificate, duals
+  decision_analysis.py    Checked solves, diagnostics, relaxed plans, optimal face, shadow-price
+                          brackets, policy comparisons, frontier, sweeps and monotonicity
+  policies.py             Fixed-capacity and backlog-trigger rules
+  decision_inputs.py      Hash-verified M2 projection and accuracy, M3 status and stress paths
+  optimization_config.py  Versioned M4 configuration; HYPOTHETICAL quantities with exact units
+  scenarios.py            Scenarios as planning problems; demand-percentile guard
+  optimization_report.py  Deterministic Markdown report from the metrics payload
+  optimization_runner.py  Fail-closed M4 commands (optimize run/verify/inspect)
 ```
 
 ### Data flow
@@ -188,6 +200,37 @@ evaluation period ─► coverage, scores, Brier, reliability, strata ─► dec
 | Explicit predictive distribution per method | Quantiles, intervals and probabilities are mutually consistent; probabilities are never read off interval endpoints |
 | Selection on M2's development targets, evaluation on the confirmation period, labelled as exposed | Selection, calibration and evaluation use different data, without pretending the later period is untouched |
 | Status withheld rather than results adjusted | A failed or under-powered calibration is disclosed as such |
+
+### M4 data flow
+
+```
+snapshot ─► integrity, validation (fail-closed) ─► data fingerprint
+M2 projection run ─► SHA-256, record type, recommended model, same data ─► demand d[1..T]
+M2 recommending run ─► run id, result fingerprint ─► confirmation MAE and bias (context)
+M3 calibration_status.json ─► M3 provenance check ─► status attached to every result
+M3 projection run (stress only) ─► same status file, primary model + sealed method ─► q path
+config (HYPOTHETICAL quantities) + d ─► scenarios ─► planning problems
+for each scenario:
+    strict LP (HiGHS) ─► certificate + independent plan check + objective agreement
+        optimal:    duals ─► finite-difference brackets; optimal face (uniqueness, ranges)
+        infeasible: diagnostics (least violation, least spend) ─► relaxed plan (lexicographic)
+    policies (fixed, backlog trigger) ─► same evaluator; LP at equal cash / equal backlog
+    frontier (cash cap ─► least notional penalty), on-frontier check
+sweeps on the base scenario ─► proved monotonicity checked
+─► scenarios.csv, plans.csv, duals.csv, sensitivity.csv, frontier.csv, metrics.json, report.md
+```
+
+| M4 decision | Reason |
+|---|---|
+| Consume committed, hash-verified M2/M3 outputs instead of recomputing them | The same forecast and status as the reference runs, offline, and no BLAS-dependent bits in the LP inputs |
+| Discretionary budget only; committed regular cost outside the score | The score then reflects decisions only, and a budget below the payroll cannot create an artificial infeasibility |
+| No slack in the planning LP; relaxations only in labelled diagnostic programmes | A relaxed result can never be mistaken for a feasible plan |
+| Certificate from primal and dual values, plus a matrix-free plan check | Optimality and feasibility are proved, not taken from the solver status |
+| Lexicographic second stages for diagnostics, comparisons and frontier points | A single-objective optimum leaves cash and timing arbitrary on its optimal face |
+| Frontier on the notional penalty, not on request-days | The weighted optimum provably lies on it, so the check cannot fail on a correct run |
+| Shadow prices bracketed by one-sided finite differences | Duals are subgradients; a bracket failure is a bug, unequal slopes are a breakpoint, not an error |
+| HiGHS model status parsed from the message; no time limit | SciPy's integer status conflates model errors with infeasibility; a time limit is not reproducible |
+| Every CSV row labelled (HYPOTHETICAL, not validated, M3 status) | Rows copied out of context still carry their caveats |
 
 ### Extending to new snapshots
 

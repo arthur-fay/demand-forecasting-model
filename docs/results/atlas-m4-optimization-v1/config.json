@@ -1,0 +1,451 @@
+{
+ "currency": "usd",
+ "description": "M4 reference decision simulation: one hypothetical city-wide service unit planned over the 30 days of the M2 future projection (2026-07-01..2026-07-30). Every operational number is HYPOTHETICAL: round values chosen, after seeing the M2 forecast (mean 11,132 requests/day) and the legacy demand percentile (11,609), so that the scenarios exercise binding and slack constraints. They are not estimates of any NYC agency's staffing, productivity, costs, budget, backlog or service capacity. The configuration was committed before its first run.",
+ "discretionary_budget": {
+  "assumption": "Illustrative cash available for overtime and surge over the 30 days; the regular staff cost is committed and reported separately.",
+  "provenance": "HYPOTHETICAL",
+  "unit": "usd",
+  "value": 300000.0
+ },
+ "experiment_id": "atlas-m4-optimization-v1",
+ "forecast": {
+  "backtest_run_dir": "docs/results/atlas-m2-rolling-origin-v1/full",
+  "kind": "m2_projection_run",
+  "m2_config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+  "model_id": "atlas_linear_regression",
+  "projections_sha256": "1fb2f1a0c1ae0dfa722e11ebd8b79906a9d5945e7d0f352c9c580b630ffacab3",
+  "run_dir": "docs/results/atlas-m2-rolling-origin-v1/projection"
+ },
+ "frontier": {
+  "points": 11,
+  "scenarios": [
+   "normal",
+   "combined_stress"
+  ]
+ },
+ "horizon_days": 30,
+ "scenarios": [
+  {
+   "adjustments": {
+    "cost_multiplier": null,
+    "demand_multiplier": null,
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": null,
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": null,
+    "surge_available_from_day": null
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Base case: the M2 point forecast and the base HYPOTHETICAL parameters.",
+   "scenario_id": "normal"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": null,
+    "demand_multiplier": {
+     "assumption": "Illustrative uniform demand increase of 10 %.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.1
+    },
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": null,
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": null,
+    "surge_available_from_day": null
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Demand 10 % above the M2 point forecast on every day.",
+   "scenario_id": "increased_demand"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": null,
+    "demand_multiplier": null,
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": null,
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": {
+     "assumption": "Illustrative 10 % loss of regular staff hours.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.9
+    },
+    "surge_available_from_day": null
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Regular staff hours 10 % lower (for example absence); the discretionary budget is unchanged.",
+   "scenario_id": "reduced_capacity"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": {
+     "assumption": "Illustrative 20 % increase of every cost rate.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.2
+    },
+    "demand_multiplier": null,
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": null,
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": null,
+    "surge_available_from_day": null
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Regular wage, overtime wage and surge price 20 % higher.",
+   "scenario_id": "increased_costs"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": null,
+    "demand_multiplier": null,
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": {
+     "assumption": "Illustrative 50 % cut of the discretionary budget.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.5
+    },
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": null,
+    "surge_available_from_day": null
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Discretionary budget halved.",
+   "scenario_id": "reduced_budget"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": null,
+    "demand_multiplier": null,
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": null,
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": null,
+    "surge_available_from_day": {
+     "assumption": "Illustrative one-week delay of the surge contract.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "planning_day",
+     "value": 8
+    }
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Surge capacity available only from day 8.",
+   "scenario_id": "delayed_surge"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": {
+     "assumption": "Illustrative 10 % increase of every cost rate.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.1
+    },
+    "demand_multiplier": {
+     "assumption": "Illustrative demand increase of 5 %.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 1.05
+    },
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": {
+     "assumption": "Illustrative 25 % cut of the discretionary budget.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.75
+    },
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": {
+     "assumption": "Illustrative 5 % loss of regular staff hours.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "ratio",
+     "value": 0.95
+    },
+    "surge_available_from_day": {
+     "assumption": "Illustrative one-week delay of the surge contract.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "planning_day",
+     "value": 8
+    }
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Several moderate stresses together: demand +5 %, regular hours -5 %, costs +10 %, discretionary budget -25 %, surge from day 8.",
+   "scenario_id": "combined_stress"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": null,
+    "demand_multiplier": null,
+    "demand_shift_per_day": {
+     "assumption": "M2 confirmation-period mean error of the recommended model over horizons 1-30 was -255.9 requests per day (under-forecast); applied here as a HYPOTHETICAL stress, not as a correction.",
+     "provenance": "HYPOTHETICAL",
+     "unit": "requests_per_day",
+     "value": 256.0
+    },
+    "discretionary_budget_multiplier": null,
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": null,
+    "surge_available_from_day": null
+   },
+   "demand_basis": {
+    "kind": "point_forecast"
+   },
+   "description": "Demand 256 requests per day above the point forecast: the mean under-forecast of this model in M2's confirmation year, had it persisted.",
+   "scenario_id": "m2_bias_shift"
+  },
+  {
+   "adjustments": {
+    "cost_multiplier": null,
+    "demand_multiplier": null,
+    "demand_shift_per_day": null,
+    "discretionary_budget_multiplier": null,
+    "productivity_multiplier": null,
+    "regular_hours_multiplier": null,
+    "surge_available_from_day": null
+   },
+   "demand_basis": {
+    "interpretation": "hypothetical_stress_not_a_probability",
+    "kind": "m3_marginal_quantile",
+    "quantile": 0.9
+   },
+   "description": "HYPOTHETICAL stress path: each day's marginal 90 % quantile of the FAILED_CALIBRATION M3 intervals; not a joint scenario and no probability.",
+   "scenario_id": "m3_marginal_q90_stress"
+  }
+ ],
+ "schema_version": 1,
+ "sensitivity": {
+  "base_scenario": "normal",
+  "sweeps": [
+   {
+    "parameter": "demand_multiplier",
+    "provenance": "HYPOTHETICAL",
+    "unit": "ratio",
+    "values": [
+     0.9,
+     0.95,
+     0.98,
+     1.0,
+     1.02,
+     1.05,
+     1.1
+    ]
+   },
+   {
+    "parameter": "discretionary_budget_multiplier",
+    "provenance": "HYPOTHETICAL",
+    "unit": "ratio",
+    "values": [
+     0.0,
+     0.25,
+     0.5,
+     0.75,
+     1.0,
+     1.25,
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   {
+    "parameter": "regular_hours_multiplier",
+    "provenance": "HYPOTHETICAL",
+    "unit": "ratio",
+    "values": [
+     0.9,
+     0.95,
+     0.98,
+     1.0,
+     1.02,
+     1.05,
+     1.1
+    ]
+   },
+   {
+    "parameter": "productivity_multiplier",
+    "provenance": "HYPOTHETICAL",
+    "unit": "ratio",
+    "values": [
+     0.9,
+     0.95,
+     0.98,
+     1.0,
+     1.02,
+     1.05,
+     1.1
+    ]
+   },
+   {
+    "parameter": "cost_multiplier",
+    "provenance": "HYPOTHETICAL",
+    "unit": "ratio",
+    "values": [
+     0.8,
+     0.9,
+     1.0,
+     1.1,
+     1.2,
+     1.5
+    ]
+   },
+   {
+    "parameter": "backlog_penalty",
+    "provenance": "HYPOTHETICAL",
+    "unit": "usd_per_request_day",
+    "values": [
+     0.0,
+     0.5,
+     1.0,
+     2.0,
+     4.0,
+     8.0,
+     16.0
+    ]
+   }
+  ]
+ },
+ "service_units": [
+  {
+   "backlog_penalty": {
+    "assumption": "Notional weight on each request waiting overnight; a preference for less waiting, not a cash cost.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "usd_per_request_day",
+    "value": 2.0
+   },
+   "backlog_trigger": {
+    "assumption": "Trigger of the backlog-trigger rule, set equal to the terminal target.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "requests",
+    "value": 4000.0
+   },
+   "description": "One hypothetical city-wide pool of staff serving every 311 request type; no agency-level capacity data exist.",
+   "initial_backlog": {
+    "assumption": "Illustrative open backlog at the start of the horizon (about 0.7 days of forecast demand); no backlog is observed in the data.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "requests",
+    "value": 8000.0
+   },
+   "overtime_max_hours_per_day": {
+    "assumption": "Illustrative daily overtime limit (about 9 % of regular hours).",
+    "provenance": "HYPOTHETICAL",
+    "unit": "staff_hours_per_day",
+    "value": 400.0
+   },
+   "overtime_productivity": {
+    "assumption": "Illustrative: 10 % below regular productivity, for fatigue.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "requests_per_staff_hour",
+    "value": 2.25
+   },
+   "overtime_total_hours": {
+    "assumption": "Illustrative overtime limit over the 30 days (half the daily limit on average).",
+    "provenance": "HYPOTHETICAL",
+    "unit": "staff_hours",
+    "value": 6000.0
+   },
+   "overtime_wage": {
+    "assumption": "Illustrative overtime cost (1.5 times the regular wage): 26.67 USD per request at overtime productivity.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "usd_per_staff_hour",
+    "value": 60.0
+   },
+   "regular_hours_per_day": {
+    "assumption": "Illustrative regular staff time per day (for example 550 staff working 8 hours); with the regular productivity it gives 11,000 requests per day, 1.2 % below the forecast mean.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "staff_hours_per_day",
+    "value": 4400.0
+   },
+   "regular_productivity": {
+    "assumption": "Illustrative number of requests one staff hour resolves; no productivity is measured in the data.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "requests_per_staff_hour",
+    "value": 2.5
+   },
+   "regular_wage": {
+    "assumption": "Illustrative loaded cost of a regular staff hour; not an NYC pay rate.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "usd_per_staff_hour",
+    "value": 40.0
+   },
+   "surge_available_from_day": {
+    "assumption": "Illustrative: the surge contract is available from the first day in the base case.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "planning_day",
+    "value": 1
+   },
+   "surge_max_per_day": {
+    "assumption": "Illustrative capacity of an external surge contract.",
+    "provenance": "HYPOTHETICAL",
+    "unit": "requests_per_day",
+    "value": 600.0
+   },
+   "surge_price": {
+    "assumption": "Illustrative price of one externally processed request (more than overtime per request).",
+    "provenance": "HYPOTHETICAL",
+    "unit": "usd_per_request",
+    "value": 30.0
+   },
+   "surge_total": null,
+   "terminal_backlog_max": {
+    "assumption": "Illustrative target for the backlog left after the last day (half of the initial backlog).",
+    "provenance": "HYPOTHETICAL",
+    "unit": "requests",
+    "value": 4000.0
+   },
+   "terminal_penalty": {
+    "assumption": "No extra notional weight on the backlog left after the last day (the terminal target constrains it instead).",
+    "provenance": "HYPOTHETICAL",
+    "unit": "usd_per_request",
+    "value": 0.0
+   },
+   "unit_id": "citywide"
+  }
+ ],
+ "shadow_prices": {
+  "finite_difference_steps": {
+   "requests": 1.0,
+   "staff_hours": 1.0,
+   "usd": 100.0
+  },
+  "scenarios": [
+   "normal",
+   "increased_demand",
+   "reduced_capacity",
+   "increased_costs",
+   "reduced_budget",
+   "delayed_surge",
+   "combined_stress",
+   "m2_bias_shift",
+   "m3_marginal_q90_stress"
+  ]
+ },
+ "snapshot_id": "legacy-v0",
+ "solver": {
+  "dual_feasibility_tolerance": 1e-09,
+  "maxiter": 10000,
+  "method": "highs-ds",
+  "presolve": true,
+  "primal_feasibility_tolerance": 1e-09
+ },
+ "uncertainty": {
+  "calibration_status": "docs/results/atlas-m3-intervals-v1/full/calibration_status.json",
+  "calibration_status_sha256": "41768af15f69a28faf80c882d67b85aa2a271883df9ec93a835b49fe2a94a715",
+  "projection_exceedance_sha256": "6eea63e3c878b32991822e63f1e8ff6f7171cfcc17cef51f1aac62c01d039a39",
+  "projection_intervals_sha256": "0e648e0a3430af9b00181f439f110c769e4bb13d8b48da617a48873af65efa8c",
+  "projection_run_dir": "docs/results/atlas-m3-intervals-v1/projection"
+ }
+}

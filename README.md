@@ -26,11 +26,18 @@ An end-to-end analytics project that transforms historical operational request d
 > [Prediction intervals and probabilistic risk (M3)](docs/UNCERTAINTY.md), including the
 > decision-grade status, before using any interval or probability.
 >
+> **M4 decision simulation:** a linear-programming model of service, overtime, surge and
+> backlog that turns the forecast into **hypothetical** resource-allocation scenarios, with
+> certified optima, policy comparisons, tradeoff frontiers and sensitivity analysis. Every
+> operational parameter is `HYPOTHETICAL`; nothing in it is a validated staffing or budget
+> recommendation. See [Decision simulation and optimisation (M4)](docs/OPTIMIZATION.md).
+>
 > Quick start: `uv sync --locked && uv run atlas check && uv run atlas quality` ·
 > [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
 > [Data snapshot](docs/DATA_SNAPSHOT.md) · [Data quality (M1)](docs/DATA_QUALITY.md) ·
 > [Forecast features (M1)](docs/FEATURES.md) · [Backtesting (M2)](docs/BACKTESTING.md) ·
-> [Uncertainty (M3)](docs/UNCERTAINTY.md) · [Roadmap](docs/ROADMAP.md)
+> [Uncertainty (M3)](docs/UNCERTAINTY.md) · [Optimisation (M4)](docs/OPTIMIZATION.md) ·
+> [Roadmap](docs/ROADMAP.md)
 
 ## Dashboard Preview
 

@@ -22,6 +22,11 @@ from atlas.config import Settings, load_settings
 from atlas.errors import AtlasError
 from atlas.features import default_feature_set
 from atlas.issues import CheckReport, Severity
+from atlas.optimization_runner import (
+    inspect_optimization_command,
+    run_optimization_command,
+    verify_optimization_command,
+)
 from atlas.pipeline import Stage, run, run_quality
 from atlas.registry import spec_for
 from atlas.runner import (
@@ -58,7 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
             "ATLAS: verify, validate and reproduce the registered data snapshot (M0); "
             "assess data quality and describe forecast features (M1); rolling-origin "
             "backtests and labelled future projections (M2); prediction intervals and "
-            "exceedance probabilities (M3)."
+            "exceedance probabilities (M3); HYPOTHETICAL decision simulation and "
+            "optimisation (M4)."
         ),
     )
     parser.add_argument("--version", action="version", version=f"atlas {__version__}")
@@ -159,11 +165,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="recommendation.json of a confirmation run: project only the recommended model.",
     )
     _add_uncertainty_parser(commands)
+    _add_optimization_parser(commands)
     return parser
 
 
 DEFAULT_CONFIG = Path("configs/backtest/atlas-m2-rolling-origin-v1.json")
 DEFAULT_UNCERTAINTY_CONFIG = Path("configs/uncertainty/atlas-m3-intervals-v1.json")
+DEFAULT_OPTIMIZATION_CONFIG = Path("configs/optimization/atlas-m4-optimization-v1.json")
+
+
+def _add_optimization_parser(commands: Any) -> None:
+    optimize = commands.add_parser(
+        "optimize",
+        help="HYPOTHETICAL decision simulation: scenarios, LP plans, sensitivity (M4).",
+    )
+    sub = optimize.add_subparsers(dest="optimize_command", required=True)
+    run_parser = sub.add_parser(
+        "run",
+        help="Integrity, validation, verified M2/M3 inputs, then every scenario and analysis.",
+    )
+    run_parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=f"M4 configuration (default: {DEFAULT_OPTIMIZATION_CONFIG} in the repository).",
+    )
+    run_parser.add_argument(
+        "--output-dir", type=Path, default=None, help="Run directory (default: runs/<run id>)."
+    )
+    run_parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="Refuse to run if code, configs or tests have uncommitted changes (reference runs).",
+    )
+    verify = sub.add_parser(
+        "verify", help="Re-run a recorded M4 run; pass only if every result file is identical."
+    )
+    verify.add_argument("run_dir", type=Path, help="Directory of a recorded M4 run.")
+    inspect = sub.add_parser(
+        "inspect", help="Check an M4 run directory against its manifest and print its results."
+    )
+    inspect.add_argument("run_dir", type=Path, help="Directory of a recorded M4 run.")
 
 
 def _add_uncertainty_parser(commands: Any) -> None:
@@ -459,8 +501,89 @@ def _render_uncertainty_projection(facts: Any, stream: TextIO) -> None:
         stream.write(f"    {row['target_date']}  {_bound(row['prediction']):>9}  {bounds}\n")
 
 
+def _render_optimization(facts: Any, stream: TextIO) -> None:
+    if "scenarios" not in facts:
+        return
+    if "run_dir" in facts:
+        stream.write(f"  {facts['label']}\n  run directory {facts['run_dir']}\n")
+    if facts.get("complete") is False:
+        stream.write(
+            "  INCOMPLETE RUN: the manifest marks the run incomplete; see the errors above\n"
+        )
+    if facts.get("files_absent"):
+        stream.write(f"  missing: {', '.join(facts['files_absent'])}\n")
+    grade = "decision-grade" if facts.get("m3_decision_grade") else "not decision-grade"
+    stream.write(
+        f"  M3 calibration status {str(facts['m3_interval_status']).upper()}: {grade}"
+        f"\n  result fingerprint {facts['result_fingerprint']}\n"
+    )
+    stream.write(
+        "  scenario                    plan                      cash USD  request-days"
+        "  terminal backlog (requests)\n"
+    )
+    for row in facts["scenarios"]:
+        over = row.get("terminal_violation")
+        excess = "" if over is None else f" ({_m4_number(over, small=True)} over target)"
+        stream.write(
+            f"    {row['scenario_id']!s:26} {row['feasibility']!s:24} "
+            f"{_m4_number(row['discretionary_cost']):>9} "
+            f"{_m4_number(row['backlog_request_days']):>13} "
+            f"{_m4_number(row['terminal_backlog']):>9}{excess}\n"
+        )
+
+
+def _render_optimization_verification(facts: Any, stream: TextIO) -> None:
+    if "identical" not in facts:
+        return
+    grade = "decision-grade" if facts.get("m3_decision_grade") else "not decision-grade"
+    stream.write(
+        f"  {facts['label']}\n  M3 calibration status "
+        f"{str(facts['m3_interval_status']).upper()}: {grade}\n"
+    )
+    same = all(v == "identical" for v in facts["files"].values())
+    stream.write(
+        f"  recomputed files {'identical to' if same else 'DIFFERENT from'} the recorded hashes: "
+        + ", ".join(f"{k} {v}" for k, v in facts["files"].items())
+        + f"\n  result fingerprint {facts['result_fingerprint']}"
+        + (
+            ""
+            if facts.get("recorded_result_fingerprint") == facts["result_fingerprint"]
+            else f" (the manifest records {facts.get('recorded_result_fingerprint')})"
+        )
+        + "\n"
+    )
+    if facts.get("altered_on_disk"):
+        stream.write(f"  altered on disk: {', '.join(facts['altered_on_disk'])}\n")
+    if facts.get("manifest_entries_edited"):
+        stream.write(
+            "  manifest entry differs from the file on disk (which equals the "
+            f"recomputation): {', '.join(facts['manifest_entries_edited'])}\n"
+        )
+    if facts.get("files_absent"):
+        stream.write(f"  missing: {', '.join(facts['files_absent'])}\n")
+    if facts.get("recomputed_errors"):
+        stream.write(f"  failed checks in the recomputation: {facts['recomputed_errors']}\n")
+    for name, (then, now) in facts["provenance_differences"].items():
+        stream.write(f"  provenance differs: {name} recorded {then}, now {now}\n")
+
+
+def _small(value: Any) -> str:
+    """Like :func:`_bound`, but a nonzero value below one keeps three significant digits."""
+    if isinstance(value, float) and value == value and 0 < abs(value) < 1:
+        return f"{value:.3g}"
+    return _bound(value)
+
+
 def _bound(value: Any) -> str:
     return "n/a" if value is None or value != value else f"{value:,.0f}"
+
+
+def _m4_number(value: Any, small: bool = False) -> str:
+    """An M4 headline value from ``metrics.json``: ``n/a`` for anything that is not a number,
+    so a malformed run file is reported by ``inspect``, never a crash of the renderer."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return "n/a"
+    return _small(value) if small else _bound(value)
 
 
 _M2_RENDERERS = {
@@ -472,6 +595,9 @@ _M2_RENDERERS = {
     "uncertainty_inspection": _render_uncertainty,
     "uncertainty_verification": _render_uncertainty_verification,
     "uncertainty_projection": _render_uncertainty_projection,
+    "optimization": _render_optimization,
+    "optimization_inspection": _render_optimization,
+    "optimization_verification": _render_optimization_verification,
 }
 
 
@@ -547,6 +673,21 @@ def _uncertainty(args: argparse.Namespace, settings: Settings) -> list[CheckRepo
     return uncertainty_projection_command(settings, args.status, output_dir=args.output_dir)
 
 
+def _optimize(args: argparse.Namespace, settings: Settings) -> list[CheckReport]:
+    if args.optimize_command == "run":
+        config = (
+            args.config
+            if args.config is not None
+            else settings.repo_root / DEFAULT_OPTIMIZATION_CONFIG
+        )
+        return run_optimization_command(
+            settings, config, output_dir=args.output_dir, require_clean=args.require_clean
+        )
+    if args.optimize_command == "verify":
+        return verify_optimization_command(settings, args.run_dir)
+    return inspect_optimization_command(args.run_dir)
+
+
 def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int:
     out = stdout if stdout is not None else sys.stdout
     parser = build_parser()
@@ -563,6 +704,8 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
             reports = _backtest(args, settings)
         elif args.command == "uncertainty":
             reports = _uncertainty(args, settings)
+        elif args.command == "optimize":
+            reports = _optimize(args, settings)
         elif args.command == "forecast":
             reports = projection_command(
                 settings,

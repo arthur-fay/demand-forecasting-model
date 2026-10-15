@@ -14,6 +14,12 @@ backtesting engine, forecast-evaluation statistics and reproducible experiment r
 Milestone M3 adds horizon-specific prediction intervals and threshold-exceedance
 probabilities calibrated only on residuals observed by each issue date, with a
 pre-registered selection, a dependence-aware evaluation and a decision-grade status.
+
+Milestone M4 adds a hypothetical decision simulation: a linear programme (SciPy HiGHS) that
+turns the M2 forecast into resource-allocation scenarios under explicitly HYPOTHETICAL
+operational parameters, compared with simple policies, with infeasibility diagnostics,
+tradeoff frontiers, sensitivity sweeps and certified shadow prices. Every result carries the
+M3 calibration status and is labelled as not a validated recommendation.
 """
 
 import os
@@ -24,4 +30,4 @@ import os
 for _variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_variable, "1")
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

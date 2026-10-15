@@ -1,7 +1,7 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. M0, M1 and M2 are merged; M3 is implemented on
-`feature/atlas-m3-uncertainty-risk` and awaits review. Nothing from M4 onward is implemented.
+Each milestone requires separate approval. M0-M3 are merged; M4 is implemented on
+`feature/atlas-m4-optimization` and awaits review. Nothing from M5 onward is implemented.
 
 ## M0: Foundation (merged)
 
@@ -68,7 +68,7 @@ Deliberately not done in M2:
 - **Scoring the archived July 2026 forecast:** it needs data after 2026-06-30, which would be
   a new extraction (not authorised).
 
-## M3: Prediction intervals and probabilistic risk (implemented; awaiting approval)
+## M3: Prediction intervals and probabilistic risk (merged)
 
 See [UNCERTAINTY.md](UNCERTAINTY.md).
 
@@ -94,10 +94,40 @@ Deliberately not done in M3:
 - **Monotone widening across horizons:** not imposed; the report measures it.
 - **Scoring the archived July 2026 forecast:** still needs data after 2026-06-30.
 
+## M4: Hypothetical decision simulation and optimisation (implemented; awaiting approval)
+
+See [OPTIMIZATION.md](OPTIMIZATION.md).
+
+- A linear programme of daily service, overtime, surge and backlog (SciPy HiGHS dual
+  simplex), one city-wide unit (the domain model supports several units sharing a budget),
+  every operational parameter `HYPOTHETICAL` with an exact unit and assumption.
+- Certified optima (primal and dual feasibility, zero duality gap), a matrix-free check of
+  every plan, labelled relaxed plans and diagnostics for infeasible scenarios, explicit
+  tie-breaks (least cash, then terminal backlog, then request-days), a uniqueness test over
+  the optimal face (no other optimal plan farther than 0.001), shadow prices bracketed by
+  finite differences.
+- Fixed-capacity and backlog-trigger policies under the same assumptions, LP comparisons at
+  equal cash and equal backlog, tradeoff frontiers, sensitivity sweeps with the proved
+  monotonicity properties checked; nine scenarios including an M2-bias shift and an M3
+  marginal-quantile stress path; the M3 calibration status on every result;
+  `atlas optimize run|verify|inspect`.
+- An independent six-lens review after the freeze (including a re-implementation and
+  mutation testing), then two further independent reviews of the fixes and a verification of
+  the last round; every confirmed defect fixed with a regression test. Reference results:
+  [`docs/results/atlas-m4-optimization-v1/`](results/atlas-m4-optimization-v1/report.md)
+  (OPTIMIZATION.md sections 9-10).
+
+Deliberately not done in M4:
+
+- **Chance constraints or stochastic programming:** the M3 intervals failed calibration, so
+  no probabilistic guarantee could be supported.
+- **Agency-level units:** no agency capacity data exist; the configuration accepts one
+  city-wide unit.
+- **Verified parameters:** no evidence register exists, so every parameter is `HYPOTHETICAL`.
+- **Integer staffing, fixed costs or shift rules:** they need a MILP and data ATLAS lacks.
+
 ## Later milestones (deferred, outline only)
 
-- **M4:** scenario analysis and a small backlog optimisation model. Its operational
-  parameters are explicitly `HYPOTHETICAL` unless evidence is supplied.
 - **M5:** FastAPI service with typed contracts.
 - **M6:** hardened deployment on a small Ubuntu VPS.
 - **M7:** lightweight dashboard, model card and data card.

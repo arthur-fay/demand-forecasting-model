@@ -17,7 +17,7 @@ jobs:
   quality:
     name: Lint, type-check, test and verify legacy-v0
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       UV_PYTHON: "3.12"
     steps:
@@ -69,3 +69,14 @@ jobs:
         run: |
           uv run atlas uncertainty run --config configs/uncertainty/smoke.json --output-dir "$RUNNER_TEMP/m3-smoke"
           uv run atlas uncertainty verify "$RUNNER_TEMP/m3-smoke"
+
+      - name: Smoke decision simulation and byte-identical verification (M4)
+        run: |
+          uv run atlas optimize run --config configs/optimization/smoke.json --output-dir "$RUNNER_TEMP/m4-smoke"
+          uv run atlas optimize verify "$RUNNER_TEMP/m4-smoke"
+          uv run atlas optimize inspect "$RUNNER_TEMP/m4-smoke"
+
+      - name: Committed M4 reference run reproduces byte for byte on this runner
+        run: |
+          uv run atlas optimize verify docs/results/atlas-m4-optimization-v1
+          uv run atlas optimize inspect docs/results/atlas-m4-optimization-v1
