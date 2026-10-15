@@ -48,22 +48,32 @@ test('reduced motion turns the page transition off', async ({ page }) => {
 test('a field reached by keyboard is never hidden under a sticky bar', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await open(page, '/simulator', 'Hypothetical simulator');
-  const first = page.getByLabel(/Planning horizon/).and(page.locator('input[type="text"]'));
-  await first.focus();
-  // Tab through every text field of the form: each must be the element at its own centre
-  // once focused (not the top bar or the action bar drawn over it). WCAG 2.4.11.
-  const fields = await page.locator('form input[type="text"]').count();
-  for (let i = 0; i < fields; i++) {
-    const covered = await page.evaluate(() => {
+  const ids = await page
+    .locator('form input[type="text"]')
+    // Enabled ones: a limit left at "No limit" disables its field, which Tab then skips.
+    .evaluateAll((inputs) =>
+      inputs.filter((input) => !(input as HTMLInputElement).disabled).map((input) => input.id),
+    );
+  expect(ids.length).toBeGreaterThan(10);
+  await page.getByRole('textbox', { name: /Planning horizon/ }).focus();
+  // Tab through the form until every text field has had the focus: each must then be the
+  // element at its own centre (not the top bar or the action bar drawn over it). WCAG 2.4.11.
+  const visited = new Set<string>();
+  for (let step = 0; step < 200 && visited.size < ids.length; step++) {
+    const focused = await page.evaluate(() => {
       const element = document.activeElement;
       if (!(element instanceof HTMLInputElement) || element.type !== 'text') return null;
       const box = element.getBoundingClientRect();
       const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-      return top === element ? null : element.id;
+      return { id: element.id, covered: top !== element };
     });
-    expect(covered, 'focused field covered').toBeNull();
+    if (focused !== null) {
+      expect(focused.covered, `${focused.id} is covered when focused`).toBe(false);
+      visited.add(focused.id);
+    }
     await page.keyboard.press('Tab');
   }
+  expect([...visited].sort()).toEqual([...ids].sort());
 });
 
 test('a failed simulation is reported where the reader is', async ({ page }) => {

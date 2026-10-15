@@ -43,6 +43,21 @@ test('the scientific warnings are next to the numbers they qualify', async ({ pa
   await expect(page.getByText(/DIAGNOSTIC/).first()).toBeVisible();
 });
 
+test('every reference scenario opens, from the real API, with no error', async ({ page }) => {
+  await open(page, '/decisions', 'Decision optimisation');
+  const select = page.getByLabel('Scenario', { exact: true });
+  const scenarios = await select
+    .locator('option')
+    .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
+  expect(scenarios.length).toBe(9);
+  for (const scenario of scenarios) {
+    await select.selectOption(scenario);
+    await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-kind="error"]')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /Daily resources and backlog/ })).toBeVisible();
+  }
+});
+
 test('a reference scenario opens from its link and survives a reload', async ({ page }) => {
   await page.goto('/decisions?scenario=reduced_budget');
   await expect(page.getByLabel('Scenario', { exact: true })).toHaveValue('reduced_budget');

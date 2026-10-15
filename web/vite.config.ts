@@ -42,6 +42,9 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}', 'build/**/*.test.ts'],
     setupFiles: ['src/test/setup.ts'],
     restoreMocks: true,
+    // A whole page rendered from fixtures takes 3-4 s with coverage on a busy machine: room
+    // for a loaded CI runner, and for the 5 s waits inside the tests to mean something.
+    testTimeout: 20_000,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],

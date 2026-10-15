@@ -16,7 +16,8 @@ const json = (
 
 test('a slow connection is announced, then the data appears', async ({ page }) => {
   await page.route('**/api/v1/uncertainty/status', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 3500));
+    // Well past the 2.5 s threshold: the notice stays up long enough to be seen on a busy runner.
+    await new Promise((resolve) => setTimeout(resolve, 6000));
     await route.continue();
   });
   await page.goto('/uncertainty');
@@ -35,7 +36,7 @@ test('an unavailable component fails alone and can be retried', async ({ page })
       );
     else await route.continue();
   });
-  await open(page, '/', 'Decision-intelligence research on NYC 311 demand');
+  await open(page, '/', 'Decision-intelligence research on NYC 311 demand', { failures: true });
   await expect(page.getByText(/This component is unavailable/).first()).toBeVisible();
   // The rest of the page still works.
   await expect(page.getByText('Not significant after Holm')).toBeVisible();

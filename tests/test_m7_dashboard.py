@@ -365,11 +365,66 @@ def test_the_dashboard_is_read_only(api_store: ReferenceStore) -> None:
     ],
 )
 def test_nothing_but_the_build_is_served(api_store: ReferenceStore, path: str) -> None:
+    # (The test client normalises dot segments before sending: raw paths are covered by
+    # test_the_mount_matches_raw_paths_exactly below, and through nginx in test_m7_proxy.)
     with client(api_store) as test_client:
         answer = test_client.get(path)
     assert answer.status_code == 404, path
     assert answer.json()["error"]["code"] == "not_found"
     assert answer.headers["content-security-policy"] == API_CSP
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/assets/../pyproject.toml",
+        "/../../etc/passwd",
+        "/./index.html",
+        "/./",
+        "//favicon.svg",
+        "/favicon.svg/",
+        "/favicon.svg%00",
+        "/forecasting/..",
+        "/assets/./x.js",
+    ],
+)
+def test_the_mount_matches_raw_paths_exactly(path: str) -> None:
+    """The mount compares the ASGI path as received, without resolving it: a raw path that
+    is not exactly a built file or page goes to the API (its JSON 404), never to a file."""
+    import asyncio
+
+    from atlas.api.dashboard import DashboardMiddleware, load_dashboard
+
+    dashboard = load_dashboard(REPO_ROOT, simulations_enabled=True)
+    passed: list[str] = []
+    sent: list[Any] = []
+
+    async def api(scope: Any, receive: Any, send: Any) -> None:
+        passed.append(scope["path"])
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Any) -> None:
+        sent.append(message)
+
+    def call(raw: str) -> None:
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": raw,
+            "raw_path": raw.encode(),
+            "headers": [],
+            "query_string": b"",
+        }
+        asyncio.run(DashboardMiddleware(api, dashboard=dashboard)(scope, receive, send))
+
+    call(path)
+    assert passed == [path]
+    assert sent == []
+    call("/favicon.svg")  # the control: an exact file is served by the mount
+    assert passed == [path]
+    assert sent[0]["status"] == 200
 
 
 def test_the_api_keeps_its_own_headers(api_store: ReferenceStore) -> None:

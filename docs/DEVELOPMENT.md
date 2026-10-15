@@ -303,7 +303,7 @@ run subsets with `--no-cov`, for example `uv run pytest -m integration --no-cov`
   `ATLAS_E2E_CONTAINER=1 uv run pytest tests/test_m6_container.py --no-cov -v` (needs Docker
   and privileges to run a container with systemd; CI runs it in the `deploy-e2e` job).
 
-The dashboard (`web/`, Node.js 22.12+ on development machines and CI only) has its own
+The dashboard (`web/`, Node.js 22.22.2+ on development machines and CI only) has its own
 checks: `cd web && npm ci && npm run format:check && npm run lint && npm run typecheck &&
 npm test && npm run build && npm run verify:dist && npm run size`, and the browser tests
 `npx playwright test` (they start the API and two nginx stacks; see

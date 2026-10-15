@@ -344,7 +344,8 @@ never cached, so a new release is picked up on the next load. Text is compressed
 
 ## 11. Development, build and checks
 
-Requirements: Node.js 22.12+ (or 24) and npm, on a development machine or CI only.
+Requirements: Node.js 22.22.2+ (or 24.15+; the lock's test tools need it) and npm, on a
+development machine or CI only.
 
 ```bash
 cd web

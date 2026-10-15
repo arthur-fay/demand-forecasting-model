@@ -2,10 +2,11 @@
  * What the independent review of M7 found, kept fixed: each test fails on the defect it
  * names (see docs/DASHBOARD.md section 16).
  */
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { SIMULATION_TIMEOUT_MS } from '../api/endpoints';
 import { App } from '../App';
 import { apiError, DESCRIPTORS, FIXTURES, json, mockApi } from '../test/api';
 
@@ -87,6 +88,30 @@ describe('the simulator', () => {
     await user.clear(horizon);
     await user.type(horizon, '12');
     expect(screen.getByText(/The inputs have changed since this result/)).toBeInTheDocument();
+  });
+
+  it('says when it stopped waiting, without blaming the server', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockApi({
+        '/api/v1/simulations': (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              reject(new DOMException('aborted', 'AbortError'));
+            });
+          }),
+      });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+      at('/simulator');
+      await user.click(await screen.findByRole('button', { name: 'Run simulation' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SIMULATION_TIMEOUT_MS + 1000);
+      });
+      expect(await screen.findByText(/No answer arrived in time/)).toBeInTheDocument();
+      expect(screen.queryByText(/server stopped the solve/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows the reason first when this deployment cannot simulate', async () => {

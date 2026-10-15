@@ -336,10 +336,23 @@ def private_deployment(tmp_path: Path, broken: set[str] | None = None) -> Any:
     return deployment(tmp_path, DEPLOY_ENV_PRIVATE, broken)
 
 
-def test_a_private_activation_publishes_the_dashboard_before_the_site(tmp_path: Path) -> None:
+def test_a_private_activation_publishes_the_dashboard_before_the_site(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from atlas.deploy import releases
+
     deploy, host = private_deployment(tmp_path)
     release = make_dashboard_release(tmp_path, commit=A)
+    site = tmp_path / "etc/nginx/sites-available/atlas.conf"
+    order: list[str] = []
+
+    def publishing(*args: Any, **kwargs: Any) -> PurePosixPath:
+        order.append("site already written" if site.exists() else "published first")
+        return publish(*args, **kwargs)
+
+    monkeypatch.setattr(releases, "publish", publishing)
     record = deploy.activate(name(A))
+    assert order == ["published first"]
     assert record["outcome"] == ACTIVATED, record
     published = deploy.layout.local(deploy.layout.dashboard(name(A)))
     assert (

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { horizontalOverflow, open, PAGES } from './helpers';
+import { horizontalOverflow, open, PAGES, violations } from './helpers';
 
 for (const { path, heading } of PAGES) {
   test(`${path} fits a phone screen`, async ({ page }) => {
@@ -8,6 +8,8 @@ for (const { path, heading } of PAGES) {
     // clientWidth, not innerWidth: a phone browser zooms out to fit wide content, which
     // makes innerWidth grow with the overflow it should reveal.
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    // The phone layout (menu, stacked panels, scrolling tables) meets WCAG 2.2 AA too.
+    expect(await violations(page)).toEqual([]);
   });
 }
 

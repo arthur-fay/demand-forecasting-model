@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "engines": {
-    "node": ">=22.12 <23 || >=24"
+    "node": ">=22.22.2 <23 || >=24.15"
   },
   "scripts": {
     "dev": "vite",

@@ -2,7 +2,7 @@
 // and SHA-256, and nothing else. (CI also rebuilds from the lock and requires
 // `git diff --exit-code -- web/dist` to be empty: the committed build is reproducible.)
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 const dist = new URL('../dist/', import.meta.url).pathname;
@@ -31,7 +31,8 @@ for (const path of listed) {
   const { sha256, bytes } = manifest.files[path];
   if (data.length !== bytes || createHash('sha256').update(data).digest('hex') !== sha256)
     problems.push(`altered: ${path}`);
-  if (!statSync(join(dist, path)).isFile()) problems.push(`not a regular file: ${path}`);
+  // A link is never part of a build, even one pointing at the right bytes (servers refuse it).
+  if (!lstatSync(join(dist, path)).isFile()) problems.push(`not a regular file: ${path}`);
 }
 if (problems.length) {
   console.error(problems.join('\n'));
