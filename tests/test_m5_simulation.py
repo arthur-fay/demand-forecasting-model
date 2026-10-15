@@ -18,18 +18,19 @@ from fastapi.testclient import TestClient
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from atlas.api.errors import ApiError
+from atlas.api.problems import ApiError
 from atlas.api.reference import ReferenceStore
 from atlas.api.schemas import SimulationRequest
 from atlas.api.simulation import (
     CLIENT_ASSUMPTION,
+    REFERENCE_ASSUMPTION,
     REMOVED_ASSUMPTION,
     SimulationService,
     build_configuration,
-    compute,
     prepare,
     worker_context,
 )
+from atlas.api.worker import compute
 from tests.m5_helpers import M4_RUN, assert_envelope, client, read_csv, read_json
 
 pytestmark = pytest.mark.integration
@@ -69,6 +70,20 @@ def test_omitted_fields_take_reference_values(api_store: ReferenceStore) -> None
     assert unit == config["service_units"][0]
     assert payload["discretionary_budget"] == config["discretionary_budget"]
     assert {p.source for p in resolved} == {"reference_default"}
+    # The configuration keeps each reference entry; the response words it neutrally and
+    # keeps the documented rationale apart (it describes the 30-day reference).
+    for item in resolved:
+        entry = (
+            config["discretionary_budget"]
+            if item.name == "discretionary_budget"
+            else config["service_units"][0][item.name]
+        )
+        if entry is None:
+            assert item.reference_assumption is None
+            assert item.value is None
+        else:
+            assert item.assumption == REFERENCE_ASSUMPTION
+            assert item.reference_assumption == entry["assumption"]
     assert payload["sensitivity"] is None
     assert payload["frontier"] is None
     assert payload["shadow_prices"] is None
@@ -98,6 +113,7 @@ def test_client_values_and_removed_limits(api_store: ReferenceStore) -> None:
     assert by_name["discretionary_budget"].source == "removed_by_request"
     assert by_name["discretionary_budget"].assumption == REMOVED_ASSUMPTION
     assert by_name["surge_total"].source == "removed_by_request"
+    assert by_name["overtime_wage"].reference_assumption is None
     adjustments = payload["scenarios"][0]["adjustments"]
     assert adjustments["demand_multiplier"]["value"] == 1.05
     assert adjustments["demand_shift_per_day"]["value"] == 10.0
@@ -126,6 +142,12 @@ def test_a_demand_percentile_is_never_a_capacity(api_store: ReferenceStore) -> N
         prepare(api_store, request(parameters={"regular_hours_per_day": 4643.5}))
     assert caught.value.code == "simulation_rejected"
     assert "percentile" in caught.value.message
+    assert "11,608.75" in caught.value.message
+    assert not caught.value.message.startswith("scenario interactive")
+    assert [d["field"] for d in caught.value.details] == [
+        "parameters.regular_hours_per_day",
+        "parameters.regular_productivity",
+    ]
     # Just outside the 1 % band it is an ordinary HYPOTHETICAL capacity.
     prepare(api_store, request(parameters={"regular_hours_per_day": 4700.0}))
 
@@ -135,6 +157,37 @@ def test_surge_start_beyond_the_horizon_is_rejected(api_store: ReferenceStore) -
     with pytest.raises(ApiError) as caught:
         prepare(api_store, request(horizon_days=10, parameters={"surge_available_from_day": 12}))
     assert caught.value.code == "simulation_rejected"
+    assert caught.value.message == "surge_available_from_day must be within 1..horizon_days + 1"
+    assert caught.value.details == [
+        {"field": "parameters.surge_available_from_day", "message": caught.value.message}
+    ]
+
+
+def test_limitations_describe_this_simulation(api_store: ReferenceStore) -> None:
+    from atlas.api.simulation import limitations
+
+    def texts(**body: Any) -> list[str]:
+        prepared = prepare(api_store, request(**body))
+        return limitations(prepared.config, prepared.parameters, 30, 984.9183743068235)
+
+    reference = texts()
+    # 400 h/day x 2.25 requests/h = 900 requests/day of overtime at most.
+    assert any("MAE over horizons 1-30 was 985 requests/day, 1.1 times" in t for t in reference)
+    assert any("(900 requests/day)" in t for t in reference)
+    assert not any("prorated" in t for t in reference)
+    none = texts(parameters={"overtime_max_hours_per_day": 0})
+    assert any("this simulation has no overtime capacity" in t for t in none)
+    short = texts(horizon_days=7)
+    prorated = [t for t in short if "not prorated" in t]
+    assert prorated == [
+        "Horizon totals are not prorated: overtime_total_hours, discretionary_budget keep "
+        "their 30-day reference values over this 7-day horizon."
+    ]
+    # A total the client sets (or removes) is the client's choice: no notice for it.
+    chosen = texts(
+        horizon_days=7, parameters={"overtime_total_hours": 1000, "discretionary_budget": None}
+    )
+    assert not any("prorated" in t for t in chosen)
 
 
 def test_simulation_id_is_the_configuration_fingerprint(api_store: ReferenceStore) -> None:
@@ -415,3 +468,52 @@ def test_http_rejection_of_a_percentile_capacity(api: TestClient) -> None:
     error = post(api, {"parameters": {"regular_hours_per_day": 4643.5}}, 422)["error"]
     assert error["code"] == "simulation_rejected"
     assert "percentile" in error["message"]
+    assert {d["field"] for d in error["details"]} == {
+        "parameters.regular_hours_per_day",
+        "parameters.regular_productivity",
+    }
+
+
+def test_http_error_fields_follow_one_convention(api: TestClient) -> None:
+    """Every layer names a body field by its dotted path without a location prefix."""
+    schema = post(api, {"parameters": {"regular_wage": -1}}, 422)["error"]
+    assert [d["field"] for d in schema["details"]] == ["parameters.regular_wage"]
+    application = post(api, {"parameters": {"regular_wage": None}}, 422)["error"]
+    assert [d["field"] for d in application["details"]] == ["parameters.regular_wage"]
+    m4 = post(api, {"horizon_days": 5, "parameters": {"surge_available_from_day": 20}}, 422)
+    assert [d["field"] for d in m4["error"]["details"]] == ["parameters.surge_available_from_day"]
+    assert "Value error" not in m4["error"]["message"]
+    nested = api.post(
+        "/api/v1/simulations",
+        content=b'{"parameters": {"regular_wage": 50, "regular_wage": 60}}',
+        headers={"content-type": "application/json"},
+    ).json()["error"]
+    assert [d["field"] for d in nested["details"]] == ["parameters.regular_wage"]
+    malformed = api.post(
+        "/api/v1/simulations", content=b"{", headers={"content-type": "application/json"}
+    )
+    assert malformed.status_code == 422
+    assert malformed.json()["error"]["details"] == [
+        {"field": "<body>", "message": "the body is not valid JSON"}
+    ]
+
+
+def test_http_simulation_sources_and_assumptions(api: TestClient) -> None:
+    body = post(
+        api, {"horizon_days": 7, "demand": {"basis": "m3_marginal_quantile", "quantile": 0.975}}
+    )
+    kinds = [s["kind"] for s in body["provenance"]["sources"]]
+    assert kinds == [
+        "m4_reference_configuration",
+        "m2_projection_run",
+        "m2_backtest_run",
+        "m3_calibration_status",
+        "m3_projection_run",
+    ]
+    data = body["data"]
+    defaults = [p for p in data["parameters"] if p["source"] == "reference_default"]
+    assert defaults
+    assert all(p["assumption"] == REFERENCE_ASSUMPTION or p["value"] is None for p in defaults)
+    assert any("not prorated" in limit for limit in data["limitations"])
+    point = post(api, {"horizon_days": 7})["provenance"]["sources"]
+    assert "m3_projection_run" not in [s["kind"] for s in point]

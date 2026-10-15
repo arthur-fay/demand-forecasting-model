@@ -16,7 +16,7 @@ from atlas.api.dependencies import (
     require_json,
 )
 from atlas.api.reference import ReferenceStore
-from atlas.api.routers import errors
+from atlas.api.routers import API_PREFIX, cost, errors
 from atlas.api.schemas import (
     SimulationParametersResponse,
     SimulationRequest,
@@ -27,7 +27,7 @@ from atlas.api.simulation import SimulationService, parameter_catalogue
 LOGGER: Final = logging.getLogger("atlas.api")
 
 router = APIRouter(
-    prefix="/api/v1/simulations",
+    prefix=f"{API_PREFIX}/simulations",
     tags=["simulations"],
     dependencies=[Depends(reject_unknown_query)],
 )
@@ -60,33 +60,32 @@ EXAMPLES: Final[dict[str, Any]] = {
 @router.get(
     "/parameters",
     name="getSimulationParameters",
-    response_model=SimulationParametersResponse,
     summary="Defaults and ranges of the simulation inputs",
     responses=errors(422, 503),
+    openapi_extra=cost("precomputed"),
 )
-async def parameters(store: Store) -> dict[str, Any]:
+async def parameters(store: Store) -> SimulationParametersResponse:
     """Every HYPOTHETICAL input of POST /api/v1/simulations with its unit, its default (the
     M4 reference configuration) and its hard range."""
-    data = parameter_catalogue(store)
-    return views.envelope(
-        store, data, views.simulation_integrity(store, False), views.simulation_sources(store)
-    )
+    return views.simulation_parameters(store, parameter_catalogue(store))
 
 
 @router.post(
     "",
     name="runSimulation",
-    response_model=SimulationResponse,
     summary="Run one bounded HYPOTHETICAL simulation",
     dependencies=[Depends(require_api_key), Depends(require_json)],
     responses=errors(401, 413, 415, 422, 500, 503, 504),
+    # The key is required only when the server sets ATLAS_API_KEY: {} makes it optional
+    # (FastAPI appends this to the APIKeyHeader requirement it derives).
+    openapi_extra={**cost("bounded_computation"), "security": [{}]},
 )
 async def simulate(
     request: Annotated[SimulationRequest, Body(openapi_examples=EXAMPLES)],
     response: Response,
     store: Store,
     simulator: Annotated[SimulationService, Depends(get_simulator)],
-) -> dict[str, Any]:
+) -> SimulationResponse:
     """Plan one HYPOTHETICAL city-wide unit over 1-30 days of the M2 projection with the M4
     linear programme (certified optimum, tie-broken plan, uniqueness test, infeasibility
     diagnosis, both baseline policies). Inputs are bounded (GET .../parameters); the result
@@ -106,5 +105,4 @@ async def simulate(
             "compute_ms": round(1000 * seconds, 1),
         },
     )
-    integrity = views.simulation_integrity(store, data.demand_notice is not None)
-    return views.envelope(store, data, integrity, views.simulation_sources(store))
+    return views.simulation(store, data)

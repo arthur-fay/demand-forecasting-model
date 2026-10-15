@@ -58,6 +58,7 @@ def test_live_and_ready(api: TestClient) -> None:
         "m3_projection_intervals",
         "m4_reference_run",
         "simulation",
+        "simulation_workers",
     ]
     assert all(c["ready"] and c["detail"] is None for c in ready["components"])
 
@@ -90,6 +91,31 @@ def test_system_describes_status_limits_and_sources(api: TestClient) -> None:
     kinds = {s["kind"]: s for s in body["provenance"]["sources"]}
     assert kinds["m4_reference_run"]["result_fingerprint"] == m4["result_fingerprint"]
     assert data["solver"]["scipy"] == "1.18.1"
+    assert any("(H1) is not statistically established" in x for x in status["limitations"])
+    workers = data["simulation_workers"]
+    assert workers["workers"] == 2
+    assert workers["started"] is True
+    assert workers["crashes"] == workers["timeouts"] == 0
+
+
+def test_endpoint_inventory_is_the_routing_table(api: TestClient) -> None:
+    endpoints = get(api, "/api/v1/system")["data"]["endpoints"]
+    document = api.get("/openapi.json").json()
+    operations = {
+        (method.upper(), path): op
+        for path, item in document["paths"].items()
+        for method, op in item.items()
+    }
+    assert {(e["method"], e["path"]) for e in endpoints} == set(operations)
+    assert len(endpoints) == len(operations) == 14
+    for endpoint in endpoints:
+        operation = operations[(endpoint["method"], endpoint["path"])]
+        assert endpoint["summary"] == operation["summary"]
+        assert endpoint["cost"] == operation["x-atlas-cost"]
+    costs = {e["path"]: e["cost"] for e in endpoints}
+    assert costs["/health/live"] == costs["/health/ready"] == "static"
+    assert costs["/api/v1/system"] == "precomputed"
+    assert costs["/api/v1/scenarios/comparison"] == "precomputed"
 
 
 # --- M2 ---------------------------------------------------------------------------------
@@ -110,11 +136,20 @@ def test_forecast_equals_the_committed_projection(api: TestClient) -> None:
     holidays = {p["target_date"]: p["federal_holiday"] for p in data["points"]}
     assert holidays["2026-07-03"] == "Independence Day"  # observed on the Friday
     assert sum(name is not None for name in holidays.values()) == 1
+    # M3's low-coverage stratum: the observed and actual dates and the days around the
+    # actual date (Saturday 4 July 2026).
+    related = [p["target_date"] for p in data["points"] if p["holiday_related"]]
+    assert related == ["2026-07-03", "2026-07-04", "2026-07-05"]
     accuracy = data["accuracy_context"]
     assert accuracy["period"] == "confirmation"
     assert math.isclose(accuracy["mae_requests_per_day"], 984.9183743068235)
     assert math.isclose(accuracy["bias_requests_per_day"], -255.92319894851286)
     assert any("not prospectively validated" in n for n in body["integrity"]["notices"])
+    assert any("(H1) is not statistically established" in n for n in body["integrity"]["notices"])
+    sources = {s["kind"]: s for s in body["provenance"]["sources"]}
+    m2 = read_json(M2_FULL / "manifest.json")
+    assert sources["m2_backtest_run"]["run_id"] == m2["run_id"]
+    assert sources["m2_backtest_run"]["config_fingerprint"] == m2["config_fingerprint"]
 
 
 def test_forecast_horizon_is_bounded(api: TestClient) -> None:
@@ -152,6 +187,9 @@ def test_history_window_and_limits(api: TestClient) -> None:
     )
     christmas = [p for p in whole["points"] if p["date"] == "2025-12-25"]
     assert christmas[0]["federal_holiday"] == "Christmas Day"
+    around = [p["date"] for p in whole["points"] if p["holiday_related"] and "2025-12" in p["date"]]
+    # Christmas (actual = observed, a Thursday) and the eve of New Year's Day 2026.
+    assert around == ["2025-12-24", "2025-12-25", "2025-12-26", "2025-12-31"]
     one = get(api, "/api/v1/forecasts/history?start=2024-02-29&end=2024-02-29")["data"]
     assert [p["date"] for p in one["points"]] == ["2024-02-29"]
     for query in (
@@ -179,9 +217,17 @@ def test_models_carry_the_selection_and_its_tests(api: TestClient) -> None:
     assert data["recommendation_reason"] == metrics["recommendation"]["reason"]
     tests = data["primary_tests"]
     assert [t["hypothesis"][:2] for t in tests] == ["H1", "H2"]
-    h1 = tests[0]
+    h1, h2 = tests
     assert math.isclose(h1["holm_adjusted_p_value"], 0.0535166597203122)
     assert h1["mae_difference_ci_low"] < 0 < h1["mae_difference_ci_high"]
+    # Pre-registered level 0.05 (the M2 configuration): H1 is not significant, H2 is.
+    assert (h1["significant_after_holm"], h2["significant_after_holm"]) == (False, True)
+    h1_notice = [n for n in body["integrity"]["notices"] if "(H1)" in n]
+    assert h1_notice == [
+        "On M2's confirmation period the recommended model's lead over the best baseline (H1) "
+        "is not statistically established: MAE difference -127 requests/day (interval -256 "
+        "to +2), Holm-adjusted p 0.054, not below 0.05."
+    ]
     expected = {
         (r["model_id"], r["period"]): r["mae"]
         for r in metrics["summary"]
@@ -258,7 +304,19 @@ def test_intervals_are_labelled_and_equal_the_committed_file(api: TestClient) ->
         values = [point["quantiles"][f"{level:g}"] for level in levels]
         assert values == sorted(values)  # non-crossing, as M3 issued them
     assert body["data"]["interval_status"] == "failed_calibration"
-    assert any("not decision-grade" in n for n in body["integrity"]["notices"])
+    notices = body["integrity"]["notices"]
+    assert "not decision-grade" in notices[0]  # the M3 status guidance comes first
+    label = body["data"]["label"]
+    assert label in notices
+    assert "FAILED" in label
+    assert "calibrated on" not in label
+    related = [p["target_date"] for p in points if p["holiday_related"]]
+    assert related == ["2026-07-03", "2026-07-04", "2026-07-05"]
+    manifest = read_json(M3_PROJECTION / "manifest.json")
+    source = {s["kind"]: s for s in body["provenance"]["sources"]}["m3_projection_run"]
+    assert source["run_id"] == manifest["run_id"]
+    assert source["config_fingerprint"] == manifest["config_fingerprint"]
+    assert source["sha256"] == manifest["outputs"]["projection_intervals.csv"]
 
 
 # --- M4 ---------------------------------------------------------------------------------
@@ -296,6 +354,11 @@ def test_scenario_list_matches_the_reference_run(api: TestClient) -> None:
     notices = body["integrity"]["notices"]
     assert any("DIAGNOSTIC" in n for n in notices)
     assert any("carries no probability" in n for n in notices)  # the q0.9 stress path
+    # The q0.9 stress path is read from the M3 projection: it is a listed source.
+    kinds = [s["kind"] for s in body["provenance"]["sources"]]
+    assert "m3_projection_run" in kinds
+    normal = get(api, "/api/v1/scenarios/normal")["provenance"]["sources"]
+    assert "m3_projection_run" not in [s["kind"] for s in normal]
 
 
 def assert_same_as_recorded(served: Any, recorded: Any) -> None:
@@ -340,6 +403,9 @@ def test_scenario_detail_has_daily_plans_and_variants(api: TestClient) -> None:
         assert served["served"] == float(row["served"])
     variants = [r for r in read_csv(M4_RUN / "scenarios.csv") if r["scenario_id"] == "normal"]
     assert [v["plan"] for v in data["plans"]] == [r["plan"] for r in variants]
+    assert [v["terminal_backlog_max"] for v in data["plans"]] == [
+        float(r["terminal_backlog_max"]) for r in variants
+    ]
     assert all(p["provenance"] == "HYPOTHETICAL" for p in data["hypothetical_parameters"])
     scopes = {p["scope"] for p in data["hypothetical_parameters"]}
     assert not any(s.startswith("scenario:") and s != "scenario:normal" for s in scopes)
@@ -385,23 +451,55 @@ def test_comparison_differences(api: TestClient) -> None:
         "increased_costs",
     ]
     metrics = {s["scenario_id"]: s for s in read_json(M4_RUN / "metrics.json")["scenarios"]}
+    variants = {(r["scenario_id"], r["plan"]): r for r in read_csv(M4_RUN / "scenarios.csv")}
     base = metrics["normal"]["reported_plan"]["evaluation"]["discretionary_cost"]
+    rows = {r["scenario_id"]: r for r in data["rows"]}
     for row in data["rows"]:
-        cash = metrics[row["scenario_id"]]["reported_plan"]["evaluation"]["discretionary_cost"]
+        recorded = metrics[row["scenario_id"]]
+        cash = recorded["reported_plan"]["evaluation"]["discretionary_cost"]
         assert row["values"]["discretionary_cost"] == cash
-        assert row["difference_from_baseline"]["discretionary_cost"] == cash - base
-    budget = {r["scenario_id"]: r for r in data["rows"]}["reduced_budget"]
-    # A relaxed plan is scored by a different programme: no penalised score is compared.
+        assert row["description"] == recorded["description"]
+        assert row["adjustments"] == recorded["adjustments"]
+        reported = "optimized" if row["feasibility"] == "strict" else "relaxed_terminal_target"
+        variant = variants[(row["scenario_id"], reported)]
+        assert row["terminal_backlog_max"] == float(variant["terminal_backlog_max"])
+        assert row["terminal_violation"] == float(variant["terminal_violation"])
+    strict = rows["increased_costs"]
+    assert strict["values_status"] == "plan_meets_every_constraint"
+    cash = metrics["increased_costs"]["reported_plan"]["evaluation"]["discretionary_cost"]
+    assert strict["difference_from_baseline"]["discretionary_cost"] == cash - base
+    assert rows["normal"]["difference_from_baseline"]["discretionary_cost"] == 0
+    # A relaxed plan misses the target: its values are DIAGNOSTIC and never compared (a
+    # difference from a feasible plan would read as a funding need).
+    budget = rows["reduced_budget"]
+    assert budget["values_status"] == "DIAGNOSTIC"
+    assert budget["terminal_violation"] > 0
     assert budget["values"]["penalised_score"] is None
-    assert budget["difference_from_baseline"]["penalised_score"] is None
+    assert budget["difference_from_baseline"] == {
+        "discretionary_cost": None,
+        "penalised_score": None,
+    }
+    assert "DIAGNOSTIC" in data["caveat"]
+    assert "budget request" in data["caveat"]
     assert data["units"]["penalised_score"].startswith("usd_equivalent")
+    # With a relaxed baseline no difference is given at all.
+    relaxed_base = get(
+        api, "/api/v1/scenarios/comparison?baseline=increased_demand&scenario_id=normal"
+    )["data"]
+    assert all(
+        value is None
+        for row in relaxed_base["rows"]
+        for value in row["difference_from_baseline"].values()
+    )
     default = get(api, "/api/v1/scenarios/comparison")["data"]
     assert len(default["rows"]) == 9
     assert len(default["metrics"]) == 7
-    assert get(api, "/api/v1/scenarios/comparison?baseline=nope", 404)["error"]["code"] == (
-        "not_found"
-    )
-    too_many = "&".join(["scenario_id=normal"] * 10)
+    error = get(api, "/api/v1/scenarios/comparison?baseline=nope", 404)["error"]
+    assert error["code"] == "not_found"
+    assert error["details"][0]["field"] == "baseline"
+    error = get(api, "/api/v1/scenarios/comparison?scenario_id=nope", 404)["error"]
+    assert error["details"][0]["field"] == "scenario_id"
+    too_many = "&".join(["scenario_id=normal"] * 33)
     assert get(api, f"/api/v1/scenarios/comparison?{too_many}", 422)["error"]["code"] == (
         "validation_error"
     )
@@ -427,6 +525,16 @@ def test_simulation_parameters_catalogue(api: TestClient) -> None:
     assert specs["surge_total"]["nullable"]
     assert not specs["regular_wage"]["nullable"]
     assert body["data"]["legacy_demand_percentile_requests_per_day"] == 11608.75
+    demand = body["data"]["demand"]
+    assert demand["quantile"] == [0.75, 0.9, 0.975]
+    assert demand["multiplier"] == {"default": 1.0, "minimum": 0.5, "maximum": 2.0, "unit": "ratio"}
+    assert demand["shift_per_day"]["maximum"] == 5000.0
+    assert body["data"]["horizon_days"] == {
+        "default": 30,
+        "minimum": 1,
+        "maximum": 30,
+        "first_date": "2026-07-01",
+    }
 
 
 def test_unknown_paths_methods_and_query_parameters(api: TestClient) -> None:

@@ -16,6 +16,7 @@ of ``repr`` and never logged.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 from collections.abc import Mapping
@@ -49,7 +50,9 @@ LOG_LEVELS: Final = ("DEBUG", "INFO", "WARNING", "ERROR")
 MIN_API_KEY_LENGTH: Final = 24
 
 _ORIGIN: Final = re.compile(r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?")
-_HOST: Final = re.compile(r"(\*\.)?[A-Za-z0-9.-]+")
+_LABEL: Final = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+#: A host name or IPv4 address; a wildcard needs at least two labels after ``*.``.
+_HOST: Final = re.compile(rf"{_LABEL}(?:\.{_LABEL})*|\*\.{_LABEL}(?:\.{_LABEL})+")
 _API_KEY: Final = re.compile(r"[\x21-\x7e]+")
 _TRUE: Final = ("1", "true", "yes", "on")
 _FALSE: Final = ("0", "false", "no", "off")
@@ -62,7 +65,7 @@ class ApiSettings:
     repo_root: Path
     snapshot_id: str = DEFAULT_SNAPSHOT_ID
     cors_origins: tuple[str, ...] = ()
-    allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1")
+    allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
     api_key: str | None = field(default=None, repr=False)
     max_body_bytes: int = MAX_BODY_BYTES[0]
     max_concurrent_simulations: int = MAX_CONCURRENT_SIMULATIONS[0]
@@ -78,10 +81,11 @@ class ApiSettings:
                     "https, no path and no wildcard"
                 )
         for host in self.allowed_hosts:
-            if not _HOST.fullmatch(host):
+            if not (_HOST.fullmatch(host) or _ipv6(host)):
                 raise ConfigError(
-                    f"invalid allowed host {host!r}: use a host name or address, optionally "
-                    "with a leading '*.' for subdomains (a bare '*' is not accepted)"
+                    f"invalid allowed host {host!r}: use a host name, an IPv4 or IPv6 address "
+                    "(no brackets), optionally with a leading '*.' for subdomains (a bare '*' "
+                    "is not accepted)"
                 )
         if not self.allowed_hosts:
             raise ConfigError("at least one allowed host is required")
@@ -110,14 +114,13 @@ class ApiSettings:
     def simulation_requires_key(self) -> bool:
         return self.api_key is not None
 
-    def public_limits(self) -> dict[str, object]:
-        """The limits a client may know (never the key itself)."""
-        return {
-            "max_body_bytes": self.max_body_bytes,
-            "max_concurrent_simulations": self.max_concurrent_simulations,
-            "simulation_timeout_seconds": self.simulation_timeout_seconds,
-            "simulation_requires_api_key": self.simulation_requires_key,
-        }
+
+def _ipv6(host: str) -> bool:
+    try:
+        ipaddress.IPv6Address(host)
+    except ValueError:
+        return False
+    return True
 
 
 def _within(name: str, value: float, limits: tuple[float, float, float]) -> None:

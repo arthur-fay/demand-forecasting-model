@@ -31,6 +31,8 @@ FIELDS: Final = (
     "component",
     "ready",
     "code",
+    "worker_pid",
+    "exit_code",
 )
 MAX_PATH: Final = 200
 

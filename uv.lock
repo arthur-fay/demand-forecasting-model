@@ -121,6 +121,7 @@ version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "h11" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pydantic" },
@@ -143,6 +144,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1,<0.142" },
+    { name = "h11", specifier = ">=0.16,<0.17" },
     { name = "numpy", specifier = ">=2.0,<3" },
     { name = "pandas", specifier = ">=3.0,<3.1" },
     { name = "pydantic", specifier = ">=2.9,<3" },

@@ -124,16 +124,25 @@ def free_port() -> int:
 
 @contextmanager
 def live_server(
-    store: ReferenceStore, simulator: SimulationService | None = None, **changes: Any
+    store: ReferenceStore,
+    simulator: SimulationService | None = None,
+    *,
+    read_seconds: float | None = None,
+    **changes: Any,
 ) -> Iterator[int]:
-    """A real uvicorn server on a free loopback port (in a thread); yields the port."""
+    """A real uvicorn server, configured like ``atlas api serve``, on a free loopback port
+    (in a thread); yields the port. ``read_seconds`` shortens the request-read deadline."""
     import uvicorn
+
+    from atlas.api.server import DeadlineH11Protocol, server_config
 
     port = free_port()
     app = create_app(
         settings(store.settings.repo_root, **changes), store=store, simulator=simulator
     )
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None, access_log=False)
+    config = server_config(app, "127.0.0.1", port)
+    if read_seconds is not None:
+        config.http = type("TestProtocol", (DeadlineH11Protocol,), {"read_seconds": read_seconds})
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()

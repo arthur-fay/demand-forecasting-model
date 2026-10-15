@@ -32,17 +32,19 @@ import pandas as pd
 from pydantic import ValidationError
 
 from atlas import __version__
-from atlas.api.errors import ApiError, unavailable
+from atlas.api.problems import ApiError, unavailable
 from atlas.api.schemas import (
     API_VERSION,
     STRESS_QUANTILE_LEVELS,
     ComponentStatus,
     DayPlan,
+    HypotheticalParameter,
     IntervalLevelEvidence,
     IntervalPoint,
     ObservedPoint,
     PlanTotals,
     PlanVariant,
+    Provenance,
     ScenarioOutcome,
     Source,
 )
@@ -50,7 +52,9 @@ from atlas.api.settings import REFERENCE_CONFIG, REFERENCE_RUN_DIR, ApiSettings
 from atlas.config import Settings
 from atlas.decision_inputs import QuantilePath, load_m3_quantile_path
 from atlas.errors import AtlasError
+from atlas.evaluation import holiday_related_dates
 from atlas.events import holidays_between
+from atlas.experiment import parse_config as parse_experiment_config
 from atlas.experiment import result_fingerprint
 from atlas.optimization_config import OptimizationConfig, parse_optimization_config
 from atlas.optimization_runner import (
@@ -73,8 +77,6 @@ M4_REFERENCE: Final = "m4_reference_run"
 SIMULATION: Final = "simulation"
 COMPONENTS: Final = (SNAPSHOT, FORECAST, M2_BACKTEST, M3_INTERVALS, M4_REFERENCE, SIMULATION)
 
-#: Marginal quantile levels a simulation may use as a HYPOTHETICAL stress path.
-STRESS_QUANTILES: Final = STRESS_QUANTILE_LEVELS
 _DETAIL_LIMIT: Final = 300
 
 
@@ -145,6 +147,16 @@ def _text(value: str | None) -> str | None:
     return None if value is None or value == "" else value
 
 
+def holiday_names(start: date, end: date) -> dict[date, str]:
+    """Observed federal holidays between ``start`` and ``end`` (M1 rules), by date."""
+    return {h.observed: h.name for h in holidays_between(start, end) if start <= h.observed <= end}
+
+
+def holiday_related(start: date, end: date) -> frozenset[date]:
+    """Days of M3's holiday-related stratum (:func:`atlas.evaluation.holiday_related_dates`)."""
+    return frozenset(stamp.date() for stamp in holiday_related_dates(start, end))
+
+
 # --- Loaded components ------------------------------------------------------------------
 
 
@@ -157,6 +169,7 @@ class M2Backtest:
     result_fingerprint: str
     config_fingerprint: str
     metrics_sha256: str
+    alpha: float
     payload: Mapping[str, Any]
 
 
@@ -166,6 +179,7 @@ class M3Intervals:
 
     run_dir: str
     run_id: str | None
+    config_fingerprint: str | None
     sha256: str
     pair_id: str
     points: tuple[IntervalPoint, ...]
@@ -194,7 +208,7 @@ class M4Reference:
     outcomes: Mapping[str, ScenarioOutcome]
     variants: Mapping[str, tuple[PlanVariant, ...]]
     daily: Mapping[str, tuple[DayPlan, ...]]
-    hypothetical_parameters: tuple[dict[str, Any], ...]
+    hypothetical_parameters: tuple[HypotheticalParameter, ...]
     structural_assumptions: tuple[str, ...]
     sha256: Mapping[str, str]
 
@@ -215,7 +229,6 @@ class ReferenceStore:
     m3_intervals: M3Intervals | None = None
     m4: M4Reference | None = None
     history: tuple[ObservedPoint, ...] = ()
-    load_seconds: dict[str, float] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         states = ", ".join(
@@ -266,14 +279,14 @@ class ReferenceStore:
     def data_fingerprint(self) -> str | None:
         return None if self.snapshot is None else self.snapshot.fingerprint
 
-    def provenance(self, sources: Sequence[Source]) -> dict[str, Any]:
-        return {
-            "atlas_version": __version__,
-            "api_version": API_VERSION,
-            "snapshot_id": self.settings.snapshot_id,
-            "data_fingerprint": self.data_fingerprint(),
-            "sources": [s.model_dump() for s in sources],
-        }
+    def provenance(self, sources: Sequence[Source]) -> Provenance:
+        return Provenance(
+            atlas_version=__version__,
+            api_version=API_VERSION,
+            snapshot_id=self.settings.snapshot_id,
+            data_fingerprint=self.data_fingerprint(),
+            sources=list(sources),
+        )
 
     def snapshot_source(self) -> Source:
         provenance = {} if self.snapshot is None else self.snapshot.provenance
@@ -305,6 +318,8 @@ class ReferenceStore:
             record_type="historical_backtest",
             run_id=_opt_str(s.get("run_id")),
             result_fingerprint=_opt_str(s.get("result_fingerprint")),
+            # load_inputs checked that the backtest run used the projection's configuration.
+            config_fingerprint=_opt_str(inputs.projection.provenance.get("config_fingerprint")),
             sha256=_opt_str(s.get("metrics_sha256")),
         )
 
@@ -322,13 +337,17 @@ class ReferenceStore:
         )
 
     def intervals_source(self) -> Source:
-        intervals = _present(self.m3_intervals)
+        """The M3 projection intervals: the file pinned by the reference configuration
+        (run id and fingerprint once the intervals component has loaded it)."""
+        config = _present(self.config)
+        intervals = self.m3_intervals
         return Source(
             kind="m3_projection_run",
-            path=intervals.run_dir,
+            path=config.uncertainty.projection_run_dir,
             record_type="future_projection_intervals",
-            run_id=intervals.run_id,
-            sha256=intervals.sha256,
+            run_id=None if intervals is None else intervals.run_id,
+            config_fingerprint=None if intervals is None else intervals.config_fingerprint,
+            sha256=config.uncertainty.projection_intervals_sha256,
         )
 
     def m4_source(self) -> Source:
@@ -400,16 +419,24 @@ def load_reference_store(settings: ApiSettings) -> ReferenceStore:
                 "reference component not ready: %s",
                 detail,
                 exc_info=not isinstance(exc, AtlasError | ValidationError),
-                extra={"event": "component_not_ready", "component": name, "ready": False},
+                extra={
+                    "event": "component_not_ready",
+                    "component": name,
+                    "ready": False,
+                    "duration_ms": _elapsed_ms(started),
+                },
             )
             store.status[name] = ComponentStatus(component=name, ready=False, detail=detail)
             return
-        finally:
-            store.load_seconds[name] = time.perf_counter() - started
         store.status[name] = ComponentStatus(component=name, ready=True, detail=None)
         LOGGER.info(
             "reference component ready",
-            extra={"event": "component_ready", "component": name, "ready": True},
+            extra={
+                "event": "component_ready",
+                "component": name,
+                "ready": True,
+                "duration_ms": _elapsed_ms(started),
+            },
         )
 
     def snapshot() -> None:
@@ -433,7 +460,7 @@ def load_reference_store(settings: ApiSettings) -> ReferenceStore:
         config = parse_optimization_config(text)
         inputs = load_inputs(base, config, _present(store.snapshot))
         paths = dict(inputs.quantiles)
-        for level in STRESS_QUANTILES:
+        for level in STRESS_QUANTILE_LEVELS:
             if level not in paths:
                 paths[level] = load_m3_quantile_path(
                     root,
@@ -458,8 +485,9 @@ def load_reference_store(settings: ApiSettings) -> ReferenceStore:
         store.m4 = _load_m4(root, _present(store.config), _present(store.inputs))
 
     def simulation() -> None:
-        # The simulation service builds on the reference configuration and inputs; it is
-        # ready exactly when they are (nothing else is loaded).
+        # Simulations start from the reference configuration's defaults. Requiring the M4
+        # reference run (which checked that its config fingerprint is this file's) means
+        # the defaults served are the ones that produced the committed run.
         _present(store.config)
 
     attempt(SNAPSHOT, (), snapshot)
@@ -467,8 +495,12 @@ def load_reference_store(settings: ApiSettings) -> ReferenceStore:
     attempt(M2_BACKTEST, (FORECAST,), m2_backtest)
     attempt(M3_INTERVALS, (FORECAST,), m3_intervals)
     attempt(M4_REFERENCE, (FORECAST,), m4_reference)
-    attempt(SIMULATION, (FORECAST,), simulation)
+    attempt(SIMULATION, (FORECAST, M4_REFERENCE), simulation)
     return store
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 1)
 
 
 _NOT_READY: Final = ComponentStatus(component="", ready=False, detail=None)
@@ -477,11 +509,8 @@ _NOT_READY: Final = ComponentStatus(component="", ready=False, detail=None)
 def _history_points(data: SnapshotData) -> tuple[ObservedPoint, ...]:
     """Every day of the validated series, in order (consecutive calendar days)."""
     series = data.series
-    holidays = {
-        h.observed: h.name
-        for h in holidays_between(series.start, series.end)
-        if series.start <= h.observed <= series.end
-    }
+    holidays = holiday_names(series.start, series.end)
+    related = holiday_related(series.start, series.end)
     points = []
     values = series.to_series()
     for stamp, value in zip(values.index, values.to_numpy(), strict=True):
@@ -493,6 +522,7 @@ def _history_points(data: SnapshotData) -> tuple[ObservedPoint, ...]:
                 requests=None if missing else round(float(value)),
                 status="missing" if missing else "observed",
                 federal_holiday=holidays.get(day),
+                holiday_related=day in related,
             )
         )
     return tuple(points)
@@ -565,12 +595,21 @@ def _load_m2(root: Path, inputs: DecisionInputs, config: OptimizationConfig) -> 
     for key in ("summary", "models", "periods"):
         if not isinstance(payload.get(key), list):
             raise ArtifactError(f"the M2 metrics have no {key!r} list")
+    # The pre-registered significance level, from the run's configuration (which must give
+    # the configuration fingerprint the metrics carry).
+    m2_config = parse_experiment_config(manifest.get("config") or {})
+    if m2_config.fingerprint() != config.forecast.m2_config_fingerprint:
+        raise ArtifactError("the M2 manifest's configuration does not give its fingerprint")
+    if m2_config.selection is None:
+        raise ArtifactError("the M2 configuration has no selection rule")
+    alpha = m2_config.selection.alpha
     return M2Backtest(
         run_dir=run_dir,
         run_id=str(manifest.get("run_id")),
         result_fingerprint=str(manifest.get("result_fingerprint")),
         config_fingerprint=str(payload.get("config_fingerprint")),
         metrics_sha256=str(expected),
+        alpha=alpha,
         payload=payload,
     )
 
@@ -601,27 +640,35 @@ def _load_m3_intervals(
     if [int(r["horizon"]) for r in chosen] != list(range(1, len(projection.predictions) + 1)):
         raise ArtifactError("the M3 intervals do not cover the projected horizons")
     columns = [c for c in (chosen[0].keys() if chosen else ()) if c.startswith("q_")]
+    dates = projection.target_dates
+    related = holiday_related(dates[0], dates[-1]) if dates else frozenset()
     points = []
-    for row, day, prediction in zip(
-        chosen, projection.target_dates, projection.predictions, strict=True
-    ):
+    for row, day, prediction in zip(chosen, dates, projection.predictions, strict=True):
         if date.fromisoformat(row["target_date"]) != day or float(row["prediction"]) != prediction:
             raise ArtifactError("the M3 intervals differ from the M2 projection they describe")
         if row.get("status") != "projected" or row.get("support") != "supported":
             raise ArtifactError("some M3 intervals of the primary model were not issued")
-        quantiles = {c[2:]: float(row[c]) for c in columns}
+        quantiles = {c[2:]: _number(row[c]) for c in columns}
+        values = [v for v in quantiles.values() if v is not None]
+        # The checks M4's load_m3_quantile_path applies to the levels it uses, on every level.
+        if len(values) != len(quantiles) or any(v < 0 for v in values):
+            raise ArtifactError("the M3 intervals have a missing or negative quantile")
+        if values != sorted(values):
+            raise ArtifactError("the M3 interval quantiles are not ordered")
         points.append(
             IntervalPoint(
                 target_date=day,
                 horizon=int(row["horizon"]),
                 prediction=prediction,
-                quantiles=quantiles,
+                quantiles=dict(zip(quantiles, values, strict=True)),
                 status="projected",
+                holiday_related=day in related,
             )
         )
     return M3Intervals(
         run_dir=run_dir,
         run_id=_opt_str(manifest.get("run_id")),
+        config_fingerprint=_opt_str(manifest.get("config_fingerprint")),
         sha256=pinned,
         pair_id=status.selected_pair,
         points=tuple(points),
@@ -662,6 +709,7 @@ def plan_variant(row: Mapping[str, Any]) -> PlanVariant:
         unique_optimal_plan=_flag(cells.get("unique_optimal_plan")),
         unique_after_tie_breaks=_flag(cells.get("unique_after_tie_breaks")),
         solver_status=_text(cells.get("solver_status")),
+        terminal_backlog_max=_number(cells.get("terminal_backlog_max")),
         terminal_violation=_number(cells.get("terminal_violation")),
         satisfies_budget=_flag(cells.get("satisfies_budget")),
         reported_plan_relation=_text(cells.get("reported_plan_relation")),
@@ -775,7 +823,10 @@ def _load_m4(root: Path, config: OptimizationConfig, inputs: DecisionInputs) -> 
         outcomes=outcomes,
         variants={k: tuple(v) for k, v in variants.items()},
         daily={k: tuple(v) for k, v in daily.items()},
-        hypothetical_parameters=tuple(metrics.get("hypothetical_parameters") or ()),
+        hypothetical_parameters=tuple(
+            HypotheticalParameter.model_validate(item)
+            for item in metrics.get("hypothetical_parameters") or ()
+        ),
         structural_assumptions=tuple(str(s) for s in metrics.get("structural_assumptions") or ()),
         sha256={name: _sha256(payload) for name, payload in files.items()},
     )

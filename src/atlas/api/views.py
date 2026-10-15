@@ -1,63 +1,129 @@
-"""Application layer: response data built from the reference store (no HTTP here).
+"""Application layer: response bodies built from the reference store (no HTTP here).
 
-Each function returns the ``data`` of one endpoint together with its ``integrity`` and
-``provenance`` blocks. The labels are the ones ATLAS already writes with these numbers
-(M2's record-type labels, M3's status statement and guidance, M4's simulation label), so
-the API never words a caveat more weakly than the files it serves.
+Each function returns the complete response of one endpoint: its ``data`` with the
+``integrity`` and ``provenance`` blocks. The labels are the ones ATLAS already writes with
+these numbers (M2's record-type labels, M3's status statement and guidance, M4's
+simulation label), so the API never words a caveat more weakly than the files it serves.
+Problems are raised as :class:`~atlas.api.problems.ApiError`, which the transport layer
+maps to the error body.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
+from http import HTTPStatus
 from typing import Any, Final
 
 from atlas import __version__
-from atlas.api.errors import ApiError, not_found
-from atlas.api.reference import FORECAST, M4_REFERENCE, SNAPSHOT, ReferenceStore
+from atlas.api.problems import ApiError, not_found
+from atlas.api.reference import (
+    FORECAST,
+    M2_BACKTEST,
+    M4_REFERENCE,
+    SNAPSHOT,
+    ReferenceStore,
+    holiday_names,
+    holiday_related,
+)
 from atlas.api.schemas import (
     API_VERSION,
     ComparisonData,
     ComparisonMetric,
+    ComparisonResponse,
     ComparisonRow,
+    DataStatus,
     EndpointInfo,
+    Envelope,
     ForecastAccuracyContext,
     ForecastData,
     ForecastPoint,
+    ForecastResponse,
     HistoryData,
+    HistoryResponse,
     Integrity,
     IntervalsData,
+    IntervalsResponse,
     Limits,
     MetricRow,
     MetricsData,
+    MetricsResponse,
     ModelInfo,
     ModelsData,
+    ModelsResponse,
     PeriodInfo,
     PrimaryTest,
     ScenarioDetailData,
+    ScenarioDetailResponse,
     ScenarioListData,
+    ScenarioListResponse,
     ScenarioOutcome,
     ScenarioSummary,
     ScientificStatus,
     SelectionInfo,
+    SimulationData,
+    SimulationParametersData,
+    SimulationParametersResponse,
+    SimulationResponse,
     SnapshotInfo,
     Source,
     SystemData,
+    SystemResponse,
     UncertaintyStatusData,
+    UncertaintyStatusResponse,
+    WorkerPoolStatus,
 )
 from atlas.api.settings import ApiSettings
 from atlas.decision_inputs import MARGINAL_QUANTILE_NOTICE
-from atlas.events import holidays_between
 from atlas.experiment import RECORD_TYPE_LABELS
 from atlas.optimization_runner import LABEL as M4_LABEL
 from atlas.optimizer import solver_versions
 from atlas.planning import MAX_HORIZON_DAYS
-from atlas.uncertainty_runner import PROJECTION_LABEL, STATUS_GUIDANCE
+from atlas.uncertainty_runner import STATUS_GUIDANCE
 
 #: The longest history window one request may return (the snapshot has 1,277 days).
 MAX_HISTORY_DAYS: Final = 1_500
 #: History returned when no window is given: the last 180 observed days.
 DEFAULT_HISTORY_DAYS: Final = 180
+
+OBSERVED_NOTICE: Final = (
+    "OBSERVED: city-wide 311 service requests created per day (intake, not workload) from "
+    "the frozen, hash-verified legacy-v0 snapshot; not a measure of service capacity."
+)
+RELAXED_NOTICE: Final = (
+    "A scenario with feasibility relaxed_terminal_target has no plan that meets every "
+    "HYPOTHETICAL constraint: its reported plan and required spends are DIAGNOSTIC values, "
+    "never budget requests."
+)
+#: The label of the projection intervals as this API serves them. M3's own label describes
+#: its method in general ("calibrated on past errors"); these intervals failed that check.
+INTERVALS_LABEL: Final = (
+    "FUTURE PROJECTION WITH INTERVALS: marginal quantiles of each projected day from the "
+    "sealed M3 interval method (built from past forecast errors), which FAILED its "
+    "pre-registered calibration criteria (failed_calibration): they are not calibrated "
+    "quantiles and carry no probability to rely on."
+)
+COMPARISON_UNITS: Final = {
+    "discretionary_cost": "usd",
+    "backlog_request_days": "request_days",
+    "terminal_backlog": "requests",
+    "peak_backlog": "requests",
+    "overtime_hours": "staff_hours",
+    "surge_requests": "requests",
+    "penalised_score": "usd_equivalent (ranking score, not a cost)",
+}
+COMPARISON_CAVEAT: Final = (
+    "Differences between HYPOTHETICAL scenarios of one deterministic model, each with the "
+    "demand path and adjustments listed in its row; they illustrate the model's sensitivity, "
+    "not expected outcomes. A difference is given only when both plans meet every "
+    "HYPOTHETICAL constraint: the values of a relaxed_terminal_target row are DIAGNOSTIC "
+    "(its plan misses the terminal target by terminal_violation requests), and its spend is "
+    "never a funding need or a budget request. penalised_score is a ranking score, never a "
+    "cost."
+)
+
+
+# --- Notices ----------------------------------------------------------------------------
 
 
 def point_forecast_notice(store: ReferenceStore) -> str:
@@ -73,131 +139,39 @@ def point_forecast_notice(store: ReferenceStore) -> str:
     )
 
 
-OBSERVED_NOTICE: Final = (
-    "OBSERVED: city-wide 311 service requests created per day (intake, not workload) from "
-    "the frozen, hash-verified legacy-v0 snapshot; not a measure of service capacity."
-)
-RELAXED_NOTICE: Final = (
-    "A scenario with feasibility relaxed_terminal_target has no plan that meets every "
-    "HYPOTHETICAL constraint: its reported plan and required spends are DIAGNOSTIC values, "
-    "never budget requests."
-)
-
-ENDPOINTS: Final = (
-    EndpointInfo(
-        method="GET",
-        path="/health/live",
-        cost="static",
-        interactive=True,
-        summary="Process liveness.",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/health/ready",
-        cost="static",
-        interactive=True,
-        summary="Readiness of every reference component.",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/system",
-        cost="precomputed",
-        interactive=True,
-        summary="Versions, provenance, scientific status and limits.",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/models",
-        cost="precomputed",
-        interactive=True,
-        summary="M2 models, selection and recommendation.",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/forecasts",
-        cost="precomputed",
-        interactive=True,
-        summary="The 30-day M2 projection (projected, not validated).",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/forecasts/history",
-        cost="precomputed",
-        interactive=True,
-        summary="Observed daily demand (legacy-v0).",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/forecasts/metrics",
-        cost="precomputed",
-        interactive=True,
-        summary="M2 backtest accuracy by model, period and horizon.",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/uncertainty/status",
-        cost="precomputed",
-        interactive=True,
-        summary="M3 calibration status (failed_calibration).",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/uncertainty/intervals",
-        cost="precomputed",
-        interactive=True,
-        summary="M3 projection quantiles (not calibrated).",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/scenarios",
-        cost="precomputed",
-        interactive=True,
-        summary="M4 reference scenarios (HYPOTHETICAL).",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/scenarios/comparison",
-        cost="precomputed",
-        interactive=True,
-        summary="Side-by-side M4 scenarios with differences.",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/scenarios/{scenario_id}",
-        cost="precomputed",
-        interactive=True,
-        summary="One M4 scenario with its daily plans.",
-    ),
-    EndpointInfo(
-        method="GET",
-        path="/api/v1/simulations/parameters",
-        cost="precomputed",
-        interactive=True,
-        summary="Defaults and ranges of simulation inputs.",
-    ),
-    EndpointInfo(
-        method="POST",
-        path="/api/v1/simulations",
-        cost="bounded_computation",
-        interactive=True,
-        summary="One bounded HYPOTHETICAL simulation (M4 engine).",
-    ),
-)
-
-COMPARISON_UNITS: Final = {
-    "discretionary_cost": "usd",
-    "backlog_request_days": "request_days",
-    "terminal_backlog": "requests",
-    "peak_backlog": "requests",
-    "overtime_hours": "staff_hours",
-    "surge_requests": "requests",
-    "penalised_score": "usd_equivalent (ranking score, not a cost)",
-}
+def _primary_tests(store: ReferenceStore) -> list[Mapping[str, Any]] | None:
+    state = store.status.get(M2_BACKTEST)
+    if store.m2 is None or state is None or not state.ready:
+        return None
+    recommendation = store.m2.payload.get("recommendation") or {}
+    return list(recommendation.get("primary_tests") or [])
 
 
-def holiday_names(start: date, end: date) -> dict[date, str]:
-    """Observed federal holidays between ``start`` and ``end`` (M1 rules), by date."""
-    return {h.observed: h.name for h in holidays_between(start, end) if start <= h.observed <= end}
+def selection_test_notice(store: ReferenceStore) -> str:
+    """Whether the recommended model's lead over the best baseline (H1) is established."""
+    tests = _primary_tests(store)
+    h1 = next((t for t in tests or [] if str(t.get("hypothesis", "")).startswith("H1")), None)
+    if store.m2 is None or h1 is None:
+        return (
+            "Whether the recommended model's lead over the best baseline is statistically "
+            "established cannot be shown: the M2 backtest run is not available."
+        )
+    p_value, alpha = h1.get("holm_adjusted_p_value"), store.m2.alpha
+    low, high = h1.get("mae_difference_ci_low"), h1.get("mae_difference_ci_high")
+    interval = "" if low is None or high is None else f" (interval {low:+,.0f} to {high:+,.0f})"
+    numbers = (
+        f"MAE difference {float(h1['mae_difference']):+,.0f} requests/day{interval}, "
+        f"Holm-adjusted p {'n/a' if p_value is None else f'{p_value:.3f}'}"
+    )
+    if p_value is not None and p_value < alpha:
+        return (
+            f"On M2's {h1.get('period')} period the recommended model's lead over the best "
+            f"baseline (H1) is significant after the Holm adjustment at {alpha:g}: {numbers}."
+        )
+    return (
+        f"On M2's {h1.get('period')} period the recommended model's lead over the best baseline "
+        f"(H1) is not statistically established: {numbers}, not below {alpha:g}."
+    )
 
 
 # --- Envelope pieces --------------------------------------------------------------------
@@ -215,37 +189,49 @@ def integrity(
     store: ReferenceStore,
     *,
     record_type: str,
-    data_status: Any,
+    data_status: DataStatus,
     notices: Sequence[str],
     hypothetical: bool = False,
+    status_first: bool = False,
 ) -> Integrity:
+    """The integrity block; the M3 status guidance is added to every non-observed response
+    (first when ``status_first``, for data that the M3 status governs directly)."""
     interval_status, decision_grade, _ = _status(store)
     guidance = STATUS_GUIDANCE.get(interval_status)
     extra = [] if guidance is None or data_status in ("observed", "metadata") else [guidance]
+    ordered = [*extra, *notices] if status_first else [*notices, *extra]
     return Integrity(
         record_type=record_type,
         data_status=data_status,
         uncertainty_interval_status=interval_status,
         uncertainty_decision_grade=decision_grade,
         parameter_provenance="HYPOTHETICAL" if hypothetical else None,
-        notices=[*notices, *extra],
+        notices=ordered,
     )
 
 
-def envelope(
-    store: ReferenceStore, data: Any, integrity_block: Integrity, sources: Sequence[Source]
-) -> dict[str, Any]:
-    return {
-        "data": data,
-        "integrity": integrity_block,
-        "provenance": store.provenance(sources),
-    }
+def envelope[R: Envelope](
+    response: type[R],
+    store: ReferenceStore,
+    data: object,
+    integrity_block: Integrity,
+    sources: Sequence[Source],
+) -> R:
+    """``response`` with ``data``, ``integrity`` and the provenance of ``sources``."""
+    return response.model_validate(
+        {"data": data, "integrity": integrity_block, "provenance": store.provenance(sources)}
+    )
 
 
 # --- System -----------------------------------------------------------------------------
 
 
-def system(store: ReferenceStore, settings: ApiSettings) -> dict[str, Any]:
+def system(
+    store: ReferenceStore,
+    settings: ApiSettings,
+    endpoints: Sequence[EndpointInfo],
+    workers: WorkerPoolStatus | None,
+) -> SystemResponse:
     """Service metadata; ``settings`` are the running app's (its limits and key policy)."""
     snapshot = None
     if store.snapshot is not None and store.status[SNAPSHOT].ready:
@@ -271,6 +257,7 @@ def system(store: ReferenceStore, settings: ApiSettings) -> dict[str, Any]:
             decision_simulation_label=M4_LABEL,
             limitations=[
                 point_forecast_notice(store),
+                selection_test_notice(store),
                 STATUS_GUIDANCE.get(inputs.status.interval_status, inputs.status.statement),
                 "Every M4 operational parameter is HYPOTHETICAL; no result is a validated "
                 "staffing, budget or service-capacity recommendation.",
@@ -297,8 +284,9 @@ def system(store: ReferenceStore, settings: ApiSettings) -> dict[str, Any]:
             max_history_days=MAX_HISTORY_DAYS,
             max_horizon_days=MAX_HORIZON_DAYS,
         ),
+        simulation_workers=workers,
         solver=solver_versions(),
-        endpoints=list(ENDPOINTS),
+        endpoints=list(endpoints),
     )
     block = integrity(
         store,
@@ -306,7 +294,7 @@ def system(store: ReferenceStore, settings: ApiSettings) -> dict[str, Any]:
         data_status="metadata",
         notices=["Service metadata; see each endpoint for the status of its numbers."],
     )
-    return envelope(store, data, block, sources)
+    return envelope(SystemResponse, store, data, block, sources)
 
 
 # --- M2 ---------------------------------------------------------------------------------
@@ -322,6 +310,7 @@ def _m2_integrity(store: ReferenceStore) -> Integrity:
         "The confirmation period was used to confirm the recommended model; scores on it are "
         "historical, not prospective."
     )
+    notes.append(selection_test_notice(store))
     return integrity(
         store, record_type="historical_backtest", data_status="historical_evaluation", notices=notes
     )
@@ -342,7 +331,7 @@ def _m2_sources(store: ReferenceStore) -> list[Source]:
     ]
 
 
-def _headline_mae(payload: Any, model_id: str) -> dict[str, float | None]:
+def _headline_mae(payload: Mapping[str, Any], model_id: str) -> dict[str, float | None]:
     values: dict[str, float | None] = {}
     for row in payload.get("summary", []):
         if (
@@ -355,7 +344,27 @@ def _headline_mae(payload: Any, model_id: str) -> dict[str, float | None]:
     return dict(sorted(values.items()))
 
 
-def models(store: ReferenceStore) -> dict[str, Any]:
+def _primary_test(test: Mapping[str, Any], alpha: float) -> PrimaryTest:
+    p_value = test.get("holm_adjusted_p_value")
+    return PrimaryTest(
+        hypothesis=str(test.get("hypothesis")),
+        model_id=str(test.get("model_id")),
+        reference=str(test.get("reference")),
+        period=str(test.get("period")),
+        first_horizon=int(test["first_horizon"]),
+        last_horizon=int(test["last_horizon"]),
+        mae=float(test["mae"]),
+        mae_reference=float(test["mae_reference"]),
+        mae_difference=float(test["mae_difference"]),
+        mae_difference_ci_low=test.get("mae_difference_ci_low"),
+        mae_difference_ci_high=test.get("mae_difference_ci_high"),
+        holm_adjusted_p_value=p_value,
+        significant_after_holm=None if p_value is None else bool(p_value < alpha),
+        effective_sample_size=test.get("effective_sample_size"),
+    )
+
+
+def models(store: ReferenceStore) -> ModelsResponse:
     m2 = store.require_m2()
     payload = m2.payload
     recommendation = payload.get("recommendation") or {}
@@ -393,27 +402,12 @@ def models(store: ReferenceStore) -> dict[str, Any]:
             reason=_str_or_none(selection.get("reason")),
         ),
         primary_tests=[
-            PrimaryTest(
-                hypothesis=str(test.get("hypothesis")),
-                model_id=str(test.get("model_id")),
-                reference=str(test.get("reference")),
-                period=str(test.get("period")),
-                first_horizon=int(test["first_horizon"]),
-                last_horizon=int(test["last_horizon"]),
-                mae=float(test["mae"]),
-                mae_reference=float(test["mae_reference"]),
-                mae_difference=float(test["mae_difference"]),
-                mae_difference_ci_low=test.get("mae_difference_ci_low"),
-                mae_difference_ci_high=test.get("mae_difference_ci_high"),
-                holm_adjusted_p_value=test.get("holm_adjusted_p_value"),
-                effective_sample_size=test.get("effective_sample_size"),
-            )
-            for test in recommendation.get("primary_tests") or []
+            _primary_test(test, m2.alpha) for test in recommendation.get("primary_tests") or []
         ],
         multiplicity=_str_or_none(recommendation.get("multiplicity")),
         models=infos,
     )
-    return envelope(store, data, _m2_integrity(store), _m2_sources(store))
+    return envelope(ModelsResponse, store, data, _m2_integrity(store), _m2_sources(store))
 
 
 def _str_or_none(value: object) -> str | None:
@@ -432,15 +426,15 @@ def metrics(
     model_id: str | None,
     period: str | None,
     scope: str,
-) -> dict[str, Any]:
+) -> MetricsResponse:
     m2 = store.require_m2()
     payload = m2.payload
     known_models = sorted(str(m["model_id"]) for m in payload["models"])
     known_periods = [str(p["name"]) for p in payload["periods"]]
     if model_id is not None and model_id not in known_models:
-        raise not_found("model", model_id, known_models)
+        raise not_found("model", model_id, known_models, field="model_id")
     if period is not None and period not in known_periods:
-        raise not_found("period", period, known_periods)
+        raise not_found("period", period, known_periods, field="period")
     rows = [
         MetricRow(
             model_id=str(row["model_id"]),
@@ -489,13 +483,15 @@ def metrics(
         rows=rows,
         notes=notes,
     )
-    return envelope(store, data, _m2_integrity(store), _m2_sources(store))
+    return envelope(MetricsResponse, store, data, _m2_integrity(store), _m2_sources(store))
 
 
-def forecast(store: ReferenceStore, horizon_days: int) -> dict[str, Any]:
+def forecast(store: ReferenceStore, horizon_days: int) -> ForecastResponse:
     inputs = store.require_inputs()
     projection = inputs.projection
     dates, values = projection.first(horizon_days)
+    names = holiday_names(dates[0], dates[-1])
+    related = holiday_related(dates[0], dates[-1])
     accuracy = projection.accuracy
     data = ForecastData(
         model_id=projection.model_id,
@@ -510,7 +506,8 @@ def forecast(store: ReferenceStore, horizon_days: int) -> dict[str, Any]:
                 horizon=h,
                 prediction=v,
                 status="projected",
-                federal_holiday=holiday_names(d, d).get(d),
+                federal_holiday=names.get(d),
+                holiday_related=d in related,
             )
             for h, (d, v) in enumerate(zip(dates, values, strict=True), start=1)
         ],
@@ -529,9 +526,10 @@ def forecast(store: ReferenceStore, horizon_days: int) -> dict[str, Any]:
         store,
         record_type="future_projection",
         data_status="projected",
-        notices=[projection.label, point_forecast_notice(store)],
+        notices=[projection.label, point_forecast_notice(store), selection_test_notice(store)],
     )
     return envelope(
+        ForecastResponse,
         store,
         data,
         block,
@@ -539,25 +537,33 @@ def forecast(store: ReferenceStore, horizon_days: int) -> dict[str, Any]:
     )
 
 
-def history(store: ReferenceStore, start: date | None, end: date | None) -> dict[str, Any]:
+def history(store: ReferenceStore, start: date | None, end: date | None) -> HistoryResponse:
     snapshot = store.require_snapshot()
     first, last = snapshot.series.start, snapshot.series.end
-    end = last if end is None else end
-    start = max(first, end - timedelta(days=DEFAULT_HISTORY_DAYS - 1)) if start is None else start
-    problems = []
-    if start > end:
-        problems.append({"field": "start", "message": "start must not be after end"})
-    if (end - start).days + 1 > MAX_HISTORY_DAYS:
-        problems.append({"field": "end", "message": f"at most {MAX_HISTORY_DAYS} days per request"})
-    if start < first or end > last:
-        problems.append(
-            {
-                "field": "start" if start < first else "end",
-                "message": f"the snapshot covers {first.isoformat()}..{last.isoformat()}",
-            }
+    # Each given date is checked against the snapshot before any date arithmetic.
+    problems = [
+        {"field": name, "message": f"the snapshot covers {first.isoformat()}..{last.isoformat()}"}
+        for name, value in (("start", start), ("end", end))
+        if value is not None and not first <= value <= last
+    ]
+    if not problems:
+        end = last if end is None else end
+        start = (
+            max(first, end - timedelta(days=DEFAULT_HISTORY_DAYS - 1)) if start is None else start
         )
-    if problems:
-        raise ApiError(422, "validation_error", "invalid history window", details=problems)
+        if start > end:
+            problems.append({"field": "start", "message": "start must not be after end"})
+        elif (end - start).days + 1 > MAX_HISTORY_DAYS:
+            problems.append(
+                {"field": "end", "message": f"at most {MAX_HISTORY_DAYS} days per request"}
+            )
+    if problems or start is None or end is None:
+        raise ApiError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "validation_error",
+            "invalid history window",
+            details=problems,
+        )
     offset = (start - first).days
     points = list(store.history[offset : offset + (end - start).days + 1])
     data = HistoryData(
@@ -572,13 +578,13 @@ def history(store: ReferenceStore, start: date | None, end: date | None) -> dict
     block = integrity(
         store, record_type="observed_daily_total", data_status="observed", notices=[OBSERVED_NOTICE]
     )
-    return envelope(store, data, block, [store.snapshot_source()])
+    return envelope(HistoryResponse, store, data, block, [store.snapshot_source()])
 
 
 # --- M3 ---------------------------------------------------------------------------------
 
 
-def uncertainty_status(store: ReferenceStore) -> dict[str, Any]:
+def uncertainty_status(store: ReferenceStore) -> UncertaintyStatusResponse:
     inputs = store.require_inputs()
     status = inputs.status
     record = store.m3_record
@@ -607,17 +613,17 @@ def uncertainty_status(store: ReferenceStore) -> dict[str, Any]:
         data_status="calibration_assessment",
         notices=notices,
     )
-    return envelope(store, data, block, [store.status_source()])
+    return envelope(UncertaintyStatusResponse, store, data, block, [store.status_source()])
 
 
-def intervals(store: ReferenceStore, horizon_days: int) -> dict[str, Any]:
+def intervals(store: ReferenceStore, horizon_days: int) -> IntervalsResponse:
     inputs = store.require_inputs()
     intervals_ = store.require_m3_intervals()
     data = IntervalsData(
         model_id=inputs.status.primary_model,
         pair_id=intervals_.pair_id,
         interval_status=inputs.status.interval_status,
-        label=PROJECTION_LABEL,
+        label=INTERVALS_LABEL,
         origin=inputs.projection.origin,
         points=list(intervals_.points[:horizon_days]),
     )
@@ -625,9 +631,11 @@ def intervals(store: ReferenceStore, horizon_days: int) -> dict[str, Any]:
         store,
         record_type="future_projection_intervals",
         data_status="projected",
-        notices=[PROJECTION_LABEL, point_forecast_notice(store)],
+        notices=[INTERVALS_LABEL, point_forecast_notice(store)],
+        status_first=True,
     )
     return envelope(
+        IntervalsResponse,
         store,
         data,
         block,
@@ -651,13 +659,16 @@ def _m4_integrity(store: ReferenceStore, outcomes: Sequence[ScenarioOutcome]) ->
     )
 
 
-def _m4_sources(store: ReferenceStore) -> list[Source]:
-    return [
+def _m4_sources(store: ReferenceStore, outcomes: Sequence[ScenarioOutcome]) -> list[Source]:
+    sources = [
         store.m4_source(),
         store.config_source(),
         store.forecast_source(),
         store.status_source(),
     ]
+    if any(o.quantile is not None for o in outcomes):
+        sources.append(store.intervals_source())
+    return sources
 
 
 def plan_label(outcome: ScenarioOutcome) -> str:
@@ -702,7 +713,7 @@ def summary(outcome: ScenarioOutcome) -> ScenarioSummary:
     )
 
 
-def scenario_list(store: ReferenceStore) -> dict[str, Any]:
+def scenario_list(store: ReferenceStore) -> ScenarioListResponse:
     m4 = store.require_m4()
     outcomes = list(m4.outcomes.values())
     data = ScenarioListData(
@@ -715,14 +726,20 @@ def scenario_list(store: ReferenceStore) -> dict[str, Any]:
         last_date=date.fromisoformat(str(m4.horizon["last_date"])),
         scenarios=[summary(o) for o in outcomes],
     )
-    return envelope(store, data, _m4_integrity(store, outcomes), _m4_sources(store))
+    return envelope(
+        ScenarioListResponse,
+        store,
+        data,
+        _m4_integrity(store, outcomes),
+        _m4_sources(store, outcomes),
+    )
 
 
-def scenario_detail(store: ReferenceStore, scenario_id: str) -> dict[str, Any]:
+def scenario_detail(store: ReferenceStore, scenario_id: str) -> ScenarioDetailResponse:
     m4 = store.require_m4()
     outcome = m4.outcomes.get(scenario_id)
     if outcome is None:
-        raise not_found("scenario", scenario_id, list(m4.outcomes))
+        raise not_found("scenario", scenario_id, list(m4.outcomes), field="scenario_id")
     data = ScenarioDetailData(
         run_id=m4.run_id,
         label=m4.label,
@@ -732,12 +749,17 @@ def scenario_detail(store: ReferenceStore, scenario_id: str) -> dict[str, Any]:
         hypothetical_parameters=[
             p
             for p in m4.hypothetical_parameters
-            if not str(p.get("scope", "")).startswith("scenario:")
-            or p.get("scope") == f"scenario:{scenario_id}"
+            if not p.scope.startswith("scenario:") or p.scope == f"scenario:{scenario_id}"
         ],
         structural_assumptions=list(m4.structural_assumptions),
     )
-    return envelope(store, data, _m4_integrity(store, [outcome]), _m4_sources(store))
+    return envelope(
+        ScenarioDetailResponse,
+        store,
+        data,
+        _m4_integrity(store, [outcome]),
+        _m4_sources(store, [outcome]),
+    )
 
 
 def _value(outcome: ScenarioOutcome, metric: str) -> float | None:
@@ -747,17 +769,23 @@ def _value(outcome: ScenarioOutcome, metric: str) -> float | None:
     return None if evaluation is None else float(getattr(evaluation, metric))
 
 
+#: The plan a scenario reports: the optimum when strict, the relaxed plan otherwise.
+REPORTED_PLAN: Final = {"strict": "optimized", "relaxed_terminal_target": "relaxed_terminal_target"}
+
+
 def comparison(
     store: ReferenceStore,
     scenario_ids: Sequence[str],
     baseline: str,
     metrics_: Sequence[ComparisonMetric],
-) -> dict[str, Any]:
+) -> ComparisonResponse:
     m4 = store.require_m4()
     known = list(m4.outcomes)
-    for identifier in [*scenario_ids, baseline]:
+    for identifier in scenario_ids:
         if identifier not in m4.outcomes:
-            raise not_found("scenario", identifier, known)
+            raise not_found("scenario", identifier, known, field="scenario_id")
+    if baseline not in m4.outcomes:
+        raise not_found("scenario", baseline, known, field="baseline")
     chosen = list(dict.fromkeys(scenario_ids)) or known
     if baseline not in chosen:
         chosen.insert(0, baseline)
@@ -766,14 +794,35 @@ def comparison(
     for identifier in chosen:
         outcome = m4.outcomes[identifier]
         values = {m: _value(outcome, m) for m in metrics_}
+        # Only plans that meet every constraint are compared: a relaxed plan's values are
+        # DIAGNOSTIC, and its difference from a feasible plan would read as a funding need.
+        comparable = outcome.feasibility == "strict" and base.feasibility == "strict"
         differences: dict[str, float | None] = {}
         for metric in metrics_:
             mine, theirs = values[metric], _value(base, metric)
-            differences[metric] = None if mine is None or theirs is None else mine - theirs
+            differences[metric] = (
+                mine - theirs if comparable and mine is not None and theirs is not None else None
+            )
+        reported = next(
+            (
+                v
+                for v in m4.variants[identifier]
+                if v.plan == REPORTED_PLAN[outcome.feasibility]
+                and v.feasibility == outcome.feasibility
+            ),
+            None,
+        )
         rows.append(
             ComparisonRow(
                 scenario_id=identifier,
+                description=outcome.description,
+                adjustments=dict(outcome.adjustments),
                 feasibility=outcome.feasibility,
+                values_status="plan_meets_every_constraint"
+                if outcome.feasibility == "strict"
+                else "DIAGNOSTIC",
+                terminal_backlog_max=None if reported is None else reported.terminal_backlog_max,
+                terminal_violation=None if reported is None else reported.terminal_violation,
                 values=values,
                 difference_from_baseline=differences,
             )
@@ -783,18 +832,22 @@ def comparison(
         metrics=list(metrics_),
         units={m: COMPARISON_UNITS[m] for m in metrics_},
         rows=rows,
-        caveat=(
-            "Differences between HYPOTHETICAL scenarios computed from one unvalidated demand "
-            "path; they illustrate the model's sensitivity, not expected outcomes. "
-            "penalised_score is reported only for strictly feasible scenarios (a relaxed "
-            "plan's score is a different programme's)."
-        ),
+        caveat=COMPARISON_CAVEAT,
     )
     outcomes = [m4.outcomes[i] for i in chosen]
-    return envelope(store, data, _m4_integrity(store, outcomes), _m4_sources(store))
+    return envelope(
+        ComparisonResponse,
+        store,
+        data,
+        _m4_integrity(store, outcomes),
+        _m4_sources(store, outcomes),
+    )
 
 
-def simulation_integrity(store: ReferenceStore, quantile: bool) -> Integrity:
+# --- Simulations ------------------------------------------------------------------------
+
+
+def _simulation_integrity(store: ReferenceStore, quantile: bool) -> Integrity:
     notices = [M4_LABEL, RELAXED_NOTICE, point_forecast_notice(store)]
     if quantile:
         notices.append(MARGINAL_QUANTILE_NOTICE)
@@ -807,13 +860,45 @@ def simulation_integrity(store: ReferenceStore, quantile: bool) -> Integrity:
     )
 
 
-def simulation_sources(store: ReferenceStore) -> list[Source]:
-    return [store.config_source(), store.forecast_source(), store.status_source()]
+def _simulation_sources(store: ReferenceStore, quantile: bool) -> list[Source]:
+    sources = [
+        store.config_source(),
+        store.forecast_source(),
+        store.accuracy_source(),
+        store.status_source(),
+    ]
+    if quantile:
+        sources.append(store.intervals_source())
+    return sources
+
+
+def simulation_parameters(
+    store: ReferenceStore, data: SimulationParametersData
+) -> SimulationParametersResponse:
+    return envelope(
+        SimulationParametersResponse,
+        store,
+        data,
+        _simulation_integrity(store, False),
+        _simulation_sources(store, False),
+    )
+
+
+def simulation(store: ReferenceStore, data: SimulationData) -> SimulationResponse:
+    quantile = data.demand_notice is not None
+    return envelope(
+        SimulationResponse,
+        store,
+        data,
+        _simulation_integrity(store, quantile),
+        _simulation_sources(store, quantile),
+    )
 
 
 __all__ = [
     "MAX_HISTORY_DAYS",
     "comparison",
+    "envelope",
     "forecast",
     "history",
     "intervals",
@@ -821,8 +906,8 @@ __all__ = [
     "models",
     "scenario_detail",
     "scenario_list",
-    "simulation_integrity",
-    "simulation_sources",
+    "simulation",
+    "simulation_parameters",
     "system",
     "uncertainty_status",
 ]

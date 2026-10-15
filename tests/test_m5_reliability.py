@@ -80,16 +80,22 @@ CHAIN = {
     "m4_reference_run",
     "simulation",
 }
+#: Simulations start from the reference configuration's defaults, so they are ready only
+#: when the M4 reference run made with that configuration is verified.
+M4_CHAIN = {"m4_reference_run", "simulation"}
 CASES = {
-    "m4_metrics_edited": (append(f"{M4}/metrics.json", b" "), {"m4_reference_run"}),
-    "m4_plans_missing": (delete(f"{M4}/plans.csv"), {"m4_reference_run"}),
-    "m4_manifest_not_json": (
-        replace_text(f"{M4}/manifest.json", "{", "["),
-        {"m4_reference_run"},
-    ),
+    "m4_metrics_edited": (append(f"{M4}/metrics.json", b" "), M4_CHAIN),
+    "m4_plans_missing": (delete(f"{M4}/plans.csv"), M4_CHAIN),
+    "m4_manifest_not_json": (replace_text(f"{M4}/manifest.json", "{", "["), M4_CHAIN),
     "m4_manifest_incomplete": (
         replace_text(f"{M4}/manifest.json", '"complete": true', '"complete": false'),
-        {"m4_reference_run"},
+        M4_CHAIN,
+    ),
+    # The significance level is read from the run's configuration, which must still give
+    # the recorded configuration fingerprint.
+    "m2_manifest_alpha_edited": (
+        replace_text(f"{M2_FULL}/manifest.json", '"alpha": 0.05', '"alpha": 0.5'),
+        {"m2_backtest"},
     ),
     "m2_projection_edited": (
         replace_text(f"{M2_PROJECTION}/projections.csv", "11123.683380141376", "11123.6833801414"),
@@ -101,10 +107,7 @@ CASES = {
         CHAIN,
     ),
     "m3_intervals_missing": (delete(f"{M3_PROJECTION}/projection_intervals.csv"), CHAIN),
-    "reference_config_edited": (
-        replace_text(CONFIG, '"value": 8000', '"value": 8001'),
-        {"m4_reference_run"},
-    ),
+    "reference_config_edited": (replace_text(CONFIG, '"value": 8000', '"value": 8001'), M4_CHAIN),
     "reference_config_not_json": (replace_text(CONFIG, "{", "{{"), CHAIN),
     "snapshot_data_edited": (
         replace_text("01 Data/daily_total.csv", "2023-01-01,6209", "2023-01-01,6210"),

@@ -163,6 +163,17 @@
       "ComparisonRow": {
         "additionalProperties": false,
         "properties": {
+          "adjustments": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HypotheticalQuantity"
+            },
+            "title": "Adjustments",
+            "type": "object"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
           "difference_from_baseline": {
             "additionalProperties": {
               "anyOf": [
@@ -174,7 +185,7 @@
                 }
               ]
             },
-            "description": "This scenario minus the baseline (same units as values).",
+            "description": "This scenario minus the baseline (same units as values); null unless both plans meet every constraint.",
             "title": "Difference From Baseline",
             "type": "object"
           },
@@ -190,6 +201,30 @@
             "title": "Scenario Id",
             "type": "string"
           },
+          "terminal_backlog_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The HYPOTHETICAL target, requests.",
+            "title": "Terminal Backlog Max"
+          },
+          "terminal_violation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requests the reported plan leaves above the target (0 when it meets it).",
+            "title": "Terminal Violation"
+          },
           "values": {
             "additionalProperties": {
               "anyOf": [
@@ -203,11 +238,25 @@
             },
             "title": "Values",
             "type": "object"
+          },
+          "values_status": {
+            "description": "DIAGNOSTIC: no plan meets every HYPOTHETICAL constraint; the values are those of the relaxed plan, which misses the terminal target.",
+            "enum": [
+              "plan_meets_every_constraint",
+              "DIAGNOSTIC"
+            ],
+            "title": "Values Status",
+            "type": "string"
           }
         },
         "required": [
           "scenario_id",
+          "description",
+          "adjustments",
           "feasibility",
+          "values_status",
+          "terminal_backlog_max",
+          "terminal_violation",
           "values",
           "difference_from_baseline"
         ],
@@ -342,6 +391,50 @@
           "extra_capacity_max_over_optimal_plans"
         ],
         "title": "DayPlan",
+        "type": "object"
+      },
+      "DemandOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "items": {
+              "enum": [
+                "point_forecast",
+                "m3_marginal_quantile"
+              ],
+              "type": "string"
+            },
+            "title": "Basis",
+            "type": "array"
+          },
+          "multiplier": {
+            "$ref": "#/components/schemas/RangeSpec"
+          },
+          "notice": {
+            "description": "What a quantile stress path is, and is not.",
+            "title": "Notice",
+            "type": "string"
+          },
+          "quantile": {
+            "description": "Levels offered for m3_marginal_quantile.",
+            "items": {
+              "type": "number"
+            },
+            "title": "Quantile",
+            "type": "array"
+          },
+          "shift_per_day": {
+            "$ref": "#/components/schemas/RangeSpec"
+          }
+        },
+        "required": [
+          "basis",
+          "quantile",
+          "multiplier",
+          "shift_per_day",
+          "notice"
+        ],
+        "title": "DemandOptions",
         "type": "object"
       },
       "DemandSettings": {
@@ -557,11 +650,31 @@
         "additionalProperties": false,
         "properties": {
           "code": {
-            "description": "Stable identifier: validation_error, not_found, payload_too_large, unsupported_media_type, unauthorized, invalid_host, method_not_allowed, artifact_unavailable, simulation_rejected, simulations_busy, simulation_timeout, simulation_failed, internal_error.",
+            "description": "Stable identifier (docs/API.md, section 4).",
+            "enum": [
+              "bad_request",
+              "invalid_host",
+              "cors_rejected",
+              "unauthorized",
+              "not_found",
+              "method_not_allowed",
+              "payload_too_large",
+              "unsupported_media_type",
+              "validation_error",
+              "simulation_rejected",
+              "simulation_failed",
+              "internal_error",
+              "artifact_unavailable",
+              "simulations_busy",
+              "simulation_timeout",
+              "server_busy",
+              "http_error"
+            ],
             "title": "Code",
             "type": "string"
           },
           "details": {
+            "description": "Problems by field: the dotted path inside the body (parameters.regular_wage) or the query parameter (start); <body> for the body.",
             "items": {
               "$ref": "#/components/schemas/ErrorDetail"
             },
@@ -771,8 +884,14 @@
                 "type": "null"
               }
             ],
-            "description": "US federal holiday observed that day (M1 rules); holidays and flagged days had markedly lower interval coverage in M3.",
+            "description": "US federal holiday observed that day (M1 rules).",
             "title": "Federal Holiday"
+          },
+          "holiday_related": {
+            "default": false,
+            "description": "A federal holiday (actual or observed date) or the day before or after the actual date: an M3 stratum with markedly lower interval coverage (64.1 % at nominal 80 % and 83.3 % at 95 %, against 84.8 % and 94.3 % on ordinary days, over only 33 distinct target days; UNCERTAINTY.md section 9.6).",
+            "title": "Holiday Related",
+            "type": "boolean"
           },
           "horizon": {
             "description": "Days after the forecast origin.",
@@ -801,7 +920,9 @@
           "target_date",
           "horizon",
           "prediction",
-          "status"
+          "status",
+          "federal_holiday",
+          "holiday_related"
         ],
         "title": "ForecastPoint",
         "type": "object"
@@ -988,6 +1109,127 @@
         "title": "HistoryResponse",
         "type": "object"
       },
+      "HorizonSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "integer"
+          },
+          "first_date": {
+            "description": "The first projected day (day 1 of every plan).",
+            "format": "date",
+            "title": "First Date",
+            "type": "string"
+          },
+          "maximum": {
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "default",
+          "minimum",
+          "maximum",
+          "first_date"
+        ],
+        "title": "HorizonSpec",
+        "type": "object"
+      },
+      "HypotheticalParameter": {
+        "additionalProperties": false,
+        "description": "One HYPOTHETICAL parameter of a run (a sweep grid has a text value listing it).",
+        "properties": {
+          "assumption": {
+            "title": "Assumption",
+            "type": "string"
+          },
+          "parameter": {
+            "title": "Parameter",
+            "type": "string"
+          },
+          "provenance": {
+            "const": "HYPOTHETICAL",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "scope": {
+            "description": "unit:<id>, budget, scenario:<id> or sensitivity:<id>.",
+            "title": "Scope",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "scope",
+          "parameter",
+          "value",
+          "unit",
+          "provenance",
+          "assumption"
+        ],
+        "title": "HypotheticalParameter",
+        "type": "object"
+      },
+      "HypotheticalQuantity": {
+        "additionalProperties": false,
+        "description": "A HYPOTHETICAL number with its exact unit and the assumption behind it.",
+        "properties": {
+          "assumption": {
+            "title": "Assumption",
+            "type": "string"
+          },
+          "provenance": {
+            "const": "HYPOTHETICAL",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "provenance",
+          "assumption"
+        ],
+        "title": "HypotheticalQuantity",
+        "type": "object"
+      },
       "Integrity": {
         "additionalProperties": false,
         "description": "What the numbers in ``data`` are, and what they are not.",
@@ -1066,9 +1308,11 @@
         "required": [
           "record_type",
           "data_status",
+          "point_forecast_validated",
           "uncertainty_interval_status",
           "uncertainty_decision_grade",
           "parameter_provenance",
+          "validated_recommendation",
           "notices"
         ],
         "title": "Integrity",
@@ -1208,6 +1452,11 @@
       "IntervalPoint": {
         "additionalProperties": false,
         "properties": {
+          "holiday_related": {
+            "description": "A federal holiday (actual or observed date) or the day before or after the actual date: an M3 stratum with markedly lower interval coverage (64.1 % at nominal 80 % and 83.3 % at 95 %, against 84.8 % and 94.3 % on ordinary days, over only 33 distinct target days; UNCERTAINTY.md section 9.6).",
+            "title": "Holiday Related",
+            "type": "boolean"
+          },
           "horizon": {
             "title": "Horizon",
             "type": "integer"
@@ -1220,7 +1469,7 @@
             "additionalProperties": {
               "type": "number"
             },
-            "description": "Marginal predictive quantiles (requests/day) keyed by level; NOT calibrated probabilities (M3 status failed_calibration).",
+            "description": "Marginal quantiles (requests/day) keyed by level. Their calibration FAILED (M3 status failed_calibration): they carry no probability to rely on.",
             "title": "Quantiles",
             "type": "object"
           },
@@ -1240,7 +1489,8 @@
           "horizon",
           "prediction",
           "quantiles",
-          "status"
+          "status",
+          "holiday_related"
         ],
         "title": "IntervalPoint",
         "type": "object"
@@ -1680,7 +1930,7 @@
             "title": "Multiplicity"
           },
           "primary_tests": {
-            "description": "The confirmation tests behind the recommendation; read the confidence interval and the adjusted p-value before calling the model better.",
+            "description": "The confirmation tests behind the recommendation; read the interval of the MAE difference and the Holm-adjusted p-value before calling the model better.",
             "items": {
               "$ref": "#/components/schemas/PrimaryTest"
             },
@@ -1761,6 +2011,12 @@
             "description": "US federal holiday observed that day (M1 rules).",
             "title": "Federal Holiday"
           },
+          "holiday_related": {
+            "default": false,
+            "description": "A federal holiday (actual or observed date) or the day before or after the actual date: an M3 stratum with markedly lower interval coverage (64.1 % at nominal 80 % and 83.3 % at 95 %, against 84.8 % and 94.3 % on ordinary days, over only 33 distinct target days; UNCERTAINTY.md section 9.6).",
+            "title": "Holiday Related",
+            "type": "boolean"
+          },
           "requests": {
             "anyOf": [
               {
@@ -1786,7 +2042,9 @@
         "required": [
           "date",
           "requests",
-          "status"
+          "status",
+          "federal_holiday",
+          "holiday_related"
         ],
         "title": "ObservedPoint",
         "type": "object"
@@ -2252,6 +2510,18 @@
             ],
             "title": "Solver Status"
           },
+          "terminal_backlog_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The HYPOTHETICAL terminal target, requests (null: no target).",
+            "title": "Terminal Backlog Max"
+          },
           "terminal_violation": {
             "anyOf": [
               {
@@ -2303,6 +2573,7 @@
           "unique_optimal_plan",
           "unique_after_tie_breaks",
           "solver_status",
+          "terminal_backlog_max",
           "terminal_violation",
           "satisfies_budget",
           "reported_plan_relation",
@@ -2416,7 +2687,11 @@
           "relation_of_reported_plan",
           "discretionary_cost_difference",
           "request_days_difference",
-          "terminal_backlog_difference"
+          "terminal_backlog_difference",
+          "lp_request_days_at_policy_cash",
+          "request_days_difference_at_same_cash",
+          "lp_cash_at_policy_backlog",
+          "cash_difference_at_same_backlog"
         ],
         "title": "PolicyComparison",
         "type": "object"
@@ -2507,6 +2782,18 @@
           "reference": {
             "title": "Reference",
             "type": "string"
+          },
+          "significant_after_holm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Holm-adjusted p below 0.05 (null if no p-value was computed).",
+            "title": "Significant After Holm"
           }
         },
         "required": [
@@ -2522,6 +2809,7 @@
           "mae_difference_ci_low",
           "mae_difference_ci_high",
           "holm_adjusted_p_value",
+          "significant_after_holm",
           "effective_sample_size"
         ],
         "title": "PrimaryTest",
@@ -2707,7 +2995,23 @@
           }
         },
         "required": [
-          "status"
+          "status",
+          "objective",
+          "objective_value",
+          "objective_recomputed_from_plan",
+          "highs_status",
+          "iterations",
+          "retried_without_presolve",
+          "stage_fallback",
+          "certificate",
+          "independent_check_passed",
+          "constraints_not_checked",
+          "values_snapped_to_bounds",
+          "largest_snap",
+          "max_balance_residual",
+          "evaluation",
+          "message",
+          "evaluation_note"
         ],
         "title": "Programme",
         "type": "object"
@@ -2757,6 +3061,35 @@
         "title": "Provenance",
         "type": "object"
       },
+      "RangeSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "number"
+          },
+          "maximum": {
+            "title": "Maximum",
+            "type": "number"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "number"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default",
+          "minimum",
+          "maximum",
+          "unit"
+        ],
+        "title": "RangeSpec",
+        "type": "object"
+      },
       "ReadyResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2799,6 +3132,18 @@
             "title": "Provenance",
             "type": "string"
           },
+          "reference_assumption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a reference default: the assumption the reference configuration documents, which describes the 30-day reference with every other value at its default (horizon totals are not prorated).",
+            "title": "Reference Assumption"
+          },
           "source": {
             "enum": [
               "request",
@@ -2833,7 +3178,8 @@
           "unit",
           "provenance",
           "source",
-          "assumption"
+          "assumption",
+          "reference_assumption"
         ],
         "title": "ResolvedParameter",
         "type": "object"
@@ -2851,8 +3197,7 @@
           "hypothetical_parameters": {
             "description": "Every HYPOTHETICAL parameter of the run with its unit and assumption.",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/HypotheticalParameter"
             },
             "title": "Hypothetical Parameters",
             "type": "array"
@@ -2996,7 +3341,9 @@
         "description": "One scenario as the M4 runner reports it (``metrics.json`` ``scenarios[]``).",
         "properties": {
           "adjustments": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HypotheticalQuantity"
+            },
             "description": "HYPOTHETICAL changes to the base case.",
             "title": "Adjustments",
             "type": "object"
@@ -3461,10 +3808,13 @@
           "forecast_model",
           "forecast_label",
           "forecast_confirmation_mae_requests_per_day",
+          "point_forecast_validated",
           "uncertainty_interval_status",
           "uncertainty_decision_grade",
           "uncertainty_statement",
           "decision_simulation_label",
+          "parameter_provenance",
+          "validated_recommendation",
           "limitations"
         ],
         "title": "ScientificStatus",
@@ -4061,16 +4411,10 @@
         "additionalProperties": false,
         "properties": {
           "demand": {
-            "additionalProperties": true,
-            "title": "Demand",
-            "type": "object"
+            "$ref": "#/components/schemas/DemandOptions"
           },
           "horizon_days": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Horizon Days",
-            "type": "object"
+            "$ref": "#/components/schemas/HorizonSpec"
           },
           "legacy_demand_percentile_requests_per_day": {
             "description": "A regular capacity within 1 % of this demand percentile is rejected: M4 never uses a demand percentile as a service capacity.",
@@ -4136,7 +4480,7 @@
           },
           "horizon_days": {
             "default": 30,
-            "description": "Planning days from 2026-07-01.",
+            "description": "Planning days, from the first projected day.",
             "maximum": 30.0,
             "minimum": 1.0,
             "title": "Horizon Days",
@@ -4279,7 +4623,12 @@
         },
         "required": [
           "kind",
-          "path"
+          "path",
+          "record_type",
+          "run_id",
+          "result_fingerprint",
+          "config_fingerprint",
+          "sha256"
         ],
         "title": "Source",
         "type": "object"
@@ -4332,6 +4681,16 @@
             "title": "Service",
             "type": "string"
           },
+          "simulation_workers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkerPoolStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "snapshot": {
             "anyOf": [
               {
@@ -4366,6 +4725,7 @@
           "components",
           "scientific_status",
           "limits",
+          "simulation_workers",
           "solver",
           "endpoints"
         ],
@@ -4516,6 +4876,61 @@
         ],
         "title": "UncertaintyStatusResponse",
         "type": "object"
+      },
+      "WorkerPoolStatus": {
+        "additionalProperties": false,
+        "description": "The simulation worker processes (counters since the server started).",
+        "properties": {
+          "alive": {
+            "description": "Worker processes currently running (or importing).",
+            "title": "Alive",
+            "type": "integer"
+          },
+          "completed": {
+            "description": "Simulations a worker answered (any outcome).",
+            "title": "Completed",
+            "type": "integer"
+          },
+          "consecutive_crashes": {
+            "description": "Crashes since the last answered simulation; /health/ready reports the workers not ready from 3.",
+            "title": "Consecutive Crashes",
+            "type": "integer"
+          },
+          "crashes": {
+            "description": "Simulations whose worker died or never became ready.",
+            "title": "Crashes",
+            "type": "integer"
+          },
+          "idle": {
+            "title": "Idle",
+            "type": "integer"
+          },
+          "started": {
+            "title": "Started",
+            "type": "boolean"
+          },
+          "timeouts": {
+            "description": "Simulations stopped at their deadline.",
+            "title": "Timeouts",
+            "type": "integer"
+          },
+          "workers": {
+            "title": "Workers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workers",
+          "alive",
+          "idle",
+          "started",
+          "completed",
+          "timeouts",
+          "crashes",
+          "consecutive_crashes"
+        ],
+        "title": "WorkerPoolStatus",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -4547,8 +4962,8 @@
             "schema": {
               "default": 30,
               "description": "Days to return.",
-              "maximum": 30,
-              "minimum": 1,
+              "ge": 1,
+              "le": 30,
               "title": "Horizon Days",
               "type": "integer"
             }
@@ -4586,15 +5001,16 @@
             "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
           }
         },
-        "summary": "The 30-day future projection (projected, not validated)",
+        "summary": "The future projection (projected, not validated)",
         "tags": [
           "forecasts"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/forecasts/history": {
       "get": {
-        "description": "City-wide 311 requests created per day, each with ``status: observed``; at most\n1,500 days per request, within the snapshot (2023-01-01..2026-06-30).",
+        "description": "City-wide 311 requests created per day, each with ``status: observed``; at most\n1,500 days per request, within the snapshot's dates (``GET /api/v1/system``).",
         "operationId": "getHistory",
         "parameters": [
           {
@@ -4671,7 +5087,8 @@
         "summary": "Observed daily demand (legacy-v0 snapshot)",
         "tags": [
           "forecasts"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/forecasts/metrics": {
@@ -4779,12 +5196,13 @@
         "summary": "M2 backtest accuracy by model, period and horizon",
         "tags": [
           "forecasts"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/models": {
       "get": {
-        "description": "The seven M2 models, the development selection and the confirmation-period\nrecommendation, with each model's MAE over horizons 1-30 in every M2 period.",
+        "description": "Every M2 model, the development selection and the confirmation-period\nrecommendation with its pre-registered tests, and each model's MAE over horizons 1-30\nin every M2 period.",
         "operationId": "listModels",
         "responses": {
           "200": {
@@ -4821,7 +5239,8 @@
         "summary": "Forecasting models evaluated by M2",
         "tags": [
           "forecasts"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/scenarios": {
@@ -4863,12 +5282,13 @@
         "summary": "M4 reference scenarios (HYPOTHETICAL)",
         "tags": [
           "scenarios"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/scenarios/comparison": {
       "get": {
-        "description": "The chosen scenarios side by side, with each metric's difference from the baseline\nscenario. Differences are between HYPOTHETICAL scenarios, not expected outcomes.",
+        "description": "The chosen scenarios side by side, each with its adjustments, terminal target and\nviolation, and each metric's difference from the baseline scenario. Differences are\nbetween HYPOTHETICAL scenarios, not expected outcomes, and are given only when both\nplans meet every constraint (a relaxed plan's values are DIAGNOSTIC).",
         "operationId": "compareScenarios",
         "parameters": [
           {
@@ -4883,7 +5303,7 @@
                 "pattern": "^[a-z][a-z0-9_]{0,63}$",
                 "type": "string"
               },
-              "maxItems": 9,
+              "maxItems": 32,
               "title": "Scenario Id",
               "type": "array"
             }
@@ -4970,7 +5390,8 @@
         "summary": "Compare M4 reference scenarios",
         "tags": [
           "scenarios"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/scenarios/{scenario_id}": {
@@ -5036,7 +5457,8 @@
         "summary": "One M4 reference scenario with its daily plans",
         "tags": [
           "scenarios"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/simulations": {
@@ -5170,12 +5592,14 @@
         "security": [
           {
             "APIKeyHeader": []
-          }
+          },
+          {}
         ],
         "summary": "Run one bounded HYPOTHETICAL simulation",
         "tags": [
           "simulations"
-        ]
+        ],
+        "x-atlas-cost": "bounded_computation"
       }
     },
     "/api/v1/simulations/parameters": {
@@ -5217,12 +5641,13 @@
         "summary": "Defaults and ranges of the simulation inputs",
         "tags": [
           "simulations"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/system": {
       "get": {
-        "description": "Everything a client needs to label results honestly: the snapshot, the source of\nevery reference run, the M3 calibration status, the HYPOTHETICAL status of every M4\nparameter, the component readiness, the request limits and which endpoints compute.",
+        "description": "Everything a client needs to label results honestly: the snapshot, the source of\nevery reference run, the M3 calibration status, the HYPOTHETICAL status of every M4\nparameter, the component readiness, the request limits, the simulation workers and\nwhat each endpoint costs.",
         "operationId": "getSystem",
         "responses": {
           "200": {
@@ -5249,12 +5674,13 @@
         "summary": "Versions, provenance, scientific status and limits",
         "tags": [
           "system"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/uncertainty/intervals": {
       "get": {
-        "description": "Marginal predictive quantiles of the projected days from the sealed M3 method. The\nmethod failed its calibration criteria: these are not probabilities to rely on.",
+        "description": "Marginal quantiles of the projected days from the sealed M3 method, with the M3\nholiday-related flag. The method failed its calibration criteria: the quantiles carry\nno probability to rely on.",
         "operationId": "getUncertaintyIntervals",
         "parameters": [
           {
@@ -5265,8 +5691,8 @@
             "schema": {
               "default": 30,
               "description": "Days to return.",
-              "maximum": 30,
-              "minimum": 1,
+              "ge": 1,
+              "le": 30,
               "title": "Horizon Days",
               "type": "integer"
             }
@@ -5304,10 +5730,11 @@
             "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
           }
         },
-        "summary": "M3 projection quantiles (not calibrated probabilities)",
+        "summary": "M3 projection quantiles (failed calibration)",
         "tags": [
           "uncertainty"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/api/v1/uncertainty/status": {
@@ -5346,10 +5773,11 @@
             "description": "Reference data unavailable, or all simulation workers busy (artifact_unavailable, simulations_busy)."
           }
         },
-        "summary": "M3 calibration status (failed_calibration)",
+        "summary": "M3 calibration status",
         "tags": [
           "uncertainty"
-        ]
+        ],
+        "x-atlas-cost": "precomputed"
       }
     },
     "/health/live": {
@@ -5381,12 +5809,13 @@
         "summary": "Process liveness",
         "tags": [
           "health"
-        ]
+        ],
+        "x-atlas-cost": "static"
       }
     },
     "/health/ready": {
       "get": {
-        "description": "200 when every committed reference component loaded and passed its integrity checks;\n503 (same body) naming each component that did not.",
+        "description": "200 when every committed reference component loaded and passed its integrity checks\nand the simulation workers run; 503 (same body) naming each component that is not\nready (the workers after 3 consecutive crashes).",
         "operationId": "getReady",
         "responses": {
           "200": {
@@ -5423,7 +5852,8 @@
         "summary": "Readiness of every reference component",
         "tags": [
           "health"
-        ]
+        ],
+        "x-atlas-cost": "static"
       }
     }
   },

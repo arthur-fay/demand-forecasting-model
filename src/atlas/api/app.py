@@ -15,11 +15,15 @@ from contextlib import asynccontextmanager
 from typing import Final
 
 from fastapi import FastAPI
-from starlette.middleware.cors import CORSMiddleware
 
 from atlas import __version__
 from atlas.api.errors import install_error_handlers
-from atlas.api.middleware import RequestContextMiddleware
+from atlas.api.middleware import (
+    DOCS_PATHS,
+    EXPOSED_HEADERS,
+    JsonCORSMiddleware,
+    RequestContextMiddleware,
+)
 from atlas.api.reference import ReferenceStore, load_reference_store
 from atlas.api.routers import forecasts, health, scenarios, simulations, system, uncertainty
 from atlas.api.settings import ApiSettings, load_api_settings
@@ -109,11 +113,11 @@ def create_app(
     for module in (health, system, forecasts, uncertainty, scenarios, simulations):
         app.include_router(module.router)
     app.add_middleware(
-        CORSMiddleware,
+        JsonCORSMiddleware,
         allow_origins=list(resolved.cors_origins),
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
-        expose_headers=["X-Request-ID", "Server-Timing", "Retry-After"],
+        expose_headers=list(EXPOSED_HEADERS),
         allow_credentials=False,
         max_age=600,
     )
@@ -122,5 +126,7 @@ def create_app(
         RequestContextMiddleware,
         allowed_hosts=resolved.allowed_hosts,
         max_body_bytes=resolved.max_body_bytes,
+        docs_paths=DOCS_PATHS if docs else (),
+        cors_origins=resolved.cors_origins,
     )
     return app

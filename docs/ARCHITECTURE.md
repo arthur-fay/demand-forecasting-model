@@ -100,15 +100,20 @@ src/atlas/
   api/routers/            HTTP routes (health, system, forecasts, uncertainty, scenarios,
                           simulations): parameters, status codes, documented responses
   api/schemas.py          Pydantic contracts: integrity and provenance envelope, errors
-  api/middleware.py       request id, Host check, body limit, security headers, access log
-  api/errors.py           ApiError and the one error body
-  api/dependencies.py     injected services, API key, JSON-only bodies, no unknown query
+  api/middleware.py       request id, Host check, body limit, in-flight cap, security
+                          headers, access log; CORS with JSON rejections
+  api/problems.py         ApiError, the error codes and the one error body
+  api/errors.py           exception handlers mapping every failure to that body
+  api/dependencies.py     injected services, API key, JSON-only bodies, no unknown or
+                          repeated query parameter
   api/reference.py        ReferenceStore: committed M2/M3/M4 outputs, checked at startup
-  api/views.py            response data with integrity labels and provenance
-  api/simulation.py       request -> M4 configuration -> analyse_scenario in worker processes
+  api/views.py            complete typed responses with integrity labels and provenance
+  api/simulation.py       request -> M4 configuration; the worker pool (deadlines, crashes)
+  api/worker.py           the worker-process side: analyse_scenario (domain imports only)
   api/settings.py         validated ATLAS_API_* settings
   api/logs.py             JSON-lines logging
-  api/server.py           atlas api serve / openapi (loopback unless a key is set)
+  api/server.py           atlas api serve / openapi (loopback unless a key is set; a
+                          request-read deadline per connection)
   api/benchmark.py        atlas api bench (measured latency and memory)
 ```
 
@@ -257,7 +262,8 @@ startup:  snapshot ─► integrity, validation (M0) ─────────
           M2 recommending run ─► metrics.json (bytes verified) ──────► models, metrics
           M3 projection ─► projection_intervals.csv (pinned) ────────► intervals
           M4 reference run ─► optimize inspect + verified bytes ─────► scenarios
-          (each a component; a failed one answers 503, the rest serve)
+          (each a component; a failed one answers 503, the rest serve;
+           simulations need the verified M4 run made with the same configuration)
 request:  GET  ─► views (in memory) ─► data + integrity + provenance
           POST /simulations ─► M4 config (client values, HYPOTHETICAL) ─► parse + build
                 (422 on M4's rules) ─► idle worker process (else 503) ─► analyse_scenario
@@ -271,6 +277,9 @@ request:  GET  ─► views (in memory) ─► data + integrity + provenance
 | Spawned worker processes for solves, no queue, kill at deadline | The M4 solve layer's warnings capture is process-global; processes also give real deadlines and keep the API responsive |
 | `validated_recommendation` and `point_forecast_validated` are schema constants | A response cannot claim validation, whatever the code path |
 | Per-component readiness, verified bytes parsed once | Damaged artifacts fail closed without taking down unrelated endpoints |
+| Response models mirror the M4 file formats (`extra=forbid`) | A field M4 adds or drops makes the M4 component not ready at startup (fail closed) instead of being served silently; v2 of the contract would add a mapping layer |
+| Comparison differences only between plans that meet every constraint | A relaxed (DIAGNOSTIC) plan's cash minus a feasible plan's would read as a funding need |
+| A request-read deadline in the HTTP protocol, a JSON in-flight cap in the middleware | Idle or slow sockets cannot hold a single-process server; overload answers in the error contract |
 
 ### Extending to new snapshots
 

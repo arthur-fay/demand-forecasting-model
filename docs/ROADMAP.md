@@ -150,10 +150,15 @@ See [API.md](API.md) and the contract [`docs/api/openapi.json`](api/openapi.json
   They reproduce the reference scenarios exactly and run in spawned worker processes. The M4
   solve layer is not thread-safe; the processes also allow hard deadlines and keep metadata
   requests unblocked. Inputs are bounded, there is no queue (503), and a deadline kills the
-  worker (504).
+  worker (504). Lost workers are replaced, logged, counted and reported by readiness.
+- Honest by construction: the M2 H1 result (not significant after Holm) travels with every
+  forecast response; intervals are labelled as failing calibration; holiday-related days
+  carry M3's flag; comparisons never subtract a DIAGNOSTIC plan from a feasible one; a test
+  applies the M4 wording rules to every string the API sends.
 - Security:
-  - strict validation and body limits;
-  - a host allow-list, explicit CORS, security headers;
+  - strict validation (bodies, query parameters) and body limits;
+  - a request-read deadline per connection and a JSON in-flight cap;
+  - a host allow-list (IPv6 included), explicit CORS with JSON rejections, security headers;
   - an optional API key, and refusal of a public bind without one;
   - a generic 500 with the traceback only in the log;
   - no filesystem paths from requests, no writes, no subprocess, no outbound access.

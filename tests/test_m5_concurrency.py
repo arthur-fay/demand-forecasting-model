@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import http.client
 import json
+import logging
 import os
+import signal
+import socket
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -17,7 +20,14 @@ from typing import Any
 import pytest
 
 from atlas.api.reference import ReferenceStore
-from atlas.api.simulation import SimulationPool, SimulationService, Timeout, worker_context
+from atlas.api.schemas import SimulationRequest
+from atlas.api.simulation import (
+    SimulationPool,
+    SimulationService,
+    Timeout,
+    prepare,
+    worker_context,
+)
 from tests.m5_helpers import client, live_server
 from tests.m5_workers import dying_worker, failing_worker, silent_worker, slow_worker
 
@@ -94,13 +104,15 @@ def test_metadata_is_served_while_every_worker_computes(server: int) -> None:
     assert sorted(latencies)[len(latencies) // 2] < 0.25
 
 
-def test_timeout_stops_the_worker_and_frees_the_slot(api_store: ReferenceStore) -> None:
+def test_timeout_stops_the_worker_and_frees_the_slot(
+    api_store: ReferenceStore, caplog: pytest.LogCaptureFixture
+) -> None:
     service = SimulationService(api_store, size=1, timeout_seconds=1.0, worker_target=slow_worker)
     try:
         service.start()
         assert service.warm_up() == 1
         (before,) = service.worker_pids()
-        with live_server(api_store, service) as port:
+        with live_server(api_store, service) as port, caplog.at_level(logging.WARNING, "atlas.api"):
             started = time.perf_counter()
             status, _, data, _ = call(port, "POST", "/api/v1/simulations", {"horizon_days": 3})
             assert status == 504
@@ -111,6 +123,11 @@ def test_timeout_stops_the_worker_and_frees_the_slot(api_store: ReferenceStore) 
         with pytest.raises(ProcessLookupError):
             os.kill(before, 0)  # the stopped computation no longer runs
         assert service.idle_workers == 1
+        events = [r for r in caplog.records if getattr(r, "event", None) == "simulation_timeout"]
+        assert [getattr(r, "worker_pid", None) for r in events] == [before]
+        status_now = service.status()
+        assert (status_now.timeouts, status_now.crashes, status_now.completed) == (1, 0, 0)
+        assert service.health().ready  # a timeout is the input's, not the workers' fault
     finally:
         service.close()
 
@@ -135,15 +152,30 @@ def test_busy_pool_refuses_at_once(api_store: ReferenceStore) -> None:
         service.close()
 
 
-def test_a_dead_worker_is_replaced(api_store: ReferenceStore) -> None:
+def test_a_dead_worker_is_replaced(
+    api_store: ReferenceStore, caplog: pytest.LogCaptureFixture
+) -> None:
     service = SimulationService(api_store, size=1, timeout_seconds=30.0, worker_target=dying_worker)
     try:
         service.start()
-        with client(api_store, service, raise_server_exceptions=False) as test_client:
-            response = test_client.post("/api/v1/simulations", json={"horizon_days": 3})
-            assert response.status_code == 500
-            assert response.json()["error"]["code"] == "simulation_failed"
+        with (
+            client(api_store, service, raise_server_exceptions=False) as test_client,
+            caplog.at_level(logging.WARNING, "atlas.api"),
+        ):
+            for attempt in range(1, 4):
+                response = test_client.post("/api/v1/simulations", json={"horizon_days": 3})
+                assert response.status_code == 500
+                assert response.json()["error"]["code"] == "simulation_failed"
+                ready = test_client.get("/health/ready")
+                workers = {c["component"]: c for c in ready.json()["components"]}
+                # Three consecutive crashes make the workers (and the server) not ready.
+                assert ready.status_code == (503 if attempt == 3 else 200)
+                assert workers["simulation_workers"]["ready"] is (attempt < 3)
+            system = test_client.get("/api/v1/system").json()["data"]["simulation_workers"]
+            assert (system["crashes"], system["consecutive_crashes"]) == (3, 3)
             assert service.warm_up() == 1  # a fresh worker answers
+        crashed = [r for r in caplog.records if getattr(r, "event", None) == "worker_crashed"]
+        assert [getattr(r, "exit_code", None) for r in crashed] == [3, 3, 3]
     finally:
         service.close()
 
@@ -244,3 +276,118 @@ def test_shutdown_during_a_simulation_starts_no_new_worker(api_store: ReferenceS
         stopped = test_client.post("/api/v1/simulations", json={"horizon_days": 3})
     assert stopped.status_code == 503
     assert stopped.json()["error"]["code"] == "artifact_unavailable"
+
+
+def _open_idle(port: int, count: int) -> list[socket.socket]:
+    sockets = []
+    for _ in range(count):
+        sock = socket.create_connection(("127.0.0.1", port), timeout=10)
+        sockets.append(sock)
+    return sockets
+
+
+def _closed_by_server(sock: socket.socket) -> bool:
+    sock.settimeout(5)
+    try:
+        return sock.recv(1) == b""
+    except (ConnectionResetError, TimeoutError):
+        return False
+
+
+def test_idle_and_slow_connections_are_closed(api_store: ReferenceStore) -> None:
+    with live_server(api_store, read_seconds=1.0) as port:
+        idle = _open_idle(port, 80)  # more than the old 64-connection cap
+        slow = socket.create_connection(("127.0.0.1", port), timeout=10)
+        slow.sendall(b"GET /health/live HTTP/1.1\r\nHost: localhost\r\n")  # never finished
+        try:
+            status, _, _, _ = call(port, "GET", "/health/live")
+            assert status == 200  # open sockets do not lock the server out
+            assert all(_closed_by_server(sock) for sock in [*idle, slow])
+        finally:
+            for sock in [*idle, slow]:
+                sock.close()
+        # A keep-alive connection that keeps sending requests is not cut off.
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            for _ in range(3):
+                connection.request("GET", "/health/live", headers={"Host": "localhost"})
+                response = connection.getresponse()
+                response.read()
+                assert response.status == 200
+                time.sleep(0.6)
+        finally:
+            connection.close()
+
+
+class _FlakyContext:
+    """A multiprocessing context whose first ``failures`` pipes fail (no file slot left)."""
+
+    def __init__(self, real: Any, failures: int) -> None:
+        self._real = real
+        self.failures = failures
+
+    def Pipe(self, duplex: bool = True) -> Any:
+        if self.failures > 0:
+            self.failures -= 1
+            raise OSError(24, "Too many open files")
+        return self._real.Pipe(duplex=duplex)
+
+    def Process(self, *args: Any, **kwargs: Any) -> Any:
+        return self._real.Process(*args, **kwargs)
+
+
+def test_a_worker_whose_restart_fails_recovers_later(
+    api_store: ReferenceStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    service = SimulationService(api_store, size=1, timeout_seconds=60.0)
+    try:
+        service.start()
+        assert service.warm_up() == 1
+        (worker,) = service._pool._workers  # type: ignore[union-attr]
+        worker._mp = _FlakyContext(worker._mp, failures=2)
+        os.kill(worker.process.pid, signal.SIGKILL)  # the worker dies...
+        worker.process.join(5)
+        body = {"horizon_days": 3}
+        with (
+            client(api_store, service, raise_server_exceptions=False) as test_client,
+            caplog.at_level(logging.WARNING, "atlas.api"),
+        ):
+            # ...and its replacement cannot start, twice: each request fails cleanly.
+            for _ in range(2):
+                response = test_client.post("/api/v1/simulations", json=body)
+                assert response.status_code == 500
+                assert response.json()["error"]["code"] == "simulation_failed"
+            ready = test_client.get("/health/ready").json()["components"]
+            workers = {c["component"]: c for c in ready}["simulation_workers"]
+            assert workers["ready"] is False
+            assert "could be started" in workers["detail"]
+            # The slot is not dead: the next request starts a process and computes.
+            assert test_client.post("/api/v1/simulations", json=body).status_code == 200
+            assert test_client.get("/health/ready").status_code == 200
+        failed = [r for r in caplog.records if getattr(r, "event", None) == "worker_start_failed"]
+        assert len(failed) == 2
+    finally:
+        service.close()
+
+
+def test_workers_ignore_ctrl_c_and_finish_before_sigterm(api_store: ReferenceStore) -> None:
+    pool = SimulationPool(worker_context(api_store), 1)
+    try:
+        worker = pool.acquire()
+        assert pool.exchange(worker, None, 120) == ("ok", "pong")
+        pid = worker.process.pid
+        os.kill(pid, signal.SIGINT)  # Ctrl+C reaches the whole process group
+        time.sleep(0.3)
+        assert worker.process.is_alive()
+        prepared = prepare(api_store, SimulationRequest.model_validate({"horizon_days": 30}))
+        worker = pool.acquire()
+        with ThreadPoolExecutor(1) as executor:
+            future = executor.submit(pool.exchange, worker, prepared.config_json, 60)
+            time.sleep(0.05)
+            os.kill(pid, signal.SIGTERM)  # a service manager stops the control group
+            status, _ = future.result()
+        assert status == "ok"  # the simulation in flight was finished and answered
+        worker.process.join(10)
+        assert worker.process.exitcode == 0  # then the worker left
+    finally:
+        pool.close()

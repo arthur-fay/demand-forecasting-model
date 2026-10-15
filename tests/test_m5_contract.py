@@ -97,6 +97,29 @@ def test_integrity_is_fixed_by_the_schema(document: dict[str, Any]) -> None:
     assert len(envelopes) == 12
     for name in envelopes:
         assert set(schemas[name]["required"]) == {"data", "integrity", "provenance"}, name
+    # Always sent, so always required: a generated client never types them as optional.
+    for name in ("Integrity", "ScientificStatus"):
+        required = set(schemas[name]["required"])
+        assert {"validated_recommendation", "point_forecast_validated"} <= required, name
+    for name, schema in schemas.items():
+        if name not in ("SimulationRequest", "SimulationParameters", "DemandSettings"):
+            assert set(schema.get("required", [])) == set(schema.get("properties", {})), name
+
+
+def test_contract_details_for_generated_clients(document: dict[str, Any]) -> None:
+    schemas = document["components"]["schemas"]
+    codes = set(schemas["ErrorBody"]["properties"]["code"]["enum"])
+    assert {"validation_error", "cors_rejected", "server_busy", "simulations_busy"} <= codes
+    # The API key is optional unless the server sets one: {} is an alternative.
+    post = document["paths"]["/api/v1/simulations"]["post"]
+    assert {} in post["security"]
+    assert {"APIKeyHeader": []} in post["security"]
+    for item in document["paths"].values():
+        for operation in item.values():
+            assert operation["x-atlas-cost"] in ("static", "precomputed", "bounded_computation")
+    adjustments = schemas["ScenarioOutcome"]["properties"]["adjustments"]
+    assert adjustments["additionalProperties"]["$ref"].endswith("/HypotheticalQuantity")
+    assert schemas["HypotheticalQuantity"]["properties"]["provenance"]["const"] == "HYPOTHETICAL"
 
 
 def test_request_schema_matches_the_validation(document: dict[str, Any]) -> None:
@@ -139,7 +162,8 @@ def test_served_openapi_equals_the_document(
 
 # --- Wording -----------------------------------------------------------------------------
 
-#: The M4 report lint (tests/test_m4_runner_cli.py), applied to everything the API says.
+#: The M4 report lint (tests/test_m4_runner_cli.py), applied to every string the API sends
+#: and to every description in the contract.
 FORBIDDEN = (
     "saves",
     "saving",
@@ -152,67 +176,146 @@ FORBIDDEN = (
     "confidence",
     "90 % safe",
     "chance of",
-    "guarantee",
-    "validated recommendation",
 )
-ALLOWED = (
-    "not a validated staffing, budget or service-capacity recommendation",
+#: "probability" only negated.
+ALLOWED_PROBABILITY = (
+    "no chance constraint, service-level guarantee or probability of meeting a target is "
+    "computed or implied",
+    "carries no probability",
+    "carry no probability",
+    "never a probability",
+    "not_a_probability",
+    "no interval or probability is decision-grade",
+    "intervals and probabilities are not decision-grade",  # M3's status guidance
+    # M3's recorded evidence that its exceedance probabilities failed calibration.
+    "mean probability",
+    "no probability",
+)
+#: "recommend" only in a not-a-recommendation phrase, or for the M2 *forecasting model*
+#: recommendation (which model to project with), never for an M4 plan.
+ALLOWED_RECOMMENDATION = (
     "nothing this api returns is a validated staffing, budget or service-capacity recommendation",
     "nothing returned is a validated staffing, budget or service-capacity recommendation",
     "nothing here is a validated staffing, budget or service-capacity recommendation",
     "no result is a validated staffing, budget or service-capacity recommendation",
+    "not a validated staffing, budget or service-capacity recommendation",
     "nothing in it is a validated staffing or budget recommendation",
+    "not a budget recommendation",
     "validated_recommendation",
-    "no chance constraint",
+    "recommended model",
+    "recommended m2 model",
+    "confirmation-period recommendation",
+    "confirmation tests behind the recommendation",
+    "m2 run that recommended the projected model",
+    "recommended_model",
 )
+#: "guarantee" only in the negated disclaimer.
+ALLOWED_GUARANTEE = ("no chance constraint, service-level guarantee",)
 
 
-def _texts(value: Any, key: str = "") -> Iterator[tuple[str, str]]:
+def _strip(text: str, allowed: tuple[str, ...]) -> str:
+    for phrase in sorted(allowed, key=len, reverse=True):
+        text = text.replace(phrase, " ")
+    return text
+
+
+def honesty_problems(text: str) -> list[str]:
+    """What the M4 lint would flag in ``text`` (empty when it passes)."""
+    lowered = " ".join(text.lower().split())
+    problems = [word for word in FORBIDDEN if word in lowered]
+    if "probabilit" in _strip(lowered, ALLOWED_PROBABILITY):
+        problems.append("probability (not negated)")
+    if "recommend" in _strip(lowered, ALLOWED_RECOMMENDATION):
+        problems.append("recommend (outside an allowed phrase)")
+    if "guarantee" in _strip(lowered, ALLOWED_GUARANTEE):
+        problems.append("guarantee (not negated)")
+    if "calibrated" in _strip(lowered, ("not calibrated",)):
+        problems.append("calibrated (not negated)")
+    return problems
+
+
+def test_wording_lint_catches_what_m4_forbids() -> None:
+    assert honesty_problems("this plan has a high probability of success") == [
+        "probability (not negated)"
+    ]
+    assert honesty_problems("a staffing recommendation") == [
+        "recommend (outside an allowed phrase)"
+    ]
+    assert honesty_problems("intervals calibrated on past errors") == ["calibrated (not negated)"]
+    assert honesty_problems("we recommend this; it saves money") == [
+        "saves",
+        "we recommend",
+        "recommend (outside an allowed phrase)",
+    ]
+    assert honesty_problems("they carry no probability; not a budget recommendation") == []
+
+
+def _texts(value: Any, where: str = "") -> Iterator[tuple[str, str]]:
     if isinstance(value, dict):
         for k, v in value.items():
-            yield from _texts(v, str(k))
+            yield from _texts(v, f"{where}.{k}")
     elif isinstance(value, list):
-        for item in value:
-            yield from _texts(item, key)
-    elif isinstance(value, str) and len(value) > 12 and " " in value:
-        yield key, value
+        for i, item in enumerate(value):
+            yield from _texts(item, f"{where}[{i}]")
+    elif isinstance(value, str):
+        yield where, value
 
 
-def assert_honest(text: str, where: str) -> None:
-    lowered = text.lower()
-    for phrase in sorted(ALLOWED, key=len, reverse=True):
-        lowered = lowered.replace(phrase, " ")
-    for word in FORBIDDEN:
-        assert word not in lowered, (where, word, text)
+def _served_bodies(api: TestClient) -> list[tuple[str, Any]]:
+    paths = [
+        "/health/live",
+        "/health/ready",
+        "/api/v1/system",
+        "/api/v1/models",
+        "/api/v1/forecasts",
+        "/api/v1/forecasts/history",
+        "/api/v1/forecasts/metrics",
+        "/api/v1/forecasts/metrics?scope=horizon",
+        "/api/v1/uncertainty/status",
+        "/api/v1/uncertainty/intervals",
+        "/api/v1/scenarios",
+        "/api/v1/scenarios/comparison",
+        "/api/v1/simulations/parameters",
+        "/api/v1/scenarios/nope",
+        "/api/v1/forecasts/history?end=2030-01-01",
+    ]
+    paths += [
+        f"/api/v1/scenarios/{s['scenario_id']}"
+        for s in api.get("/api/v1/scenarios").json()["data"]["scenarios"]
+    ]
+    bodies = [(path, api.get(path).json()) for path in paths]
+    for body in (
+        {"horizon_days": 5},
+        {"horizon_days": 7, "parameters": {"discretionary_budget": 1000}},
+        {"demand": {"basis": "m3_marginal_quantile", "quantile": 0.975}},
+        {"parameters": {"regular_hours_per_day": 4643.5}},
+        {"horizon_days": 5, "parameters": {"surge_available_from_day": 20}},
+        {"parameters": {"regular_wage": None}},
+        {"parameters": {"unknown": 1}},
+    ):
+        bodies.append((f"POST {body}", api.post("/api/v1/simulations", json=body).json()))
+    return bodies
 
 
-def test_no_promotional_or_probabilistic_wording(
+def test_nothing_the_api_says_breaks_the_m4_wording_rules(
     api_store: ReferenceStore, api_simulator: SimulationService, document: dict[str, Any]
 ) -> None:
     with client(api_store, api_simulator) as api:
-        bodies = [
-            api.get(path).json()
-            for path in (
-                "/api/v1/system",
-                "/api/v1/forecasts",
-                "/api/v1/forecasts/history",
-                "/api/v1/uncertainty/status",
-                "/api/v1/uncertainty/intervals",
-                "/api/v1/scenarios",
-                "/api/v1/scenarios/comparison",
-                "/api/v1/simulations/parameters",
-            )
-        ]
-        bodies.append(api.post("/api/v1/simulations", json={"horizon_days": 5}).json())
-    for body in bodies:
-        # Labels the API composes (not texts copied from M2 metrics, e.g. model names).
-        for where, text in _texts(body["integrity"]):
-            assert_honest(text, where)
-        for key in ("limitations", "notes", "caveat", "label", "plan_label"):
-            for where, text in _texts({key: _find(body["data"], key)}):
-                assert_honest(text, where)
-    for where, text in _texts({"info": document["info"], "tags": document["tags"]}):
-        assert_honest(text, where)
+        bodies = _served_bodies(api)
+    flagged = [
+        (path, where, text, problems)
+        for path, body in bodies
+        for where, text in _texts(body)
+        if (problems := honesty_problems(text))
+    ]
+    assert flagged == []
+    described = [
+        (where, text, problems)
+        for where, text in _texts(document)
+        # Titles are generated from field names (validated_recommendation, ...).
+        if where.endswith((".description", ".summary")) and (problems := honesty_problems(text))
+    ]
+    assert described == []
 
 
 def _find(value: Any, key: str) -> list[Any]:

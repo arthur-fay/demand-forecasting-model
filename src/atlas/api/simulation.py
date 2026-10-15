@@ -28,47 +28,51 @@ import logging
 import math
 import multiprocessing
 import threading
-import time
-import traceback
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
+from http import HTTPStatus
 from multiprocessing.connection import Connection
-from typing import Any, Final, Literal
+from typing import Any, Final
 
-from atlas.api.errors import ApiError
+from pydantic import BaseModel
+
+from atlas.api.problems import ApiError, invalid
 from atlas.api.reference import SIMULATION, ReferenceStore, day_plan, plan_variant
 from atlas.api.schemas import (
+    STRESS_QUANTILE_LEVELS,
+    ComponentStatus,
     DayPlan,
+    DemandOptions,
+    DemandSettings,
+    HorizonSpec,
     ParameterSpec,
     PlanVariant,
+    RangeSpec,
     ResolvedParameter,
     ScenarioOutcome,
     SimulationData,
     SimulationParameters,
     SimulationParametersData,
     SimulationRequest,
+    WorkerPoolStatus,
 )
-from atlas.decision_analysis import analyse_scenario
-from atlas.decision_inputs import MARGINAL_QUANTILE_NOTICE, M3Status, QuantilePath
+from atlas.api.worker import PONG, READY, Reply, WorkerContext, worker_main
+from atlas.decision_inputs import MARGINAL_QUANTILE_NOTICE
 from atlas.errors import ConfigError
-from atlas.experiment import jsonable
 from atlas.optimization_config import OptimizationConfig, parse_optimization_config
 from atlas.optimization_runner import (
     LABEL,
     STRUCTURAL_ASSUMPTIONS,
-    _scenario_metrics,
-    plans_frame,
-    scenario_frame,
-    solver_settings,
 )
-from atlas.optimizer import OptimizationError
 from atlas.planning import MAX_HORIZON_DAYS
 from atlas.scenarios import Scenario, build_scenarios
 
 LOGGER: Final = logging.getLogger("atlas.api")
 
+#: The readiness component of the worker processes (``/health/ready``).
+WORKERS: Final = "simulation_workers"
 SCENARIO_ID: Final = "interactive"
 EXPERIMENT_ID: Final = "atlas-m5-interactive-simulation"
 CLIENT_ASSUMPTION: Final = (
@@ -76,6 +80,12 @@ CLIENT_ASSUMPTION: Final = (
     "estimate of any NYC agency's operations."
 )
 REMOVED_ASSUMPTION: Final = "Limit removed by the API client for an interactive simulation."
+REFERENCE_ASSUMPTION: Final = (
+    "Reference value of the M4 configuration: illustrative and HYPOTHETICAL, not an estimate. "
+    "Its documented rationale (reference_assumption) describes the 30-day reference with "
+    "every other value at its default and may not hold for this simulation."
+)
+UNLIMITED_ASSUMPTION: Final = "Not limited in the reference configuration."
 
 #: Unit of every simulation parameter (the M4 configuration's units).
 PARAMETER_UNITS: Final = {
@@ -102,14 +112,12 @@ NULLABLE: Final = frozenset(
     {"overtime_total_hours", "surge_total", "terminal_backlog_max", "discretionary_budget"}
 )
 UNIT_PARAMETERS: Final = tuple(name for name in PARAMETER_UNITS if name != "discretionary_budget")
+#: Limits that apply to the whole horizon (never prorated to a shorter one).
+HORIZON_TOTALS: Final = ("overtime_total_hours", "surge_total", "discretionary_budget")
 
-SIMULATION_LIMITATIONS: Final = (
+FIXED_LIMITATIONS: Final = (
     "Every operational parameter is HYPOTHETICAL; ATLAS holds no staffing, productivity, "
     "cost, budget, backlog or capacity data for any NYC agency.",
-    "The demand is an unvalidated point forecast (or a labelled stress path), treated as "
-    "known: the plan is optimal only for this demand path, and the forecast's historical "
-    "error (MAE about 985 requests/day over horizons 1-30) is about the size of the daily "
-    "overtime capacity.",
     "No probability of meeting any target is computed or implied: the model is deterministic "
     "and the M3 status in integrity governs every interval.",
     "One pooled city-wide unit with continuous quantities: the most favourable sharing "
@@ -118,6 +126,43 @@ SIMULATION_LIMITATIONS: Final = (
     "cost. Shadow prices are not computed for interactive simulations.",
     "Nothing here is a validated staffing, budget or service-capacity recommendation.",
 )
+
+
+def limitations(
+    config: OptimizationConfig,
+    parameters: Sequence[ResolvedParameter],
+    reference_horizon: int,
+    mae: float | None,
+) -> list[str]:
+    """The limitations of one simulation, worded from its own resolved values."""
+    unit = config.unit
+    overtime = unit.overtime_max_hours_per_day.value * unit.overtime_productivity.value
+    demand = (
+        "The demand is an unvalidated point forecast (or a labelled stress path), treated as "
+        "known: the plan is optimal only for this demand path."
+    )
+    if mae is not None:
+        demand += f" The forecast's historical MAE over horizons 1-30 was {mae:,.0f} requests/day"
+        demand += (
+            f", {mae / overtime:.1f} times this simulation's largest daily overtime capacity "
+            f"({overtime:,.0f} requests/day)."
+            if overtime > 0
+            else "; this simulation has no overtime capacity."
+        )
+    items = [FIXED_LIMITATIONS[0], demand, *FIXED_LIMITATIONS[1:]]
+    defaults = [
+        p.name
+        for p in parameters
+        if p.name in HORIZON_TOTALS and p.source == "reference_default" and p.value is not None
+    ]
+    if config.horizon_days < reference_horizon and defaults:
+        items.insert(
+            2,
+            f"Horizon totals are not prorated: {', '.join(defaults)} keep their "
+            f"{reference_horizon}-day reference values over this {config.horizon_days}-day "
+            "horizon.",
+        )
+    return items
 
 
 # --- Request -> M4 configuration --------------------------------------------------------
@@ -153,9 +198,12 @@ def _resolve(
                 unit=unit,
                 provenance="HYPOTHETICAL",
                 source="reference_default",
-                assumption="Not limited in the reference configuration.",
+                assumption=UNLIMITED_ASSUMPTION,
+                reference_assumption=None,
             )
         else:
+            # The configuration keeps the reference entry unchanged (so an empty request
+            # resolves to the reference scenario); the response words it neutrally.
             entry = reference.model_dump(mode="json")
             resolved = ResolvedParameter(
                 name=name,
@@ -163,16 +211,16 @@ def _resolve(
                 unit=unit,
                 provenance="HYPOTHETICAL",
                 source="reference_default",
-                assumption=entry["assumption"],
+                assumption=REFERENCE_ASSUMPTION,
+                reference_assumption=entry["assumption"],
             )
         return entry, resolved
     if requested is None:
         if name not in NULLABLE:
-            raise ApiError(
-                422,
-                "validation_error",
-                f"parameter {name!r} cannot be null (only {', '.join(sorted(NULLABLE))} can)",
-                details=[{"field": f"parameters.{name}", "message": "null is not allowed"}],
+            raise invalid(
+                f"parameters.{name}",
+                f"null is not allowed (only {', '.join(sorted(NULLABLE))} can be null)",
+                f"parameter {name!r} cannot be null",
             )
         resolved = ResolvedParameter(
             name=name,
@@ -181,6 +229,7 @@ def _resolve(
             provenance="HYPOTHETICAL",
             source="removed_by_request",
             assumption=REMOVED_ASSUMPTION,
+            reference_assumption=None,
         )
         return None, resolved
     value: float | int = int(requested) if unit == "planning_day" else float(requested)
@@ -191,6 +240,7 @@ def _resolve(
         provenance="HYPOTHETICAL",
         source="request",
         assumption=CLIENT_ASSUMPTION,
+        reference_assumption=None,
     )
     return _quantity(value, unit, CLIENT_ASSUMPTION), resolved
 
@@ -216,11 +266,10 @@ def build_configuration(
     demand = request.demand
     if demand.basis == "m3_marginal_quantile":
         if demand.quantile is None:
-            raise ApiError(
-                422,
-                "validation_error",
+            raise invalid(
+                "demand.quantile",
+                "required with basis m3_marginal_quantile",
                 "demand.quantile is required with basis m3_marginal_quantile",
-                details=[{"field": "demand.quantile", "message": "required"}],
             )
         basis: dict[str, Any] = {
             "kind": "m3_marginal_quantile",
@@ -229,11 +278,10 @@ def build_configuration(
         }
     else:
         if demand.quantile is not None:
-            raise ApiError(
-                422,
-                "validation_error",
+            raise invalid(
+                "demand.quantile",
+                "only allowed with basis m3_marginal_quantile",
                 "demand.quantile is only allowed with basis m3_marginal_quantile",
-                details=[{"field": "demand.quantile", "message": "not allowed"}],
             )
         basis = {"kind": "point_forecast"}
     adjustments: dict[str, Any] = {}
@@ -267,10 +315,59 @@ def build_configuration(
     return payload, tuple(resolved)
 
 
+_CONFIG_PREFIX: Final = "invalid optimization configuration: "
+_SCENARIO_PREFIX: Final = f"scenario {SCENARIO_ID}: "
+#: Request fields of the scenario adjustments M4 validates (configuration path -> field).
+_ADJUSTMENT_FIELDS: Final = {
+    "demand_multiplier": "demand.multiplier",
+    "demand_shift_per_day": "demand.shift_per_day",
+}
+
+
+def _field(location: str, message: str) -> list[str]:
+    """The request fields an M4 configuration error is about (``<body>`` if unknown)."""
+    parts = location.split(".")
+    if len(parts) > 2 and parts[:2] == ["service_units", "0"] and parts[2] in PARAMETER_UNITS:
+        return [f"parameters.{parts[2]}"]
+    if parts[0] == "discretionary_budget":
+        return ["parameters.discretionary_budget"]
+    if parts[0] == "horizon_days":
+        return ["horizon_days"]
+    if len(parts) > 3 and parts[:3] == ["scenarios", "0", "adjustments"]:
+        return [_ADJUSTMENT_FIELDS.get(parts[3], "demand")]
+    if parts[:3] == ["scenarios", "0", "demand_basis"]:
+        return ["demand.quantile"]
+    if "surge_available_from_day" in message:
+        return ["parameters.surge_available_from_day"]
+    if "regular capacity" in message:
+        return ["parameters.regular_hours_per_day", "parameters.regular_productivity"]
+    return ["<body>"]
+
+
 def _rejected(exc: ConfigError) -> ApiError:
-    message = str(exc)
-    message = message.removeprefix("invalid optimization configuration: ")
-    return ApiError(422, "simulation_rejected", message[:600])
+    """422 ``simulation_rejected`` for an input M4's own rules refuse, by request field."""
+    text = str(exc)
+    if text.startswith(_CONFIG_PREFIX):
+        problems = [
+            (location, message.removeprefix("Value error, "))
+            for location, _, message in (
+                part.partition(": ") for part in text.removeprefix(_CONFIG_PREFIX).split("; ")
+            )
+        ]
+    else:
+        problems = [("<root>", text.removeprefix(_SCENARIO_PREFIX))]
+    details = [
+        {"field": name, "message": message}
+        for location, message in problems
+        for name in _field(location, message)
+    ]
+    summary = "; ".join(dict.fromkeys(message for _, message in problems))
+    return ApiError(
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+        "simulation_rejected",
+        summary[:600],
+        details=details,
+    )
 
 
 def prepare(store: ReferenceStore, request: SimulationRequest) -> PreparedSimulation:
@@ -298,17 +395,6 @@ def prepare(store: ReferenceStore, request: SimulationRequest) -> PreparedSimula
 # --- Worker side ------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class WorkerContext:
-    """Everything a worker needs besides the job: the verified reference inputs."""
-
-    dates: tuple[date, ...]
-    predictions: tuple[float, ...]
-    quantile_paths: Mapping[float, QuantilePath]
-    demand_percentile: float
-    status: M3Status
-
-
 def worker_context(store: ReferenceStore) -> WorkerContext:
     _, inputs = store.require_simulation()
     return WorkerContext(
@@ -320,83 +406,23 @@ def worker_context(store: ReferenceStore) -> WorkerContext:
     )
 
 
-Reply = tuple[Literal["ok", "rejected", "failed", "error"], Any]
-
-
-def compute(context: WorkerContext, config_json: str) -> Reply:
-    """Run one simulation (in a worker process; also callable directly in tests).
-
-    Returns ``("ok", payload)`` with the JSON-ready M4 serialisation of the scenario,
-    ``("rejected", message)`` for an input M4 refuses, ``("failed", message)`` when no
-    certified result exists, and ``("error", traceback)`` for an unexpected exception.
-    """
-    started = time.perf_counter()
-    try:
-        config = parse_optimization_config(config_json)
-        horizon = config.horizon_days
-        (scenario,) = build_scenarios(
-            config,
-            context.dates[:horizon],
-            context.predictions[:horizon],
-            context.quantile_paths,
-            context.demand_percentile,
-        )
-        result = analyse_scenario(
-            scenario.scenario_id,
-            scenario.problem,
-            solver_settings(config),
-            scenario.triggers,
-            shadow_steps=None,
-            frontier_points=None,
-        )
-    except ConfigError as exc:
-        return "rejected", str(exc)
-    except OptimizationError as exc:
-        return "failed", f"the solver could not produce a certified result: {exc}"[:600]
-    except Exception:  # an unexpected failure is reported to the API, which logs it
-        return "error", traceback.format_exc()
-    if result.problems:
-        return "failed", "a programme failed an independent check: " + "; ".join(result.problems)[
-            :600
-        ]
-    forecast_mean = math.fsum(context.predictions[:horizon]) / horizon
-    return "ok", {
-        "outcome": jsonable(_scenario_metrics(result, scenario)),
-        "plans": jsonable(plans_frame([result], [scenario], context.status).to_dict("records")),
-        "variants": jsonable(
-            scenario_frame([result], [scenario], context.status, forecast_mean).to_dict("records")
-        ),
-        "compute_seconds": time.perf_counter() - started,
-    }
-
-
-def worker_main(connection: Connection, context: WorkerContext) -> None:  # pragma: no cover
-    """The loop of one worker process (runs in a child process; tested through the pool).
-
-    The process announces itself once its imports are done, so the import time of a fresh
-    worker never counts against a simulation's deadline.
-    """
-    connection.send(READY)
-    while True:
-        try:
-            job = connection.recv()
-        except (EOFError, OSError):
-            return
-        if job is None:
-            return
-        connection.send(compute(context, job) if isinstance(job, str) else PONG)
-
-
 # --- The pool ---------------------------------------------------------------------------
 
-#: The first message of every worker process, and the answer to a ping.
-READY: Final = ("ready", None)
-PONG: Final = ("ok", "pong")
 #: How long a fresh worker may take to import ATLAS before it counts as failed.
 STARTUP_SECONDS: Final = 120.0
+#: Consecutive worker crashes after which ``/health/ready`` reports the workers not ready.
+CRASH_LIMIT: Final = 3
 
 #: The function a worker process runs: ``target(connection, context)``.
 WorkerTarget = Callable[[Connection, WorkerContext], None]
+
+
+@dataclass(frozen=True)
+class Stopped:
+    """A worker process that was stopped (for the log)."""
+
+    pid: int | None
+    exit_code: int | None
 
 
 class _Worker:
@@ -416,19 +442,36 @@ class _Worker:
         with self._lock:
             self._start()
 
+    @property
+    def alive(self) -> bool:
+        return self.process is not None and self.process.is_alive()
+
     def _start(self) -> None:
-        parent, child = self._mp.Pipe(duplex=True)
-        process = self._mp.Process(
-            target=self._target,
-            args=(child, self._context),
-            name="atlas-simulation-worker",
-            daemon=True,
-        )
-        process.start()
+        """Start a fresh process. A failure (no memory, no process or file slot) is logged
+        and leaves the worker without a process; the next exchange tries again."""
+        parent = child = None
+        try:
+            parent, child = self._mp.Pipe(duplex=True)
+            process = self._mp.Process(
+                target=self._target,
+                args=(child, self._context),
+                name="atlas-simulation-worker",
+                daemon=True,
+            )
+            process.start()
+        except Exception:
+            for end in (parent, child):
+                if end is not None:
+                    end.close()
+            LOGGER.exception(
+                "simulation worker could not be started", extra={"event": "worker_start_failed"}
+            )
+            return
         child.close()
         self.process, self.connection, self.ready = process, parent, False
 
-    def _stop(self) -> None:
+    def _stop(self) -> Stopped:
+        stopped = Stopped(None, None)
         if self.connection is not None:
             self.connection.close()
             self.connection = None
@@ -436,14 +479,24 @@ class _Worker:
             if self.process.is_alive():
                 self.process.kill()
             self.process.join(timeout=5)
+            stopped = Stopped(self.process.pid, self.process.exitcode)
             self.process = None
         self.ready = False
+        return stopped
 
-    def restart(self) -> None:
-        """Kill the process and start a fresh one (nothing, once the worker is closed)."""
+    def restart(self) -> Stopped:
+        """Kill the process and start a fresh one (nothing, once the worker is closed).
+        Never raises: a failed start leaves the worker to be restarted on its next use."""
         with self._lock:
-            self._stop()
+            stopped = self._stop()
             if not self.closed:
+                self._start()
+            return stopped
+
+    def revive(self) -> None:
+        """Start a process for a worker that has none (after a failed start)."""
+        with self._lock:
+            if not self.closed and self.connection is None:
                 self._start()
 
     def close(self) -> None:
@@ -462,9 +515,17 @@ class Busy(Exception):
 class Timeout(Exception):
     """The deadline passed; the worker was replaced."""
 
+    def __init__(self, stopped: Stopped) -> None:
+        super().__init__("simulation deadline passed")
+        self.stopped = stopped
+
 
 class Crashed(Exception):
     """The worker process died or never became ready; it was replaced."""
+
+    def __init__(self, stopped: Stopped) -> None:
+        super().__init__("simulation worker stopped")
+        self.stopped = stopped
 
 
 class SimulationPool:
@@ -497,6 +558,10 @@ class SimulationPool:
         return [w.process.pid for w in self._workers if w.process is not None]
 
     @property
+    def alive(self) -> int:
+        return sum(w.alive for w in self._workers)
+
+    @property
     def idle(self) -> int:
         with self._lock:
             return len(self._idle)
@@ -510,23 +575,22 @@ class SimulationPool:
         return a stale reply to a later request.
         """
         try:
+            if worker.connection is None:
+                worker.revive()  # a previous start failed: try again now
             connection = worker.connection
             if connection is None:
-                raise Crashed
+                raise Crashed(Stopped(None, None))
             try:
                 if not worker.ready:
                     if not connection.poll(STARTUP_SECONDS) or connection.recv() != READY:
-                        worker.restart()
-                        raise Crashed
+                        raise Crashed(worker.restart())
                     worker.ready = True
                 connection.send(job if job is not None else ("ping",))
                 if not connection.poll(deadline):
-                    worker.restart()
-                    raise Timeout
+                    raise Timeout(worker.restart())
                 reply: Reply = connection.recv()
             except (EOFError, OSError, BrokenPipeError) as exc:
-                worker.restart()
-                raise Crashed from exc
+                raise Crashed(worker.restart()) from exc
             return reply
         finally:
             self.release(worker)
@@ -558,12 +622,15 @@ class SimulationService:
         self._size = size
         self._lock = threading.Lock()
         self._closed = False
+        self._completed = self._timeouts = self._crashes = self._consecutive_crashes = 0
 
     def _ensure_pool(self) -> SimulationPool:
         with self._lock:
             if self._closed:
                 raise ApiError(
-                    503, "artifact_unavailable", "the simulation service has been stopped"
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "artifact_unavailable",
+                    "the simulation service has been stopped",
                 )
             if self._pool is None:
                 self._pool = SimulationPool(worker_context(self._store), self._size, self._target)
@@ -585,6 +652,29 @@ class SimulationService:
                 "simulation workers not started", extra={"event": "workers_not_started"}
             )
 
+    def _record(self, outcome: str, stopped: Stopped | None = None) -> None:
+        """Count one exchange (``answered``, ``timeout`` or ``crash``) and log a lost worker."""
+        with self._lock:
+            if outcome == "answered":
+                self._completed += 1
+                self._consecutive_crashes = 0
+            elif outcome == "timeout":
+                self._timeouts += 1
+            else:
+                self._crashes += 1
+                self._consecutive_crashes += 1
+        if stopped is not None:
+            event = "simulation_timeout" if outcome == "timeout" else "worker_crashed"
+            LOGGER.warning(
+                "simulation worker replaced (%s)",
+                event,
+                extra={
+                    "event": event,
+                    "worker_pid": stopped.pid,
+                    "exit_code": stopped.exit_code,
+                },
+            )
+
     def warm_up(self, timeout: float = 60.0) -> int:
         """Ping every idle worker (blocking); returns how many answered."""
         pool = self._ensure_pool()
@@ -596,9 +686,13 @@ class SimulationService:
                 break
             try:
                 reply = pool.exchange(worker, None, timeout)
-                answered += reply == PONG
-            except (Timeout, Crashed):
+            except Timeout as exc:
+                self._record("timeout", exc.stopped)
                 continue
+            except Crashed as exc:
+                self._record("crash", exc.stopped)
+                continue
+            answered += reply == PONG
         return answered
 
     def worker_pids(self) -> list[int]:
@@ -609,6 +703,34 @@ class SimulationService:
     @property
     def idle_workers(self) -> int:
         return 0 if self._pool is None else self._pool.idle
+
+    def status(self) -> WorkerPoolStatus:
+        """Pool size, idle workers and counters since the service started."""
+        pool = self._pool
+        with self._lock:
+            return WorkerPoolStatus(
+                workers=self._size,
+                alive=0 if pool is None else pool.alive,
+                idle=0 if pool is None else pool.idle,
+                started=pool is not None and not self._closed,
+                completed=self._completed,
+                timeouts=self._timeouts,
+                crashes=self._crashes,
+                consecutive_crashes=self._consecutive_crashes,
+            )
+
+    def health(self) -> ComponentStatus:
+        """The ``simulation_workers`` readiness component."""
+        status = self.status()
+        if not status.started:
+            detail = "stopped" if self._closed else "the worker processes are not running"
+        elif status.alive == 0:
+            detail = "no worker process could be started (see the server log)"
+        elif status.consecutive_crashes >= CRASH_LIMIT:
+            detail = f"the last {status.consecutive_crashes} simulations lost their worker"
+        else:
+            return ComponentStatus(component=WORKERS, ready=True, detail=None)
+        return ComponentStatus(component=WORKERS, ready=False, detail=detail)
 
     def close(self) -> None:
         with self._lock:
@@ -626,7 +748,7 @@ class SimulationService:
             worker = pool.acquire()
         except Busy as exc:
             raise ApiError(
-                503,
+                HTTPStatus.SERVICE_UNAVAILABLE,
                 "simulations_busy",
                 f"all {pool.size} simulation workers are busy; retry shortly",
                 headers={"Retry-After": "1"},
@@ -637,21 +759,26 @@ class SimulationService:
                 self._threads, pool.exchange, worker, prepared.config_json, self._timeout
             )
         except Timeout as exc:
+            self._record("timeout", exc.stopped)
             raise ApiError(
-                504,
+                HTTPStatus.GATEWAY_TIMEOUT,
                 "simulation_timeout",
                 f"the simulation did not finish within {self._timeout:g} s and was stopped",
             ) from exc
         except Crashed as exc:
+            self._record("crash", exc.stopped)
             raise ApiError(
-                500, "simulation_failed", "the simulation worker stopped unexpectedly"
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "simulation_failed",
+                "the simulation worker stopped unexpectedly",
             ) from exc
+        self._record("answered")
         if status == "rejected":
             raise _rejected(ConfigError(str(payload)))
         if status == "failed":
             LOGGER.warning("simulation failed: %s", payload, extra={"event": "simulation_failed"})
             raise ApiError(
-                500,
+                HTTPStatus.INTERNAL_SERVER_ERROR,
                 "simulation_failed",
                 "no certified result: " + str(payload)[:300],
             )
@@ -659,7 +786,9 @@ class SimulationService:
             LOGGER.error(
                 "simulation worker error:\n%s", payload, extra={"event": "simulation_error"}
             )
-            raise ApiError(500, "internal_error", "internal server error")
+            raise ApiError(
+                HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", "internal server error"
+            )
         return self._data(prepared, payload), float(payload["compute_seconds"])
 
     def _data(self, prepared: PreparedSimulation, payload: Mapping[str, Any]) -> SimulationData:
@@ -667,9 +796,8 @@ class SimulationService:
         outcome = ScenarioOutcome.model_validate(payload["outcome"])
         plans: list[DayPlan] = [day_plan(row) for row in payload["plans"]]
         variants: list[PlanVariant] = [plan_variant(row) for row in payload["variants"]]
-        unit = scenario.problem.units[0]
-        capacity = math.fsum(unit.regular_capacity(d) for d in range(unit.horizon)) / unit.horizon
         quantile = scenario.quantile is not None
+        reference, inputs = self._store.require_simulation()
         return SimulationData(
             simulation_id=prepared.config.fingerprint(),
             label=LABEL,
@@ -679,20 +807,27 @@ class SimulationService:
             demand_basis=scenario.demand_basis,
             demand_notice=MARGINAL_QUANTILE_NOTICE if quantile else None,
             parameters=list(prepared.parameters),
-            capacity_to_point_forecast_mean_ratio=capacity / prepared.forecast_mean,
+            capacity_to_point_forecast_mean_ratio=(
+                scenario.regular_capacity_mean() / prepared.forecast_mean
+            ),
             outcome=outcome,
             plans=variants,
             daily_plans=plans,
             structural_assumptions=list(STRUCTURAL_ASSUMPTIONS),
-            limitations=list(SIMULATION_LIMITATIONS),
+            limitations=limitations(
+                prepared.config,
+                prepared.parameters,
+                reference.horizon_days,
+                inputs.projection.accuracy.mae,
+            ),
         )
 
 
 # --- Parameter catalogue ----------------------------------------------------------------
 
 
-def _bounds(name: str) -> tuple[float, float]:
-    field = SimulationParameters.model_fields[name]
+def _bounds(name: str, model: type[BaseModel] = SimulationParameters) -> tuple[float, float]:
+    field = model.model_fields[name]
     low = high = None
     for item in field.metadata:
         low = getattr(item, "ge", low)
@@ -721,26 +856,29 @@ def parameter_catalogue(store: ReferenceStore) -> SimulationParametersData:
                 minimum=low,
                 maximum=high,
                 nullable=name in NULLABLE,
-                default_assumption="Not limited in the reference configuration."
-                if current is None
-                else current.assumption,
+                default_assumption=UNLIMITED_ASSUMPTION if current is None else current.assumption,
             )
         )
+    defaults = DemandSettings()
+
+    def demand_range(name: str, unit: str) -> RangeSpec:
+        low, high = _bounds(name, DemandSettings)
+        return RangeSpec(default=getattr(defaults, name), minimum=low, maximum=high, unit=unit)
+
     return SimulationParametersData(
-        horizon_days={"default": reference.horizon_days, "minimum": 1, "maximum": MAX_HORIZON_DAYS},
-        demand={
-            "basis": ["point_forecast", "m3_marginal_quantile"],
-            "quantile": sorted(store.quantile_paths),
-            "multiplier": {"default": 1.0, "minimum": 0.5, "maximum": 2.0},
-            "shift_per_day": {
-                "default": 0.0,
-                "minimum": 0.0,
-                "maximum": 5_000.0,
-                "unit": "requests_per_day",
-            },
-            "first_date": inputs.projection.target_dates[0].isoformat(),
-            "notice": MARGINAL_QUANTILE_NOTICE,
-        },
+        horizon_days=HorizonSpec(
+            default=reference.horizon_days,
+            minimum=1,
+            maximum=MAX_HORIZON_DAYS,
+            first_date=inputs.projection.target_dates[0],
+        ),
+        demand=DemandOptions(
+            basis=["point_forecast", "m3_marginal_quantile"],
+            quantile=[level for level in STRESS_QUANTILE_LEVELS if level in store.quantile_paths],
+            multiplier=demand_range("multiplier", "ratio"),
+            shift_per_day=demand_range("shift_per_day", "requests_per_day"),
+            notice=MARGINAL_QUANTILE_NOTICE,
+        ),
         parameters=specs,
         legacy_demand_percentile_requests_per_day=inputs.demand_percentile,
         notes=[

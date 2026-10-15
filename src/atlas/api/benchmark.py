@@ -155,6 +155,8 @@ def run_benchmark(
         "atlas",
         "--repo-root",
         str(settings.repo_root),
+        "--snapshot",
+        settings.snapshot_id,
         "api",
         "serve",
         "--port",

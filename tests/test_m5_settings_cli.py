@@ -27,14 +27,14 @@ def test_defaults() -> None:
     resolved = load_api_settings(env=ENV_ROOT)
     assert resolved.repo_root == REPO_ROOT
     assert resolved.cors_origins == ()
-    assert resolved.allowed_hosts == ("localhost", "127.0.0.1")
+    assert resolved.allowed_hosts == ("localhost", "127.0.0.1", "::1")
     assert resolved.api_key is None
     assert resolved.max_body_bytes == 16_384
     assert resolved.max_concurrent_simulations == 2
     assert resolved.simulation_timeout_seconds == 10.0
     assert resolved.docs_enabled is True
     assert resolved.log_level == "INFO"
-    assert resolved.public_limits()["simulation_requires_api_key"] is False
+    assert resolved.simulation_requires_key is False
 
 
 def test_environment_overrides() -> None:
@@ -122,12 +122,14 @@ def test_cli_refuses_a_public_bind_without_a_key(
 def test_cli_serve_runs_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
     import uvicorn
 
+    from atlas.api.server import KEEP_ALIVE_SECONDS, MAX_CONNECTIONS, DeadlineH11Protocol
+
     seen: dict[str, Any] = {}
 
-    def fake_run(app: Any, **kwargs: Any) -> None:
-        seen.update(kwargs, app=app)
+    def fake_run(server: uvicorn.Server, sockets: Any = None) -> None:
+        seen["config"] = server.config
 
-    monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setattr(uvicorn.Server, "run", fake_run)
     monkeypatch.delenv("ATLAS_API_KEY", raising=False)
     try:
         assert main(["--repo-root", str(REPO_ROOT), "api", "serve", "--port", "8123"]) == EXIT_OK
@@ -138,12 +140,15 @@ def test_cli_serve_runs_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
             logger.propagate = True
             logger.setLevel(logging.NOTSET)
         logging.getLogger("uvicorn.access").disabled = False
-    assert seen["host"] == "127.0.0.1"
-    assert seen["port"] == 8123
-    assert seen["server_header"] is False
-    assert seen["access_log"] is False
-    assert seen["proxy_headers"] is False
-    assert seen["limit_concurrency"] == 64
+    config = seen["config"]
+    assert config.host == "127.0.0.1"
+    assert config.port == 8123
+    assert config.server_header is False
+    assert config.access_log is False
+    assert config.proxy_headers is False
+    assert config.limit_concurrency == MAX_CONNECTIONS
+    assert config.timeout_keep_alive == KEEP_ALIVE_SECONDS
+    assert config.http is DeadlineH11Protocol  # every request has a read deadline
 
 
 def test_cli_bench_validates_its_arguments(capsys: pytest.CaptureFixture[str]) -> None:

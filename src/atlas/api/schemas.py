@@ -24,7 +24,16 @@ from typing import Annotated, Any, Final, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
+from atlas.api.problems import ErrorCode
+from atlas.planning import MAX_HORIZON_DAYS
+
 API_VERSION: Final = "v1"
+HOLIDAY_RELATED_DESCRIPTION: Final = (
+    "A federal holiday (actual or observed date) or the day before or after the actual date: "
+    "an M3 stratum with markedly lower interval coverage (64.1 % at nominal 80 % and 83.3 % at "
+    "95 %, against 84.8 % and 94.3 % on ordinary days, over only 33 distinct target days; "
+    "UNCERTAINTY.md section 9.6)."
+)
 #: Marginal quantile levels of the M3 projection a simulation may use as a stress path.
 STRESS_QUANTILE_LEVELS: Final = (0.75, 0.9, 0.975)
 
@@ -42,16 +51,38 @@ def _iso_date_only(value: object) -> object:
 #: A calendar date given as exactly ``YYYY-MM-DD``.
 IsoDate = Annotated[date, BeforeValidator(_iso_date_only)]
 
+_DIGITS: Final = re.compile(r"[0-9]{1,6}")
+
+
+def _decimal_digits(value: object) -> object:
+    """Query integers are plain decimal digits: no sign, ``_``, exponent or fraction."""
+    if isinstance(value, str) and not _DIGITS.fullmatch(value):
+        raise ValueError("expected an integer written with the digits 0-9 only")
+    return value
+
+
+#: An integer query parameter (``horizon_days=7``; ``+7``, ``7.0`` and ``7_0`` are refused).
+QueryInt = Annotated[int, BeforeValidator(_decimal_digits)]
+
 
 class _Model(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # Every response field is always sent: the contract marks fields with defaults as
+    # required too, so generated clients never type them as optional.
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", json_schema_serialization_defaults_required=True
+    )
 
 
 class _Request(_Model):
     """Request bodies are validated strictly: unknown fields, strings for numbers, booleans
     for numbers and fractional integers are all rejected."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+        strict=True,
+        json_schema_serialization_defaults_required=True,
+    )
 
 
 # --- Envelope ---------------------------------------------------------------------------
@@ -127,7 +158,9 @@ class Provenance(_Model):
     sources: list[Source]
 
 
-class _Envelope(_Model):
+class Envelope(_Model):
+    """Every data response: ``data`` (in each subclass), ``integrity`` and ``provenance``."""
+
     integrity: Integrity
     provenance: Provenance
 
@@ -141,15 +174,13 @@ class ErrorDetail(_Model):
 
 
 class ErrorBody(_Model):
-    code: str = Field(
-        description="Stable identifier: validation_error, not_found, payload_too_large, "
-        "unsupported_media_type, unauthorized, invalid_host, method_not_allowed, "
-        "artifact_unavailable, simulation_rejected, simulations_busy, simulation_timeout, "
-        "simulation_failed, internal_error."
-    )
+    code: ErrorCode = Field(description="Stable identifier (docs/API.md, section 4).")
     message: str
     request_id: str | None
-    details: list[ErrorDetail]
+    details: list[ErrorDetail] = Field(
+        description="Problems by field: the dotted path inside the body "
+        "(parameters.regular_wage) or the query parameter (start); <body> for the body."
+    )
 
 
 class ErrorResponse(_Model):
@@ -214,6 +245,22 @@ class EndpointInfo(_Model):
     summary: str
 
 
+class WorkerPoolStatus(_Model):
+    """The simulation worker processes (counters since the server started)."""
+
+    workers: int
+    alive: int = Field(description="Worker processes currently running (or importing).")
+    idle: int
+    started: bool
+    completed: int = Field(description="Simulations a worker answered (any outcome).")
+    timeouts: int = Field(description="Simulations stopped at their deadline.")
+    crashes: int = Field(description="Simulations whose worker died or never became ready.")
+    consecutive_crashes: int = Field(
+        description="Crashes since the last answered simulation; /health/ready reports the "
+        "workers not ready from 3."
+    )
+
+
 class SystemData(_Model):
     service: Literal["atlas-api"]
     atlas_version: str
@@ -223,11 +270,12 @@ class SystemData(_Model):
     components: list[ComponentStatus]
     scientific_status: ScientificStatus | None
     limits: Limits
+    simulation_workers: WorkerPoolStatus | None
     solver: dict[str, str | None]
     endpoints: list[EndpointInfo]
 
 
-class SystemResponse(_Envelope):
+class SystemResponse(Envelope):
     data: SystemData
 
 
@@ -275,6 +323,9 @@ class PrimaryTest(_Model):
     mae_difference_ci_low: float | None
     mae_difference_ci_high: float | None
     holm_adjusted_p_value: float | None
+    significant_after_holm: bool | None = Field(
+        description="Holm-adjusted p below 0.05 (null if no p-value was computed)."
+    )
     effective_sample_size: float | None
 
 
@@ -285,14 +336,14 @@ class ModelsData(_Model):
     reference_model: str
     selection: SelectionInfo
     primary_tests: list[PrimaryTest] = Field(
-        description="The confirmation tests behind the recommendation; read the confidence "
-        "interval and the adjusted p-value before calling the model better."
+        description="The confirmation tests behind the recommendation; read the interval of "
+        "the MAE difference and the Holm-adjusted p-value before calling the model better."
     )
     multiplicity: str | None
     models: list[ModelInfo]
 
 
-class ModelsResponse(_Envelope):
+class ModelsResponse(Envelope):
     data: ModelsData
 
 
@@ -302,10 +353,9 @@ class ForecastPoint(_Model):
     prediction: float = Field(description="Point forecast, requests/day.")
     status: Literal["projected"]
     federal_holiday: str | None = Field(
-        default=None,
-        description="US federal holiday observed that day (M1 rules); holidays and flagged "
-        "days had markedly lower interval coverage in M3.",
+        default=None, description="US federal holiday observed that day (M1 rules)."
     )
+    holiday_related: bool = Field(default=False, description=HOLIDAY_RELATED_DESCRIPTION)
 
 
 class ForecastAccuracyContext(_Model):
@@ -333,7 +383,7 @@ class ForecastData(_Model):
     accuracy_context: ForecastAccuracyContext
 
 
-class ForecastResponse(_Envelope):
+class ForecastResponse(Envelope):
     data: ForecastData
 
 
@@ -346,6 +396,7 @@ class ObservedPoint(_Model):
     federal_holiday: str | None = Field(
         default=None, description="US federal holiday observed that day (M1 rules)."
     )
+    holiday_related: bool = Field(default=False, description=HOLIDAY_RELATED_DESCRIPTION)
 
 
 class HistoryData(_Model):
@@ -358,7 +409,7 @@ class HistoryData(_Model):
     points: list[ObservedPoint]
 
 
-class HistoryResponse(_Envelope):
+class HistoryResponse(Envelope):
     data: HistoryData
 
 
@@ -401,7 +452,7 @@ class MetricsData(_Model):
     notes: list[str]
 
 
-class MetricsResponse(_Envelope):
+class MetricsResponse(Envelope):
     data: MetricsData
 
 
@@ -442,7 +493,7 @@ class UncertaintyStatusData(_Model):
     )
 
 
-class UncertaintyStatusResponse(_Envelope):
+class UncertaintyStatusResponse(Envelope):
     data: UncertaintyStatusData
 
 
@@ -451,10 +502,11 @@ class IntervalPoint(_Model):
     horizon: int
     prediction: float
     quantiles: dict[str, float] = Field(
-        description="Marginal predictive quantiles (requests/day) keyed by level; NOT "
-        "calibrated probabilities (M3 status failed_calibration)."
+        description="Marginal quantiles (requests/day) keyed by level. Their calibration "
+        "FAILED (M3 status failed_calibration): they carry no probability to rely on."
     )
     status: Literal["projected"]
+    holiday_related: bool = Field(description=HOLIDAY_RELATED_DESCRIPTION)
 
 
 class IntervalsData(_Model):
@@ -466,7 +518,7 @@ class IntervalsData(_Model):
     points: list[IntervalPoint]
 
 
-class IntervalsResponse(_Envelope):
+class IntervalsResponse(Envelope):
     data: IntervalsData
 
 
@@ -474,7 +526,20 @@ class IntervalsResponse(_Envelope):
 
 
 class HypotheticalQuantity(_Model):
-    value: float
+    """A HYPOTHETICAL number with its exact unit and the assumption behind it."""
+
+    value: int | float
+    unit: str
+    provenance: Literal["HYPOTHETICAL"]
+    assumption: str
+
+
+class HypotheticalParameter(_Model):
+    """One HYPOTHETICAL parameter of a run (a sweep grid has a text value listing it)."""
+
+    scope: str = Field(description="unit:<id>, budget, scenario:<id> or sensitivity:<id>.")
+    parameter: str
+    value: int | float | str
     unit: str
     provenance: Literal["HYPOTHETICAL"]
     assumption: str
@@ -636,7 +701,9 @@ class ScenarioOutcome(_Model):
     description: str
     demand_basis: str = Field(description="point_forecast or per_day_marginal_quantile_path.")
     quantile: float | None
-    adjustments: dict[str, Any] = Field(description="HYPOTHETICAL changes to the base case.")
+    adjustments: dict[str, HypotheticalQuantity] = Field(
+        description="HYPOTHETICAL changes to the base case."
+    )
     demand_sha256: str
     demand_total_requests: float
     demand_total_vs_point_forecast_pct: float
@@ -718,6 +785,9 @@ class PlanVariant(_Model):
     unique_optimal_plan: bool | None
     unique_after_tie_breaks: bool | None
     solver_status: str | None
+    terminal_backlog_max: float | None = Field(
+        description="The HYPOTHETICAL terminal target, requests (null: no target)."
+    )
     terminal_violation: float | None
     satisfies_budget: bool | None
     reported_plan_relation: str | None
@@ -753,7 +823,7 @@ class ScenarioListData(_Model):
     scenarios: list[ScenarioSummary]
 
 
-class ScenarioListResponse(_Envelope):
+class ScenarioListResponse(Envelope):
     data: ScenarioListData
 
 
@@ -763,13 +833,13 @@ class ScenarioDetailData(_Model):
     outcome: ScenarioOutcome
     plans: list[PlanVariant]
     daily_plans: list[DayPlan]
-    hypothetical_parameters: list[dict[str, Any]] = Field(
+    hypothetical_parameters: list[HypotheticalParameter] = Field(
         description="Every HYPOTHETICAL parameter of the run with its unit and assumption."
     )
     structural_assumptions: list[str]
 
 
-class ScenarioDetailResponse(_Envelope):
+class ScenarioDetailResponse(Envelope):
     data: ScenarioDetailData
 
 
@@ -786,10 +856,21 @@ ComparisonMetric = Literal[
 
 class ComparisonRow(_Model):
     scenario_id: str
+    description: str
+    adjustments: dict[str, HypotheticalQuantity]
     feasibility: Literal["strict", "relaxed_terminal_target"]
+    values_status: Literal["plan_meets_every_constraint", "DIAGNOSTIC"] = Field(
+        description="DIAGNOSTIC: no plan meets every HYPOTHETICAL constraint; the values are "
+        "those of the relaxed plan, which misses the terminal target."
+    )
+    terminal_backlog_max: float | None = Field(description="The HYPOTHETICAL target, requests.")
+    terminal_violation: float | None = Field(
+        description="Requests the reported plan leaves above the target (0 when it meets it)."
+    )
     values: dict[str, float | None]
     difference_from_baseline: dict[str, float | None] = Field(
-        description="This scenario minus the baseline (same units as values)."
+        description="This scenario minus the baseline (same units as values); null unless "
+        "both plans meet every constraint."
     )
 
 
@@ -801,7 +882,7 @@ class ComparisonData(_Model):
     caveat: str
 
 
-class ComparisonResponse(_Envelope):
+class ComparisonResponse(Envelope):
     data: ComparisonData
 
 
@@ -941,7 +1022,12 @@ class SimulationParameters(_Request):
 
 
 class SimulationRequest(_Request):
-    horizon_days: int = Field(default=30, ge=1, le=30, description="Planning days from 2026-07-01.")
+    horizon_days: int = Field(
+        default=MAX_HORIZON_DAYS,
+        ge=1,
+        le=MAX_HORIZON_DAYS,
+        description="Planning days, from the first projected day.",
+    )
     demand: DemandSettings = DemandSettings()
     parameters: SimulationParameters = SimulationParameters()
 
@@ -956,9 +1042,31 @@ class ParameterSpec(_Model):
     default_assumption: str
 
 
+class RangeSpec(_Model):
+    default: float
+    minimum: float
+    maximum: float
+    unit: str
+
+
+class HorizonSpec(_Model):
+    default: int
+    minimum: int
+    maximum: int
+    first_date: date = Field(description="The first projected day (day 1 of every plan).")
+
+
+class DemandOptions(_Model):
+    basis: list[Literal["point_forecast", "m3_marginal_quantile"]]
+    quantile: list[float] = Field(description="Levels offered for m3_marginal_quantile.")
+    multiplier: RangeSpec
+    shift_per_day: RangeSpec
+    notice: str = Field(description="What a quantile stress path is, and is not.")
+
+
 class SimulationParametersData(_Model):
-    horizon_days: dict[str, int]
-    demand: dict[str, Any]
+    horizon_days: HorizonSpec
+    demand: DemandOptions
     parameters: list[ParameterSpec]
     legacy_demand_percentile_requests_per_day: float = Field(
         description="A regular capacity within 1 % of this demand percentile is rejected: "
@@ -967,7 +1075,7 @@ class SimulationParametersData(_Model):
     notes: list[str]
 
 
-class SimulationParametersResponse(_Envelope):
+class SimulationParametersResponse(Envelope):
     data: SimulationParametersData
 
 
@@ -978,6 +1086,11 @@ class ResolvedParameter(_Model):
     provenance: Literal["HYPOTHETICAL"]
     source: Literal["request", "reference_default", "removed_by_request"]
     assumption: str
+    reference_assumption: str | None = Field(
+        description="For a reference default: the assumption the reference configuration "
+        "documents, which describes the 30-day reference with every other value at its "
+        "default (horizon totals are not prorated)."
+    )
 
 
 class SimulationData(_Model):
@@ -1000,5 +1113,5 @@ class SimulationData(_Model):
     limitations: list[str]
 
 
-class SimulationResponse(_Envelope):
+class SimulationResponse(Envelope):
     data: SimulationData

@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Any, Final, Literal
 
-from atlas.api.schemas import ErrorResponse
+from atlas.api.schemas import API_VERSION, ErrorResponse
+
+#: Prefix of every versioned route.
+API_PREFIX: Final = f"/api/{API_VERSION}"
+#: OpenAPI extension naming what an operation costs (also listed by GET /api/v1/system).
+COST_KEY: Final = "x-atlas-cost"
+Cost = Literal["static", "precomputed", "bounded_computation"]
 
 _DESCRIPTIONS: Final = {
     400: "Invalid Host header (invalid_host).",
@@ -23,3 +29,13 @@ _DESCRIPTIONS: Final = {
 def errors(*codes: int) -> dict[int | str, dict[str, Any]]:
     """OpenAPI ``responses`` for the error statuses a route can return."""
     return {code: {"model": ErrorResponse, "description": _DESCRIPTIONS[code]} for code in codes}
+
+
+def cost(kind: Cost) -> dict[str, Any]:
+    """``openapi_extra`` of a route: what one call costs (see ``docs/API.md``, section 9).
+
+    static: process state only; precomputed: committed results read and checked at
+    startup; bounded_computation: one bounded LP solve in a worker process. Research
+    analyses are never run on request.
+    """
+    return {COST_KEY: kind}

@@ -12,6 +12,18 @@ Layers:
 Start it with ``atlas api serve`` (see ``docs/API.md``).
 """
 
-from atlas.api.app import create_app
+from __future__ import annotations
+
+from typing import Any
 
 __all__ = ["create_app"]
+
+
+def __getattr__(name: str) -> Any:
+    # Imported lazily: the simulation worker processes import atlas.api.worker, and must
+    # not load the web stack with it.
+    if name == "create_app":
+        from atlas.api.app import create_app
+
+        return create_app
+    raise AttributeError(name)

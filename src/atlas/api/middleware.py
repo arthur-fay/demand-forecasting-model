@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import Sequence
@@ -19,15 +20,19 @@ from typing import Final
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from atlas.api.context import (
     REQUEST_ID_HEADER,
     REQUEST_ID_PATTERN,
+    current_request_id,
     reset_request_id,
     set_request_id,
 )
 from atlas.api.logs import truncated_path
+from atlas.api.problems import ErrorCode, error_payload
 
 LOGGER: Final = logging.getLogger("atlas.api")
 
@@ -40,13 +45,36 @@ SECURITY_HEADERS: Final = {
 }
 #: JSON responses never load anything; the interactive documentation pages need scripts.
 API_CSP: Final = "default-src 'none'; frame-ancestors 'none'"
-DOCS_PATHS: Final = ("/docs", "/redoc")
+#: The interactive documentation pages (exempt from the CSP, when the docs are served).
+DOCS_PATHS: Final = ("/docs", "/docs/oauth2-redirect", "/redoc")
+#: Requests in flight above which others get 503 ``server_busy`` (health probes excepted).
+MAX_IN_FLIGHT: Final = 64
+HEALTH_PREFIX: Final = "/health/"
+#: Response headers a browser client on an allowed origin may read.
+EXPOSED_HEADERS: Final = ("X-Request-ID", "Server-Timing", "Retry-After")
+_PORT: Final = re.compile(r"[0-9]{1,5}")
+
+
+def host_name(host: str) -> str | None:
+    """The host of a ``Host`` header without its port (IPv6 without brackets); ``None``
+    when the header is not ``name[:port]`` or ``[ipv6][:port]``."""
+    host = host.strip().lower()
+    if host.startswith("["):
+        name, bracket, rest = host[1:].partition("]")
+        if not bracket or (rest and not (rest[:1] == ":" and _PORT.fullmatch(rest[1:]))):
+            return None
+        return name
+    name, colon, port = host.partition(":")
+    if colon and not _PORT.fullmatch(port):
+        return None
+    return name
 
 
 def host_allowed(host: str, allowed: Sequence[str]) -> bool:
     """Whether the ``Host`` header names an allowed host (the port is ignored)."""
-    name = host.rsplit(":", 1)[0] if not host.endswith("]") else host
-    name = name.lower()
+    name = host_name(host)
+    if not name:
+        return False
     for pattern in allowed:
         pattern = pattern.lower()
         if pattern.startswith("*."):
@@ -57,13 +85,52 @@ def host_allowed(host: str, allowed: Sequence[str]) -> bool:
     return False
 
 
+class JsonCORSMiddleware(CORSMiddleware):
+    """Starlette's CORS middleware, with rejected preflights answered by the JSON error
+    body (``cors_rejected``) instead of plain text."""
+
+    def preflight_response(self, request_headers: Headers) -> Response:
+        response = super().preflight_response(request_headers)
+        if response.status_code < HTTPStatus.BAD_REQUEST:
+            return response
+        rejected = bytes(response.body).decode("utf-8").removeprefix("Disallowed CORS ")
+        headers = {
+            name: value
+            for name, value in response.headers.items()
+            if name not in ("content-length", "content-type")
+        }
+        return JSONResponse(
+            error_payload(
+                "cors_rejected",
+                f"CORS preflight rejected ({rejected}): only the configured origins, GET and "
+                "POST, and the documented headers are allowed",
+                current_request_id(),
+            ),
+            status_code=response.status_code,
+            headers=headers,
+        )
+
+
 class RequestContextMiddleware:
     """See the module docstring."""
 
-    def __init__(self, app: ASGIApp, *, allowed_hosts: Sequence[str], max_body_bytes: int) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        allowed_hosts: Sequence[str],
+        max_body_bytes: int,
+        docs_paths: Sequence[str] = (),
+        max_in_flight: int = MAX_IN_FLIGHT,
+        cors_origins: Sequence[str] = (),
+    ) -> None:
         self.app = app
+        self.cors_origins = frozenset(cors_origins)
         self.allowed_hosts = tuple(allowed_hosts)
         self.max_body_bytes = max_body_bytes
+        self.docs_paths = frozenset(docs_paths)
+        self.max_in_flight = max_in_flight
+        self.in_flight = 0  # requests being served (one event loop: no lock needed)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -75,6 +142,8 @@ class RequestContextMiddleware:
         scope.setdefault("state", {})["request_id"] = request_id
         token = set_request_id(request_id)
         path = str(scope.get("path", ""))
+        origin = headers.get("origin")
+        cors_origin = origin if origin in self.cors_origins else None
         started = time.perf_counter()
         state: dict[str, int | bool] = {"status": 0, "started": False}
 
@@ -85,12 +154,31 @@ class RequestContextMiddleware:
                 response_headers = MutableHeaders(scope=message)
                 for name, value in SECURITY_HEADERS.items():
                     response_headers[name] = value
-                if not path.startswith(DOCS_PATHS):
+                if path not in self.docs_paths:
                     response_headers["Content-Security-Policy"] = API_CSP
                 response_headers[REQUEST_ID_HEADER] = request_id
+                if cors_origin and "access-control-allow-origin" not in response_headers:
+                    # A response made outside the CORS middleware (an error of this one):
+                    # an allowed origin may still read its body and request id.
+                    response_headers["Access-Control-Allow-Origin"] = cors_origin
+                    response_headers["Access-Control-Expose-Headers"] = ", ".join(EXPOSED_HEADERS)
+                    response_headers.add_vary_header("Origin")
             await send(message)
 
+        counted = not path.startswith(HEALTH_PREFIX)
+        if counted:
+            self.in_flight += 1
         try:
+            if counted and self.in_flight > self.max_in_flight:
+                await self._error(
+                    send_with_headers,
+                    request_id,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "server_busy",
+                    f"more than {self.max_in_flight} requests are in flight; retry shortly",
+                    retry_after=True,
+                )
+                return
             if not host_allowed(headers.get("host", ""), self.allowed_hosts):
                 await self._error(
                     send_with_headers,
@@ -129,6 +217,8 @@ class RequestContextMiddleware:
                 "internal server error; the request id identifies the server log entry",
             )
         finally:
+            if counted:
+                self.in_flight -= 1
             LOGGER.info(
                 "request",
                 extra={
@@ -159,18 +249,21 @@ class RequestContextMiddleware:
         return limited
 
     @staticmethod
-    async def _error(send: Send, request_id: str, status: int, code: str, message: str) -> None:
-        body = json.dumps(
-            {"error": {"code": code, "message": message, "request_id": request_id, "details": []}}
-        ).encode("utf-8")
-        await send(
-            {
-                "type": "http.response.start",
-                "status": status,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(body)).encode("ascii")),
-                ],
-            }
-        )
+    async def _error(
+        send: Send,
+        request_id: str,
+        status: int,
+        code: ErrorCode,
+        message: str,
+        *,
+        retry_after: bool = False,
+    ) -> None:
+        body = json.dumps(error_payload(code, message, request_id)).encode("utf-8")
+        headers = [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("ascii")),
+        ]
+        if retry_after:
+            headers.append((b"retry-after", b"1"))
+        await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})

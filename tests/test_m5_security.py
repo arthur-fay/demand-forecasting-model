@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -11,8 +12,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from atlas.api.app import create_app
-from atlas.api.errors import ApiError
-from atlas.api.middleware import host_allowed
+from atlas.api.dependencies import repeated_keys
+from atlas.api.middleware import MAX_IN_FLIGHT, RequestContextMiddleware, host_allowed
+from atlas.api.problems import ApiError
 from atlas.api.reference import ReferenceStore
 from atlas.api.server import check_bind, is_loopback
 from atlas.api.simulation import SimulationService
@@ -83,7 +85,16 @@ def test_docs_pages_are_served_without_the_json_csp(api: TestClient) -> None:
 def test_docs_can_be_disabled(api_store: ReferenceStore) -> None:
     with client(api_store, docs_enabled=False) as test_client:
         for path in ("/docs", "/redoc", "/openapi.json"):
-            assert_safe_error(test_client.get(path), 404, "not_found")
+            response = test_client.get(path)
+            assert_safe_error(response, 404, "not_found")
+            assert "content-security-policy" in response.headers  # no docs: no exemption
+
+
+def test_only_the_exact_docs_pages_skip_the_csp(api: TestClient) -> None:
+    for path in ("/docsX", "/docs-anything", "/redocfoo", "/docs/oauth2"):
+        response = api.get(path)
+        assert response.status_code == 404
+        assert "content-security-policy" in response.headers, path
 
 
 def test_request_id_is_echoed_only_when_safe(api: TestClient) -> None:
@@ -114,6 +125,15 @@ def test_unknown_host_header_is_refused(api: TestClient) -> None:
         ("localhost.evil.org", ("localhost",), False),
         ("", ("localhost",), False),
         ("[::1]:8000", ("localhost",), False),
+        ("[::1]:8000", ("::1",), True),
+        ("[::1]", ("::1",), True),
+        ("[::1]x", ("::1",), False),
+        ("::1", ("::1",), False),  # an IPv6 Host must be bracketed
+        ("localhost:abc", ("localhost",), False),
+        ("localhost:", ("localhost",), False),
+        ("localhost:123456", ("localhost",), False),
+        ("localhost:\u00b2", ("localhost",), False),  # a non-ASCII digit
+        ("127.0.0.1:1@evil.example", ("127.0.0.1",), False),
     ],
 )
 def test_host_matching(host: str, allowed: tuple[str, ...], expected: bool) -> None:
@@ -142,7 +162,29 @@ def test_cors_allows_only_configured_origins(api_store: ReferenceStore) -> None:
             "/api/v1/simulations",
             headers={"origin": origin, "access-control-request-method": "DELETE"},
         )
-        assert refused.status_code == 400
+        body = assert_safe_error(refused, 400, "cors_rejected")
+        assert "method" in body["error"]["message"]
+        evil = test_client.options(
+            "/api/v1/simulations",
+            headers={"origin": "https://evil.example", "access-control-request-method": "POST"},
+        )
+        assert "origin" in assert_safe_error(evil, 400, "cors_rejected")["error"]["message"]
+        assert "access-control-allow-origin" not in evil.headers
+        # Errors made before the CORS layer (body limit, Host check) stay readable by an
+        # allowed origin, and only by it.
+        for headers, status in (
+            ({"content-length": "999999", "content-type": "application/json"}, 413),
+            ({"host": "evil.example"}, 400),
+        ):
+            for sender, readable in ((origin, True), ("https://evil.example", False)):
+                response = test_client.post(
+                    "/api/v1/simulations", headers={**headers, "origin": sender}, content=b"{}"
+                )
+                assert response.status_code == status
+                assert ("access-control-allow-origin" in response.headers) is readable
+                if readable:
+                    assert response.headers["access-control-allow-origin"] == origin
+                    assert "X-Request-ID" in response.headers["access-control-expose-headers"]
 
 
 def test_no_cors_by_default(api: TestClient) -> None:
@@ -200,6 +242,25 @@ def test_duplicate_keys_are_refused(api: TestClient) -> None:
     )
     body = assert_safe_error(response, 422, "validation_error")
     assert body["error"]["details"] == [{"field": "horizon_days", "message": "duplicate key"}]
+
+
+def test_many_keys_are_checked_in_linear_time(api: TestClient) -> None:
+    # About the largest object a 16 KiB body holds: 1,700 distinct keys.
+    keys = {f"k{i}": 0 for i in range(1_700)}
+    content = json.dumps({"parameters": keys}, separators=(",", ":")).encode("utf-8")
+    assert len(content) <= 16_384
+    started = time.perf_counter()
+    response = api.post(
+        "/api/v1/simulations", content=content, headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 422
+    assert time.perf_counter() - started < 1.0
+    # At the largest allowed body limit (1 MiB): about 100,000 keys, still linear.
+    big = json.dumps({f"k{i}": i for i in range(100_000)}).encode("utf-8")
+    started = time.perf_counter()
+    assert repeated_keys(big) == []
+    assert repeated_keys(big[:-1] + b', "k7": 1}') == ["k7"]
+    assert time.perf_counter() - started < 2.0
 
 
 @pytest.mark.parametrize(
@@ -322,3 +383,85 @@ def test_public_bind_requires_a_key() -> None:
     check_bind("0.0.0.0", 8000, settings(api_key=KEY))  # noqa: S104
     with pytest.raises(ConfigError, match="port"):
         check_bind("127.0.0.1", 0, settings())
+
+
+# --- Query strictness and request limits ---------------------------------------------
+
+
+def test_history_dates_far_outside_the_snapshot_are_422(api: TestClient) -> None:
+    for query, field in (
+        ("end=0001-01-01", "end"),
+        ("end=0001-06-29", "end"),
+        ("start=9999-12-31", "start"),
+        ("start=0001-01-01&end=9999-12-31", "start"),
+    ):
+        response = api.get(f"/api/v1/forecasts/history?{query}")
+        body = assert_safe_error(response, 422, "validation_error")
+        assert body["error"]["details"][0]["field"] == field, query
+
+
+def test_query_integers_are_plain_digits(api: TestClient) -> None:
+    for bad in ("1_0", "+5", "5.0", " 5", "05e0", "\\u0665"):
+        response = api.get("/api/v1/forecasts", params={"horizon_days": bad})
+        assert_safe_error(response, 422, "validation_error")
+    assert len(api.get("/api/v1/forecasts?horizon_days=05").json()["data"]["points"]) == 5
+
+
+def test_a_scalar_query_parameter_may_not_repeat(api: TestClient) -> None:
+    response = api.get("/api/v1/forecasts?horizon_days=1&horizon_days=30")
+    body = assert_safe_error(response, 422, "validation_error")
+    assert body["error"]["details"] == [
+        {"field": "horizon_days", "message": "given more than once"}
+    ]
+    # List parameters repeat by design.
+    listed = api.get("/api/v1/scenarios/comparison?scenario_id=normal&scenario_id=reduced_budget")
+    assert listed.status_code == 200
+
+
+def test_health_answers_head(api: TestClient) -> None:
+    for path in ("/health/live", "/health/ready"):
+        response = api.head(path)
+        assert response.status_code == 200
+        assert response.content == b""
+        assert response.headers["x-request-id"]
+
+
+def _context_middleware(api: TestClient) -> RequestContextMiddleware:
+    layer: Any = api.app
+    api.get("/health/live")  # builds the middleware stack
+    layer = layer.middleware_stack
+    while not isinstance(layer, RequestContextMiddleware):
+        layer = layer.app
+    return layer
+
+
+def test_requests_in_flight_are_capped_with_a_json_503(api_store: ReferenceStore) -> None:
+    with client(api_store) as test_client:
+        middleware = _context_middleware(test_client)
+        middleware.in_flight = MAX_IN_FLIGHT  # as if 64 requests were being served
+        try:
+            response = test_client.get("/api/v1/system")
+            body = assert_safe_error(response, 503, "server_busy")
+            assert response.headers["retry-after"] == "1"
+            assert "64" in body["error"]["message"]
+            # Health probes are never turned away.
+            assert test_client.get("/health/live").status_code == 200
+        finally:
+            middleware.in_flight = 0
+        assert test_client.get("/api/v1/system").status_code == 200
+        assert middleware.in_flight == 0  # every request released its slot
+
+
+@pytest.mark.parametrize("host", ["*.com", ".", "-", "a-", "[::1]", "*", "bad host", "*.-x.org"])
+def test_allowed_hosts_must_be_specific(host: str) -> None:
+    with pytest.raises(ConfigError):
+        settings(allowed_hosts=(host,))
+
+
+def test_ipv6_loopback_is_allowed_by_default(api_store: ReferenceStore) -> None:
+    with client(api_store, allowed_hosts=("localhost", "127.0.0.1", "::1")) as test_client:
+        assert test_client.get("/health/live", headers={"host": "[::1]:8000"}).status_code == 200
+        assert_safe_error(
+            test_client.get("/health/live", headers={"host": "[::2]:8000"}), 400, "invalid_host"
+        )
+    settings(allowed_hosts=("fe80::1", "atlas.example.org"))
