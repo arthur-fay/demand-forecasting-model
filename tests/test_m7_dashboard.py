@@ -93,6 +93,24 @@ def test_the_build_evaluates_no_strings() -> None:
     assert "eval(" not in "\n".join(scripts)
 
 
+def test_the_client_waits_longer_than_any_server_deadline() -> None:
+    """The dashboard's simulation deadline (web/src/api/endpoints.ts) is above the longest
+    deadline the API accepts plus nginx's margin, so the server's own answer (504 at its
+    deadline) always arrives before the browser gives up."""
+    import re
+
+    from atlas.api.settings import SIMULATION_TIMEOUT_SECONDS
+    from atlas.deploy.siteconfig import TIMEOUT_RANGE
+
+    source = (REPO_ROOT / "web/src/api/endpoints.ts").read_text("utf-8")
+    match = re.search(r"SIMULATION_TIMEOUT_MS = ([0-9_]+);", source)
+    assert match is not None
+    client_seconds = int(match.group(1).replace("_", "")) / 1000
+    nginx_margin = 20  # proxy_read_timeout = deadline + 20 s (atlas.deploy.render)
+    assert client_seconds > SIMULATION_TIMEOUT_SECONDS[2] + nginx_margin  # the API's maximum
+    assert client_seconds > TIMEOUT_RANGE[1] + nginx_margin  # the deployment's maximum
+
+
 def test_the_build_sends_no_credential() -> None:
     """The browser never holds or sends a key or token: no credential header is ever set
     by the dashboard (private deployments use the browser's own Basic session, and nginx

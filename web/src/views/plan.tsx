@@ -17,7 +17,6 @@ import {
   dateValue,
   formatCompact,
   formatInteger,
-  formatNumber,
   formatShortDate,
   formatSigned,
   formatUsd,
@@ -40,6 +39,24 @@ const RELATION: Record<string, string> = {
   equal: 'Equal on all three',
 };
 
+/**
+ * Labels the API lists among the binding constraints that mark the plan itself (M4: "neither
+ * is a binding limit"), shown apart from the limits.
+ */
+const PLAN_MARKERS = new Map([
+  ['terminal_backlog_violated', 'the plan ends above its HYPOTHETICAL terminal-backlog target'],
+  ['budget_exceeded', 'the plan, computed without the HYPOTHETICAL budget, spends above it'],
+]);
+
+/** What the API's uniqueness test leaves after the tie-breaks, as a clause. */
+function afterTieBreaks(variant: PlanVariant): string {
+  return variant.unique_after_tie_breaks === true
+    ? ', and no other plan is left after them'
+    : variant.unique_after_tie_breaks === false
+      ? ', and even after them its daily overtime and surge are not determined'
+      : '';
+}
+
 /** The daily-plan name of the reported plan (strict: optimised; otherwise the relaxed plan). */
 export function reportedPlanName(outcome: ScenarioOutcome, daily: readonly DayPlan[]): string {
   const names = new Set(daily.map((d) => d.plan));
@@ -58,22 +75,32 @@ export function FeasibilityTag({ feasibility }: { feasibility: ScenarioOutcome['
   );
 }
 
+/**
+ * `headingLevel` is the level of its sub-headings: 3 directly under a panel heading (the
+ * simulator), 4 under a scenario heading (Decisions).
+ */
 export function PlanOutcome({
   outcome,
   plans,
   daily,
+  headingLevel = 3,
 }: {
   outcome: ScenarioOutcome;
   plans: readonly PlanVariant[];
   daily: readonly DayPlan[];
+  headingLevel?: 3 | 4;
 }) {
   const reported = reportedPlanName(outcome, daily);
   const evaluation = outcome.reported_plan?.evaluation ?? null;
   const certificate = outcome.reported_plan?.certificate ?? null;
+  const notChecked = outcome.reported_plan?.constraints_not_checked ?? [];
   const variant = plans.find((p) => p.plan === reported);
   const target = variant?.terminal_backlog_max ?? null;
   const diagnostic = outcome.feasibility !== 'strict';
   const tag = diagnostic ? <DiagnosticTag /> : <HypotheticalTag />;
+  const limits = outcome.binding_constraints.filter((name) => !PLAN_MARKERS.has(name));
+  const markers = outcome.binding_constraints.filter((name) => PLAN_MARKERS.has(name));
+  const Heading = headingLevel === 3 ? 'h3' : 'h4';
   return (
     <div className="stack-4">
       {diagnostic ? (
@@ -84,9 +111,14 @@ export function PlanOutcome({
           }
         >
           <p>
-            No plan meets every HYPOTHETICAL constraint. The plan below is the one that misses the
-            terminal-backlog target by the least within the budget: its values are DIAGNOSTIC, and
-            any spend shown is never a budget request.
+            No plan meets every HYPOTHETICAL constraint. The plan below is{' '}
+            {variant?.unique_optimal_plan === false
+              ? 'one of several equally scored HYPOTHETICAL plans that miss'
+              : 'the one that misses'}{' '}
+            the terminal-backlog target by the least within the budget: its values are DIAGNOSTIC,
+            and any spend shown is never a budget request.
+            {variant?.unique_optimal_plan === false &&
+              ` The tie-breaks (${outcome.reported_plan_selection}) choose this one${afterTieBreaks(variant)}.`}
           </p>
           {outcome.diagnosis !== null && (
             <ul>
@@ -102,13 +134,8 @@ export function PlanOutcome({
             <p>
               It is one of several equally scored HYPOTHETICAL plans: other plans reach the same
               optimal score under these assumed values. The tie-breaks (
-              {outcome.reported_plan_selection}) choose this one
-              {variant.unique_after_tie_breaks === true
-                ? ', and no other plan is left after them'
-                : variant.unique_after_tie_breaks === false
-                  ? ', and even after them its daily overtime and surge are not determined'
-                  : ''}
-              . It answers a hypothetical question; it is not a recommendation.
+              {outcome.reported_plan_selection}) choose this one{afterTieBreaks(variant)}. It
+              answers a hypothetical question; it is not a recommendation.
             </p>
           ) : (
             <p>
@@ -182,17 +209,33 @@ export function PlanOutcome({
         </dl>
       )}
       <div className="stack-2">
-        <h4 className="small">Binding constraints</h4>
-        <ul className="badge-list">
-          {outcome.binding_constraints.map((name) => (
-            <li key={name} className="chip">
-              {name}
-            </li>
-          ))}
-        </ul>
+        <Heading className="small">Binding constraints</Heading>
+        {limits.length > 0 ? (
+          <ul className="badge-list">
+            {limits.map((name) => (
+              <li key={name} className="chip">
+                {name}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="small">
+            {outcome.reported_plan === null
+              ? 'No plan was reported.'
+              : 'None reported for this plan.'}
+          </p>
+        )}
+        {markers.map((name) => (
+          <p key={name} className="small">
+            <DiagnosticTag /> <span className="mono">{name}</span>: {PLAN_MARKERS.get(name)}. It
+            marks the plan; it is not a binding limit.
+          </p>
+        ))}
         <p className="xsmall muted">
-          A binding constraint holds with equality at the optimum: relaxing it would change the
-          plan. Counts in brackets are days.
+          Read from the reported plan itself: the limits it leaves no slack on (within tolerance),
+          not counting daily limits of zero. A binding limit need not be a cause: being tight does
+          not show that relaxing it would change the plan.
+          {limits.length > 0 && ' Counts in brackets are days.'}
         </p>
       </div>
       {certificate !== null && (
@@ -206,12 +249,20 @@ export function PlanOutcome({
             : outcome.reported_plan?.independent_check_passed === false
               ? 'did not pass'
               : 'was not given'}{' '}
-          an independent re-check of every constraint.
-          {outcome.problems.length > 0 && ` Problems recorded: ${outcome.problems.join('; ')}.`}
+          an independent re-check of every constraint
+          {notChecked.length > 0 &&
+            ` except ${notChecked.join(', ')}, which this plan is not held to`}
+          .{outcome.problems.length > 0 && ` Problems recorded: ${outcome.problems.join('; ')}.`}
         </p>
       )}
-      <DailyCharts outcome={outcome} daily={daily} reported={reported} target={target} />
-      <PolicyComparison outcome={outcome} />
+      <DailyCharts
+        outcome={outcome}
+        daily={daily}
+        reported={reported}
+        target={target}
+        heading={Heading}
+      />
+      <PolicyComparison outcome={outcome} heading={Heading} />
     </div>
   );
 }
@@ -221,11 +272,13 @@ function DailyCharts({
   daily,
   reported,
   target,
+  heading: Heading,
 }: {
   outcome: ScenarioOutcome;
   daily: readonly DayPlan[];
   reported: string;
   target: number | null;
+  heading: 'h3' | 'h4';
 }) {
   const [view, setView] = useState<View>('chart');
   const days = daily.filter((d) => d.plan === reported).sort((a, b) => a.day - b.day);
@@ -257,11 +310,19 @@ function DailyCharts({
       days: byPlan('backlog_trigger'),
     },
   ].filter((line) => line.days.length > 0);
+  // The table twin of the backlog chart carries the policies' backlog too, joined by date.
+  const policies = lines
+    .filter((line) => line.id !== reported)
+    .map((line) => ({
+      id: line.id,
+      label: line.label,
+      backlog: new Map(line.days.map((d) => [d.date, d.backlog])),
+    }));
   if (days.length === 0) return null;
   return (
     <div className="stack-3">
       <div className="chart-toolbar">
-        <h4 className="small">Daily resources and backlog{diagnostic}</h4>
+        <Heading className="small">Daily resources and backlog{diagnostic}</Heading>
         <ViewToggle value={view} onChange={setView} label="Daily plan" />
       </div>
       {view === 'chart' ? (
@@ -343,7 +404,7 @@ function DailyCharts({
         </>
       ) : (
         <DataTable
-          caption={`Daily plan${diagnostic}: requests/day except overtime (staff hours) and backlog (requests)`}
+          caption={`Daily plan${diagnostic}: requests/day except overtime (staff hours) and backlog (requests)${policies.length > 0 ? ", with the simple policies' end-of-day backlog under the same assumptions" : ''}`}
           rows={days}
           rowKey={(d) => d.date}
           columns={[
@@ -391,10 +452,16 @@ function DailyCharts({
             },
             {
               key: 'backlog',
-              header: 'Backlog',
+              header: 'Backlog (reported plan)',
               numeric: true,
               cell: (d) => formatInteger(d.backlog),
             },
+            ...policies.map((policy) => ({
+              key: policy.id,
+              header: `Backlog: ${policy.label}`,
+              numeric: true,
+              cell: (d: DayPlan) => formatInteger(policy.backlog.get(d.date)),
+            })),
           ]}
         />
       )}
@@ -402,15 +469,21 @@ function DailyCharts({
   );
 }
 
-function PolicyComparison({ outcome }: { outcome: ScenarioOutcome }) {
+function PolicyComparison({
+  outcome,
+  heading: Heading,
+}: {
+  outcome: ScenarioOutcome;
+  heading: 'h3' | 'h4';
+}) {
   if (outcome.comparisons.length === 0) return null;
   const diagnostic = outcome.feasibility !== 'strict';
   return (
     <div className="stack-2">
-      <h4 className="small">
+      <Heading className="small">
         Against simple policies under the same assumptions
         {diagnostic && ' (the reported plan is DIAGNOSTIC)'}
-      </h4>
+      </Heading>
       <DataTable
         caption={`Differences are reported plan minus policy: cash in USD, backlog in request-days and requests (negative: the reported plan has less). The relation compares discretionary cash, request-days and terminal backlog (lower is better on each). A plan that violates the HYPOTHETICAL terminal target is not comparable on score${diagnostic ? ': the reported plan here misses it, so its values are DIAGNOSTIC' : ''}.`}
         rows={outcome.comparisons}
@@ -461,26 +534,37 @@ function PolicyComparison({ outcome }: { outcome: ScenarioOutcome }) {
         ]}
       />
       <p className="xsmall muted">
-        At equal cash, the linear programme leaves{' '}
+        At equal cash (at most each policy's discretionary cash) and with the HYPOTHETICAL
+        terminal-backlog target dropped, the linear programme leaves{' '}
         {outcome.comparisons
-          .map((c) =>
-            c.request_days_difference_at_same_cash === null
-              ? null
-              : `${formatNumber(Math.abs(c.request_days_difference_at_same_cash), 0)} request-days ${c.request_days_difference_at_same_cash <= 0 ? 'fewer' : 'more'} than the ${humanise(c.policy).toLowerCase()} policy`,
-          )
+          .map(sameCash)
           .filter((text): text is string => text !== null)
           .join(' and ') || 'no comparable figure'}
-        . These comparisons show what optimisation adds under the assumed values, nothing about real
+        ; without the target it can end with a higher terminal backlog than the policy. These
+        comparisons show what optimisation adds under the assumed values, nothing about real
         operations.
       </p>
     </div>
   );
 }
 
-function formatSignedUsd(value: number): string {
-  const text = formatUsd(Math.abs(value));
-  if (Math.round(value) > 0) return `+${text}`;
-  if (Math.round(value) < 0) return `−${text}`;
+/** The request-days difference at equal cash in words, its direction from the rounded value. */
+function sameCash(comparison: ScenarioOutcome['comparisons'][number]): string | null {
+  const value = comparison.request_days_difference_at_same_cash;
+  if (value === null) return null;
+  const days = Math.round(value); // -0 counts as zero
+  const policy = `the ${humanise(comparison.policy).toLowerCase()} policy`;
+  return days === 0
+    ? `as many request-days as ${policy}`
+    : `${formatInteger(Math.abs(days))} request-days ${days < 0 ? 'fewer' : 'more'} than ${policy}`;
+}
+
+/** A signed USD difference; its sign and its amount come from the same rounded value. */
+export function formatSignedUsd(value: number): string {
+  const rounded = Math.round(value);
+  const text = formatUsd(Math.abs(rounded));
+  if (rounded > 0) return `+${text}`;
+  if (rounded < 0) return `−${text}`;
   return text;
 }
 

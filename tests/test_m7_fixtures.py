@@ -4,7 +4,8 @@ The TypeScript tests (``web/src/**/*.test.ts*``) render the dashboard from recor
 responses in ``web/src/test/fixtures``. This test re-asks the API for each of them and
 requires the same bytes, so the frontend tests can never drift from what the API serves:
 a change to the API or to a committed result fails here until the fixtures are recorded
-again (``ATLAS_UPDATE_DASHBOARD_FIXTURES=1 uv run pytest tests/test_m7_fixtures.py``).
+again (``ATLAS_UPDATE_DASHBOARD_FIXTURES=1 uv run pytest tests/test_m7_fixtures.py --no-cov``;
+without ``--no-cov`` the whole-package coverage gate fails a run of one module).
 
 GET bodies are deterministic (docs/API.md section 4), and so is a simulation's body for a
 given request. The one exception is ``/api/v1/system``: its worker counters change as

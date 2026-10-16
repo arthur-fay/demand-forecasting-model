@@ -31,7 +31,7 @@ export function describeBlock(
     case 'enabled':
       return null;
     case 'disabled_public_demo':
-      return 'This is the public read-only demonstration: computation is not exposed, so simulations are disabled. The verified reference results below are the real committed outputs.';
+      return 'This is the public read-only demonstration: computation is not exposed, so simulations are disabled. Every reference result remains available.';
     case 'disabled_api_key':
       return 'This API protects simulations with a key, and a browser must never hold one. Run simulations through the private deployment (its proxy adds the key) or a local API without a key.';
   }

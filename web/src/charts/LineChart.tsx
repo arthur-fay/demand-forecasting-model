@@ -162,7 +162,8 @@ export function LineChart({
   const linearScale = scaleLinear().domain([first, last]).range(range);
   const px = (value: number): number =>
     xType === 'time' ? timeScale(new Date(value)) : linearScale(value);
-  const tickCount = Math.max(2, Math.min(8, Math.floor(innerWidth / 90)));
+  // At least three ticks on a numeric axis: two can come back as one ([1, 30] gives 20).
+  const tickCount = Math.max(xType === 'linear' ? 3 : 2, Math.min(8, Math.floor(innerWidth / 90)));
   const xTicks: number[] =
     xType === 'time'
       ? timeScale.ticks(tickCount).map((d) => d.getTime())
@@ -170,11 +171,24 @@ export function LineChart({
   const tickText =
     xTickFormat ?? (xType === 'time' ? defaultTimeTick(first, last) : (v: number) => String(v));
 
+  // Dots only where the line still shows between them: packed closer they would cover the
+  // dash patterns that tell the series apart (a single series has none to keep).
+  const pointGap = innerWidth / Math.max(1, xs.length - 1);
+  const showMarkers = series.length === 1 || pointGap >= 20;
+
+  // A rule's label goes on the side of its line with room for it (11 px text: about 7 px a
+  // character, which leaves room for user text spacing).
+  const flipRule = (rule: Rule): boolean => {
+    const right = width - px(rule.x) - 6;
+    return right < rule.label.length * 7 && px(rule.x) - 6 > right;
+  };
+
   const pathOf = (points: readonly XY[]) =>
     line<XY>()
       .defined((p) => p.y !== null)
       .x((p) => px(p.x))
       .y((p) => y(p.y ?? 0))(points as XY[]) ?? '';
+  const linePaths = series.map((s) => pathOf(s.points));
   const bandPath = (b: Band) =>
     area<{ x: number; low: number; high: number }>()
       .x((p) => px(p.x))
@@ -300,9 +314,9 @@ export function LineChart({
           />
           <text
             className="rule-label"
-            x={px(rule.x) + (px(rule.x) > margin.left + innerWidth - 120 ? -6 : 6)}
+            x={px(rule.x) + (flipRule(rule) ? -6 : 6)}
             y={margin.top + 10}
-            textAnchor={px(rule.x) > margin.left + innerWidth - 120 ? 'end' : 'start'}
+            textAnchor={flipRule(rule) ? 'end' : 'start'}
           >
             {rule.label}
           </text>
@@ -328,15 +342,22 @@ export function LineChart({
           </text>
         </g>
       ))}
-      {series.map((s) => (
+      {/* Over a band, each line runs on a surface-coloured halo: it is then seen against the
+          surface (at least 3:1), not against its own band's tint (as low as 2.2:1). */}
+      {bands.length > 0 &&
+        series.map((s, i) => (
+          <path key={`${s.id}-halo`} className="series-halo" d={linePaths[i]} />
+        ))}
+      {series.map((s, i) => (
         <g key={s.id}>
           <path
             className="series-line"
-            d={pathOf(s.points)}
+            d={linePaths[i]}
             style={{ stroke: s.color }}
             data-style={s.style ?? 'solid'}
           />
           {s.markers === true &&
+            showMarkers &&
             s.points.map((p) =>
               p.y === null ? null : (
                 <circle

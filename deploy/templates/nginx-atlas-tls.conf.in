@@ -48,7 +48,11 @@ server {
     proxy_hide_header Content-Security-Policy;
     proxy_hide_header Cache-Control;
 
-    # Everything ATLAS (or nginx for it) answers is JSON, except the dashboard's files.
+    # Everything ATLAS (or nginx for it) answers is JSON, except the dashboard's files (their
+    # locations name their own types). No type follows the request's extension: without
+    # `types { }`, the distribution's mime.types would label a JSON error on /x.js or
+    # /x.html as JavaScript or HTML.
+    types { }
     default_type application/json;
 
     # Compression of text answers (M7): the dashboard's files and the API's JSON. No answer

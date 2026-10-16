@@ -55,25 +55,32 @@ test('a field reached by keyboard is never hidden under a sticky bar', async ({ 
       inputs.filter((input) => !(input as HTMLInputElement).disabled).map((input) => input.id),
     );
   expect(ids.length).toBeGreaterThan(10);
-  await page.getByRole('textbox', { name: /Planning horizon/ }).focus();
   // Tab through the form until every text field has had the focus: each must then be the
   // element at its own centre (not the top bar or the action bar drawn over it). WCAG 2.4.11.
-  const visited = new Set<string>();
-  for (let step = 0; step < 200 && visited.size < ids.length; step++) {
-    const focused = await page.evaluate(() => {
-      const element = document.activeElement;
-      if (!(element instanceof HTMLInputElement) || element.type !== 'text') return null;
-      const box = element.getBoundingClientRect();
-      const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-      return { id: element.id, covered: top !== element };
-    });
-    if (focused !== null) {
-      expect(focused.covered, `${focused.id} is covered when focused`).toBe(false);
-      visited.add(focused.id);
+  // Both ways: Tab scrolls each field up from under the action bar, Shift+Tab down from
+  // under the top bar.
+  const visit = async (key: 'Tab' | 'Shift+Tab') => {
+    const visited = new Set<string>();
+    for (let step = 0; step < 200 && visited.size < ids.length; step++) {
+      const focused = await page.evaluate(() => {
+        const element = document.activeElement;
+        if (!(element instanceof HTMLInputElement) || element.type !== 'text') return null;
+        const box = element.getBoundingClientRect();
+        const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return { id: element.id, covered: top !== element };
+      });
+      if (focused !== null) {
+        expect(focused.covered, `${focused.id} is covered when focused (${key})`).toBe(false);
+        visited.add(focused.id);
+      }
+      await page.keyboard.press(key);
     }
-    await page.keyboard.press('Tab');
-  }
-  expect([...visited].sort()).toEqual([...ids].sort());
+    expect([...visited].sort(), `every field reached by ${key}`).toEqual([...ids].sort());
+  };
+  await page.getByRole('textbox', { name: /Planning horizon/ }).focus();
+  await visit('Tab');
+  await page.getByRole('button', { name: 'Run simulation' }).focus();
+  await visit('Shift+Tab');
 });
 
 test('a failed simulation is reported where the reader is', async ({ page }) => {

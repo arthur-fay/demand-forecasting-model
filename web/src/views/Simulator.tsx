@@ -5,13 +5,14 @@ import { api } from '../api/endpoints';
 import type {
   Envelope,
   ParameterSpec,
+  Provenance,
   SimulationData,
   SimulationParametersData,
   SimulationRequest,
 } from '../api/schemas';
 import { Callout } from '../components/Callout';
 import { DataTable } from '../components/DataTable';
-import { Evidence } from '../components/Provenance';
+import { Evidence, ProvenanceFooter } from '../components/Provenance';
 import { Async } from '../components/States';
 import { HypotheticalTag, IntegrityTags, Tag } from '../components/Tag';
 import { useDeployment } from '../deployment';
@@ -48,6 +49,7 @@ type Run =
   | { readonly status: 'idle' }
   | { readonly status: 'running'; readonly startedAt: number; readonly controller: AbortController }
   | { readonly status: 'success' }
+  | { readonly status: 'cancelled' }
   | { readonly status: 'error'; readonly error: unknown };
 
 function fieldId(key: string): string {
@@ -206,7 +208,11 @@ function ParameterField({
         </label>
       )}
       <details className="field-help">
-        <summary>Reference assumption</summary>
+        {/* Named after its field: in a read-only deployment these are the only stops. */}
+        <summary>
+          Reference assumption
+          <span className="visually-hidden"> for {humanise(spec.name)}</span>
+        </summary>
         {spec.default_assumption}
       </details>
     </div>
@@ -228,9 +234,12 @@ function fieldLabel(key: string): string {
 
 function SimulatorForm({
   spec,
+  provenance,
   blocked,
 }: {
   spec: SimulationParametersData;
+  /** Where the reference values come from (the parameters answer's provenance). */
+  provenance: Provenance;
   blocked: string | null;
 }) {
   const [form, setFormState] = useState<FormState>(() => initialForm(spec));
@@ -240,6 +249,7 @@ function SimulatorForm({
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const summary = useRef<HTMLDivElement>(null);
+  const runButton = useRef<HTMLButtonElement>(null);
   const clientErrors = useMemo(() => validate(form, spec), [form, spec]);
   const errors: FieldErrors = { ...(touched ? clientErrors : {}), ...serverErrors };
   const changed = changedFields(form, spec);
@@ -273,6 +283,12 @@ function SimulatorForm({
     [run],
   );
 
+  // A cancelled run gives the focus back to the button that started it (the Cancel button
+  // is gone).
+  useEffect(() => {
+    if (run.status === 'cancelled') runButton.current?.focus();
+  }, [run.status]);
+
   const submit = async (event: React.SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (disabled || running) return;
@@ -293,7 +309,7 @@ function SimulatorForm({
       setRun({ status: 'success' });
     } catch (error) {
       if (error instanceof ApiError && error.kind === 'aborted') {
-        setRun({ status: 'idle' });
+        setRun({ status: 'cancelled' });
         return;
       }
       // Only the API's input errors (422) name fields of the form; a contract error's
@@ -324,8 +340,9 @@ function SimulatorForm({
           <div className="panel-title">
             <h2 id="sim-form-title">Hypothetical inputs</h2>
             <p className="subtitle">
-              Start from the reference configuration and change what you want to explore. Only
-              changed values are sent; the rest keep their reference value.
+              {disabled
+                ? 'The reference configuration and the range of each input. Running simulations is not available in this deployment.'
+                : 'Start from the reference configuration and change what you want to explore. Only changed values are sent; the rest keep their reference value.'}
             </p>
             <HypotheticalTag />
           </div>
@@ -478,12 +495,26 @@ function SimulatorForm({
           {spec.notes.join(' ')} Legacy demand percentile:{' '}
           {formatNumber(spec.legacy_demand_percentile_requests_per_day, 2)} requests/day.
         </p>
+        <ProvenanceFooter provenance={provenance} />
+        {/* Above the sticky bar, not in it: a long list of changes would make the bar taller
+            than the room kept for it, and it would cover the focused field. */}
+        {!disabled && (
+          <p className="small secondary">
+            {changed.length === 0
+              ? 'No change: this runs the reference configuration.'
+              : `${changed.length} ${changed.length === 1 ? 'change' : 'changes'} from the reference: ${changed.map((key) => fieldLabel(key)).join(', ')}.`}
+          </p>
+        )}
         <div className="sim-actions" data-disabled={disabled ? 'true' : undefined}>
+          {/* While its run is on the server the button keeps the focus (aria-disabled, the
+              submit handler ignores it): a disabled button would drop it to the page. */}
           <button
+            ref={runButton}
             type="submit"
             className="button"
             data-variant="primary"
-            disabled={disabled || running}
+            disabled={disabled}
+            aria-disabled={running ? true : undefined}
           >
             {running ? 'Running…' : 'Run simulation'}
           </button>
@@ -516,14 +547,16 @@ function SimulatorForm({
             ) : running ? (
               // The counter is for sight only: a screen reader hears one announcement.
               <span aria-hidden="true">Solving on the server… {(elapsed / 1000).toFixed(1)} s</span>
-            ) : changed.length === 0 ? (
-              'No change: this runs the reference configuration.'
-            ) : (
-              `${changed.length} ${changed.length === 1 ? 'change' : 'changes'} from the reference: ${changed.map((key) => fieldLabel(key)).join(', ')}.`
-            )}
+            ) : run.status === 'cancelled' ? (
+              'Simulation cancelled.'
+            ) : null}
           </span>
           <span className="visually-hidden" aria-live="polite">
-            {running ? 'Running the simulation on the server.' : ''}
+            {running
+              ? 'Running the simulation on the server.'
+              : run.status === 'cancelled'
+                ? 'Simulation cancelled.'
+                : ''}
           </span>
         </div>
       </form>
@@ -554,6 +587,16 @@ function SimulatorForm({
 function SimulationError({ error }: { error: unknown }) {
   const { title, detail } = describeError(error);
   const api = error instanceof ApiError ? error : null;
+  // An error answer from the API: no run reached a result (one the solver could not certify
+  // has none either: it ran, and gave no result). An answer the dashboard refused (contract,
+  // integrity), or one that never arrived (timeout, network), may come from a run the server
+  // completed: only its result is not shown.
+  const outcome =
+    api?.code === 'simulation_failed'
+      ? 'No simulation result'
+      : api?.kind === 'http'
+        ? 'Simulation not run'
+        : 'Simulation result not shown';
   let explanation: string | null = null;
   if (api?.code === 'simulation_timeout')
     explanation =
@@ -578,7 +621,9 @@ function SimulationError({ error }: { error: unknown }) {
     explanation = 'The proxy limits how many simulations one client can run per minute.';
   return (
     <div className="state" data-kind="error" role="alert">
-      <p className="state-title">Simulation not run: {title}</p>
+      <p className="state-title">
+        {outcome}: {title}
+      </p>
       <p>{detail}</p>
       {explanation !== null && <p>{explanation}</p>}
       {api?.requestId != null && <p className="request-id">Request id {api.requestId}</p>}
@@ -741,13 +786,16 @@ export default function Simulator() {
         ))}
       <Callout tone="warning" title="Simulations are exploratory, not operational advice">
         <p>
-          Every input is HYPOTHETICAL and the demand is an unvalidated point forecast. A simulation
-          shows how the model responds to assumptions; it is not a validated staffing, budget or
-          service-capacity recommendation.
+          Every input is HYPOTHETICAL. The demand is an unvalidated point forecast or, if chosen, a
+          per-day M3 quantile stress path from the FAILED_CALIBRATION intervals, which carries no
+          probability. A simulation shows how the model responds to assumptions; it is not a
+          validated staffing, budget or service-capacity recommendation.
         </p>
       </Callout>
       <Async resource={parameters} label="the simulation inputs">
-        {({ data }) => <SimulatorForm spec={data} blocked={simulationsBlocked} />}
+        {({ data, provenance }) => (
+          <SimulatorForm spec={data} provenance={provenance} blocked={simulationsBlocked} />
+        )}
       </Async>
     </>
   );

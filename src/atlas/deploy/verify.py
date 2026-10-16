@@ -549,12 +549,12 @@ def _dashboard(
     found: dict[str, str] = {}
     try:
         for path in sorted(published.rglob("*")):
-            if path.is_symlink() or not path.is_file():
-                if not path.is_dir():
-                    found[path.name] = "not a regular file"
-                continue
             relative = path.relative_to(published).as_posix()
-            if relative != MANIFEST_NAME:
+            # As publishing checks it (atlas.dashboard.verify_build): a link, also to a
+            # directory, is never part of the copy; a plain directory holds its files.
+            if path.is_symlink() or not (path.is_file() or path.is_dir()):
+                found[relative] = "not a regular file"
+            elif path.is_file() and relative != MANIFEST_NAME:
                 found[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError as exc:
         found = {"<unreadable>": type(exc).__name__}

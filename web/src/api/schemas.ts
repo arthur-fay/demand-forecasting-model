@@ -312,6 +312,7 @@ export const IntervalLevelEvidence = z.object({
   effective_sample_size: z.nullable(finite),
   evidence_sufficient: z.nullable(z.boolean()),
   rejected: z.nullable(z.boolean()),
+  test_computed: z.nullable(z.boolean()),
   tolerance_pct: z.nullable(finite),
   scopes_outside_tolerance: z.array(z.string()),
 });
@@ -493,6 +494,7 @@ const Programme = z.object({
     z.object({ holds: z.boolean(), duality_gap: z.nullable(finite), primal: z.nullable(finite) }),
   ),
   independent_check_passed: z.nullable(z.boolean()),
+  constraints_not_checked: z.array(z.string()),
   evaluation: z.nullable(PlanEvaluation),
 });
 export type Programme = z.infer<typeof Programme>;

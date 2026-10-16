@@ -21,7 +21,7 @@ import {
 import { setQueryParam, useQueryParam } from '../router';
 import { PageHeader } from './common';
 import { useComparison, useScenario, useScenarios } from './data';
-import { FeasibilityTag, PlanOutcome } from './plan';
+import { FeasibilityTag, formatSignedUsd, PlanOutcome } from './plan';
 
 const METRICS = [
   { value: 'discretionary_cost', label: 'Discretionary cash' },
@@ -110,7 +110,7 @@ function ComparisonChart({ data, metric }: { data: ComparisonData; metric: Metri
 function ComparisonTable({ data }: { data: ComparisonData }) {
   return (
     <DataTable
-      caption={`Every scenario against the baseline (${data.baseline_scenario_id}). A difference is shown only when both plans meet every constraint.`}
+      caption={`Every scenario against the baseline (${data.baseline_scenario_id}). A difference (this scenario minus the baseline) is shown only when both plans meet every constraint.`}
       rows={data.rows}
       rowKey={(row) => row.scenario_id}
       highlight={(row) => row.scenario_id === data.baseline_scenario_id}
@@ -143,14 +143,14 @@ function ComparisonTable({ data }: { data: ComparisonData }) {
           ]),
         {
           key: 'diff',
-          header: 'Cash vs baseline',
+          header: `Cash vs baseline (${formatUnit(data.units.discretionary_cost ?? '')})`,
           numeric: true,
           cell: (row) => {
             const value = row.difference_from_baseline.discretionary_cost ?? null;
             return value === null ? (
               <span className="muted">not comparable</span>
             ) : (
-              formatSigned(value)
+              formatSignedUsd(value)
             );
           },
         },
@@ -181,7 +181,7 @@ function FeasibilityPanel() {
 function FeasibilityTable({ data }: { data: ScenarioListData }) {
   return (
     <DataTable
-      caption={`${data.scenarios.length} reference scenarios over ${data.horizon_days} days from ${formatDate(data.first_date)}`}
+      caption={`${data.scenarios.length} reference scenarios over ${data.horizon_days} days from ${formatDate(data.first_date)}. Binding constraints are read from each reported plan (no slack left); terminal_backlog_violated marks a DIAGNOSTIC plan above its target and is not a binding limit.`}
       rows={data.scenarios}
       rowKey={(s) => s.scenario_id}
       columns={[
@@ -193,9 +193,24 @@ function FeasibilityTable({ data }: { data: ScenarioListData }) {
             <a
               href={`/decisions?scenario=${s.scenario_id}#scenario-detail`}
               onClick={(event) => {
+                // A modified click keeps the browser's own behaviour (a new tab or window).
+                if (
+                  event.defaultPrevented ||
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                )
+                  return;
                 event.preventDefault();
                 setQueryParam('scenario', s.scenario_id);
-                document.getElementById('scenario-detail')?.scrollIntoView({ block: 'start' });
+                // The focus moves with the view, so the next Tab and a screen reader continue
+                // from the detail rather than from this table.
+                const heading = document.getElementById('scenario-detail');
+                heading?.setAttribute('tabindex', '-1');
+                heading?.scrollIntoView({ block: 'start' });
+                heading?.focus({ preventScroll: true });
               }}
             >
               {humanise(s.scenario_id)}
@@ -209,14 +224,19 @@ function FeasibilityTable({ data }: { data: ScenarioListData }) {
           cell: (s) => (
             <>
               <FeasibilityTag feasibility={s.feasibility} />{' '}
-              {s.feasibility === 'strict' && <EquallyScoredTag unique={s.optimal_plan_unique} />}
+              <EquallyScoredTag unique={s.optimal_plan_unique} />
             </>
           ),
         },
         {
           key: 'binding',
           header: 'Binding constraints',
-          cell: (s) => s.binding_constraints.join(', '),
+          cell: (s) =>
+            s.binding_constraints.length === 0 ? (
+              <span className="muted">none reported</span>
+            ) : (
+              s.binding_constraints.join(', ')
+            ),
         },
         {
           key: 'why',
@@ -287,7 +307,12 @@ function ScenarioDetailPanel() {
           {() => null}
         </Async>
       ) : shown === undefined ? (
-        <Loading label="the scenario" />
+        <Loading
+          label="the scenario"
+          slow={[scenarios.snapshot, detail.snapshot].some(
+            (snapshot) => snapshot.status === 'loading' && snapshot.slow,
+          )}
+        />
       ) : (
         <div className="stack-4" data-stale={detail.data === undefined ? 'true' : undefined}>
           <div className="stack-2">
@@ -332,6 +357,7 @@ function ScenarioDetailPanel() {
             outcome={shown.data.outcome}
             plans={shown.data.plans}
             daily={shown.data.daily_plans}
+            headingLevel={4}
           />
           <details className="disclosure">
             <summary>
@@ -432,9 +458,11 @@ function TradeoffsPanel() {
         <p>
           Every result is <strong>certified</strong>: the solver's answer is checked for primal and
           dual feasibility with a zero duality gap, and every constraint of the plan is re-checked
-          independently. That makes each plan the exact optimum of an <em>assumed</em> problem. It
-          does not make the assumptions true: the demand is an unvalidated point forecast treated as
-          known, and staffing, productivity, costs and budget are illustrative.
+          independently (a DIAGNOSTIC plan against every constraint but the terminal target it
+          misses). That makes each plan the exact optimum of an <em>assumed</em> problem. It does
+          not make the assumptions true: the demand (the unvalidated point forecast, or a labelled
+          stress path) is treated as known, and staffing, productivity, costs and budget are
+          illustrative.
         </p>
       </div>
     </Panel>
@@ -459,7 +487,8 @@ export default function Decisions() {
         <p>
           ATLAS has no data on NYC staffing, productivity, operating costs or budgets. Every such
           value below is illustrative and labelled HYPOTHETICAL, and the demand is the unvalidated
-          M2 point forecast.
+          M2 point forecast or, where labelled, a per-day M3 quantile stress path from the
+          FAILED_CALIBRATION intervals, with no probability.
         </p>
       </Callout>
       <ComparisonPanel />

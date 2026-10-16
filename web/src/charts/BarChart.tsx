@@ -51,15 +51,18 @@ export function BarChart({
   const [ref, width] = useWidth<HTMLDivElement>();
   const narrow = width < 520;
   const labelWidth = narrow ? 0 : (requestedLabelWidth ?? Math.min(240, Math.round(width * 0.34)));
-  const labelBand = narrow ? 16 : 0;
+  // On a narrow screen the category sits above its bar, and a suffix (a role, a status) on
+  // its own line below it: one line for both would run past the chart.
+  const suffixLine = narrow && rows.some((row) => row.suffix);
+  const labelBand = narrow ? (suffixLine ? 30 : 16) : 0;
   const rowHeight = ROW + labelBand;
   const height = rows.length * rowHeight + 8;
   const values = rows.map((r) => r.value ?? 0);
   const low = Math.min(0, ...values);
   const high = Math.max(0, ...values);
   // Room for the value text at the bar's tip, measured from the longest label (about 7 px a
-  // character), so a label never overflows the chart. On a narrow screen the suffix moves to
-  // the category line.
+  // character), so a label never overflows the chart. On a narrow screen the suffix has a
+  // line of its own.
   const valueText = (row: BarRow) =>
     `${row.value === null ? 'not reported' : formatValue(row.value)}${row.suffix && !narrow ? ` · ${row.suffix}` : ''}`;
   const longest = rows.reduce((max, row) => Math.max(max, valueText(row).length), 0);
@@ -121,10 +124,20 @@ export function BarChart({
               return (
                 <g key={row.id} opacity={active === null || active === index ? 1 : 0.55}>
                   {narrow ? (
-                    <text className="bar-category" x={4} y={(band(row.id) ?? 0) + 12}>
-                      {row.label}
-                      {row.suffix ? ` · ${row.suffix}` : ''}
-                    </text>
+                    <>
+                      <text className="bar-category" x={4} y={(band(row.id) ?? 0) + 12}>
+                        {row.label}
+                      </text>
+                      {row.suffix && (
+                        <text
+                          className="bar-category bar-suffix"
+                          x={4}
+                          y={(band(row.id) ?? 0) + 26}
+                        >
+                          {row.suffix}
+                        </text>
+                      )}
+                    </>
                   ) : (
                     <text
                       className="bar-category"

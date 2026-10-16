@@ -26,6 +26,19 @@ test('every chart has a table twin', async ({ page }) => {
   await expect(page.getByRole('table')).toHaveCount(4);
 });
 
+test('the current page stays marked in forced colours', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await open(page, '/forecasting', 'Forecasting');
+  // Forced colours remove its wash and its inset bar: a border in the system's highlight
+  // colour marks it instead, and it alone.
+  const nav = page.getByRole('navigation', { name: 'Dashboard sections' });
+  const current = nav.locator('a[aria-current="page"]');
+  await expect(current).toHaveText(/Forecasting/);
+  await expect(current).toHaveCSS('border-left-style', 'solid');
+  await expect(current).toHaveCSS('border-left-width', '3px');
+  await expect(nav.getByRole('link', { name: /Overview/ })).toHaveCSS('border-left-style', 'none');
+});
+
 test('a simulation result and a failed run have no WCAG 2.2 AA violation', async ({ page }) => {
   await open(page, '/simulator', 'Hypothetical simulator');
   await page.getByRole('button', { name: 'Run simulation' }).click();

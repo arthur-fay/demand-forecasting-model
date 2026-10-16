@@ -305,11 +305,22 @@ def make_tls(directory: Path, domain: str = "atlas.example.org") -> tuple[Path, 
     return ca, cert, key
 
 
+#: The types by extension that Ubuntu's nginx.conf gives every site at http level
+#: (``include /etc/nginx/mime.types``), the ones a site's paths can end with: an excerpt,
+#: so that the tests do not depend on that file being installed.
+DISTRIBUTION_TYPES = (
+    "types { text/html html; text/css css; application/javascript js; "
+    "application/json json; image/svg+xml svg; image/x-icon ico; image/png png; "
+    "font/woff2 woff2; }"
+)
+
+
 class Nginx:
     """A real nginx serving a rendered ATLAS site on loopback ports, every path temporary.
 
     The rendered text is used as it is, except the listen addresses (loopback test ports)
-    and the log directory: everything under test is the production configuration.
+    and the log directory: everything under test is the production configuration, inside
+    an http block like the distribution's (:data:`DISTRIBUTION_TYPES`).
     """
 
     def __init__(
@@ -348,6 +359,7 @@ class Nginx:
             f"error_log {directory / 'logs' / 'main-error.log'} warn;\n"
             "events { worker_connections 128; }\n"
             "http {\n"
+            f"  {DISTRIBUTION_TYPES}\n"
             "  default_type application/octet-stream;\n"
             f"  client_body_temp_path {temp}/body; proxy_temp_path {temp}/proxy;\n"
             f"  fastcgi_temp_path {temp}/fastcgi; uwsgi_temp_path {temp}/uwsgi;\n"

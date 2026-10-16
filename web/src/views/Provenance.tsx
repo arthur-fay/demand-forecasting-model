@@ -10,9 +10,12 @@ import { useDeployment } from '../deployment';
 import { formatDate, formatInteger, humanise, shortHash } from '../lib/format';
 import { PageHeader } from './common';
 import {
+  useComparison,
   useForecast,
+  useHistory,
   useIntervals,
   useModels,
+  useScenario,
   useScenarios,
   useSimulationParameters,
   useUncertaintyStatus,
@@ -147,22 +150,37 @@ function SystemPanel() {
 }
 
 function SourcesPanel() {
+  const scenarios = useScenarios();
+  // One scenario's detail (the one Decisions opens first) names the daily plans' file.
+  const scenario = scenarios.data?.data.scenarios[0]?.scenario_id ?? null;
+  const detail = useScenario(scenario);
   const resources = [
+    useHistory(null),
     useModels(),
     useForecast(),
     useUncertaintyStatus(),
     useIntervals(),
-    useScenarios(),
+    scenarios,
+    useComparison(),
+    detail,
     useSimulationParameters(),
   ];
   const blocks: ProvenanceBlock[] = resources.flatMap((r) =>
     r.data === undefined ? [] : [r.data.provenance],
   );
+  // A run can be cited by several answers, each naming the files it used: keep them all.
   const sources = new Map<string, Source>();
   for (const block of blocks)
-    for (const source of block.sources) sources.set(`${source.kind}:${source.path}`, source);
+    for (const source of block.sources) {
+      const key = `${source.kind}:${source.path}`;
+      const seen = sources.get(key);
+      sources.set(key, seen ? { ...seen, files: { ...seen.files, ...source.files } } : source);
+    }
+  // The detail waits for the scenario list: idle without an id is not loading.
   const loading = resources.some(
-    (r) => r.snapshot.status === 'loading' || r.snapshot.status === 'idle',
+    (r) =>
+      r.snapshot.status === 'loading' ||
+      (r.snapshot.status === 'idle' && (r !== detail || scenario !== null)),
   );
   const failed = resources.filter((r) => r.snapshot.status === 'error').length;
   const first = blocks[0];

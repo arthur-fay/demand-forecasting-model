@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { open } from './helpers';
+import { clean, open, watch } from './helpers';
 
 const json = (
   status: number,
@@ -54,7 +54,7 @@ test('a network failure is reported, never replaced by numbers', async ({ page }
   ).toBeVisible();
 });
 
-test('an answer that breaks the contract is refused', async ({ page }) => {
+test('an answer claiming a validated recommendation is refused (integrity)', async ({ page }) => {
   await page.route('**/api/v1/models', async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as { integrity: Record<string, unknown> };
@@ -63,6 +63,26 @@ test('an answer that breaks the contract is refused', async ({ page }) => {
   });
   await page.goto('/forecasting');
   await expect(page.getByText(/Answer refused/).first()).toBeVisible();
+});
+
+test('an answer that breaks the contract is refused, under the dashboard policy', async ({
+  page,
+}) => {
+  const recorded = await watch(page);
+  await page.route('**/api/v1/uncertainty/intervals?**', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: Record<string, unknown> };
+    body.data.interval_status = 'calibrated'; // not a status of the contract
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto('/uncertainty');
+  await expect(page.getByText(/Unexpected answer from the API/).first()).toBeVisible();
+  await expect(page.getByText('data.interval_status').first()).toBeVisible();
+  await expect(
+    page.getByText(/No numbers are shown in place of the missing ones/).first(),
+  ).toBeVisible();
+  // The refusal itself (zod's issues, built without eval) breaks no policy.
+  await clean(recorded);
 });
 
 for (const [status, code, text] of [

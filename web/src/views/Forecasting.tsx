@@ -163,6 +163,11 @@ function ProjectionPanel() {
                   {history.data.data.snapshot_id} snapshot.
                 </p>
               )}
+              <Evidence
+                integrity={shown.integrity}
+                provenance={shown.provenance}
+                title="What the observed numbers are"
+              />
             </div>
           )
         }
@@ -211,34 +216,51 @@ function ProjectionTable({
   );
 }
 
+/**
+ * Every role each model holds, in words (a role is never told by colour alone): the
+ * recommended model can also be the best baseline, which can be missing.
+ */
+function modelRoles(models: ModelsData): Map<string, string> {
+  const roles = new Map<string, string>();
+  for (const [id, role] of [
+    [models.recommended_model, 'recommended'],
+    [models.selection.best_baseline, 'best baseline'],
+    [models.reference_model, 'reference'],
+  ] as const) {
+    if (id === null) continue;
+    const known = roles.get(id);
+    roles.set(id, known === undefined ? role : `${known}, ${role}`);
+  }
+  return roles;
+}
+
+/** A model's name with its roles, e.g. "ATLAS linear regression (recommended)". */
+function nameWithRoles(id: string, roles: ReadonlyMap<string, string>): string {
+  const role = roles.get(id);
+  return role === undefined ? modelName(id) : `${modelName(id)} (${role})`;
+}
+
 function chosenModels(
   models: ModelsData,
 ): { id: string; label: string; color: string; style: 'solid' | 'dashed' | 'dotted' }[] {
-  // Each model keeps its colour and line pattern (never colour alone) and every role it
-  // holds: the recommended model can also be the best baseline, which can be missing.
+  // Each model keeps its colour and line pattern (never colour alone) and every role it holds.
   const slots = [
-    [models.recommended_model, 'recommended', 'var(--series-1)', 'solid'],
-    [models.selection.best_baseline, 'best baseline', 'var(--series-2)', 'dashed'],
-    [models.reference_model, 'reference', 'var(--series-3)', 'dotted'],
+    [models.recommended_model, 'var(--series-1)', 'solid'],
+    [models.selection.best_baseline, 'var(--series-2)', 'dashed'],
+    [models.reference_model, 'var(--series-3)', 'dotted'],
   ] as const;
+  const roles = modelRoles(models);
   const chosen: {
     id: string;
-    roles: string[];
+    label: string;
     color: string;
     style: 'solid' | 'dashed' | 'dotted';
   }[] = [];
-  for (const [id, role, color, style] of slots) {
-    if (id === null) continue;
-    const known = chosen.find((c) => c.id === id);
-    if (known) known.roles.push(role);
-    else chosen.push({ id, roles: [role], color, style });
+  for (const [id, color, style] of slots) {
+    if (id === null || chosen.some((c) => c.id === id)) continue;
+    chosen.push({ id, label: nameWithRoles(id, roles), color, style });
   }
-  return chosen.map(({ id, roles, color, style }) => ({
-    id,
-    label: `${modelName(id)} (${roles.join(', ')})`,
-    color,
-    style,
-  }));
+  return chosen;
 }
 
 function HorizonPanel() {
@@ -247,7 +269,6 @@ function HorizonPanel() {
   const [view, setView] = useState<View>('chart');
   const metrics = useHorizonMetrics(period);
   const models = useModels();
-  const shown = metrics.data ?? metrics.previous;
   return (
     <Panel
       title="Accuracy by forecast horizon"
@@ -268,24 +289,20 @@ function HorizonPanel() {
         </Callout>
       )}
       <Async resource={models} label="the models">
-        {(m) =>
-          metrics.snapshot.status === 'error' ? (
-            <Async resource={metrics} label="the backtest metrics">
-              {() => null}
-            </Async>
-          ) : shown === undefined ? (
-            <Loading label="the backtest metrics" />
-          ) : (
-            <HorizonContent
-              rows={shown.data.rows.filter((r) => r.period === period)}
-              models={m.data}
-              metric={metric}
-              view={view}
-              stale={metrics.data === undefined}
-              evidence={<Evidence integrity={shown.integrity} provenance={shown.provenance} />}
-            />
-          )
-        }
+        {(m) => (
+          // Each period is its own answer: another period's rows are never shown in its place.
+          <Async resource={metrics} label="the backtest metrics">
+            {(shown) => (
+              <HorizonContent
+                rows={shown.data.rows.filter((r) => r.period === period)}
+                models={m.data}
+                metric={metric}
+                view={view}
+                evidence={<Evidence integrity={shown.integrity} provenance={shown.provenance} />}
+              />
+            )}
+          </Async>
+        )}
       </Async>
     </Panel>
   );
@@ -296,14 +313,12 @@ function HorizonContent({
   models,
   metric,
   view,
-  stale,
   evidence,
 }: {
   rows: readonly MetricRow[];
   models: ModelsData;
   metric: Metric;
   view: View;
-  stale: boolean;
   evidence: React.ReactNode;
 }) {
   const chosen = chosenModels(models);
@@ -334,7 +349,6 @@ function HorizonContent({
           formatTick={formatCompact}
           formatX={(x) => `Horizon ${x} (${x === 1 ? '1 day' : `${x} days`} after the origin)`}
           xTickFormat={(x) => `${x}`}
-          stale={stale}
           height={260}
           {...(metric === 'bias'
             ? {}
@@ -389,6 +403,24 @@ function ModelComparisonPanel() {
               (a.mae_days_1_30_by_period[period] ?? Infinity) -
               (b.mae_days_1_30_by_period[period] ?? Infinity),
           );
+          const roles = modelRoles(data);
+          const bars = ranked.map((m) => {
+            const role = roles.get(m.model_id);
+            return {
+              id: m.model_id,
+              label: modelName(m.model_id),
+              value: m.mae_days_1_30_by_period[period] ?? null,
+              color:
+                m.model_id === data.recommended_model
+                  ? 'var(--series-1)'
+                  : m.model_id === data.selection.best_baseline
+                    ? 'var(--series-2)'
+                    : 'var(--neutral-mark)',
+              notes: [`${m.family}, ${m.procedure} forecasts`, m.description],
+              // The role in words after the value (and in the reading), not only the colour.
+              ...(role !== undefined ? { suffix: role } : {}),
+            };
+          });
           return (
             <div className="stack-3">
               <BarChart
@@ -396,32 +428,24 @@ function ModelComparisonPanel() {
                 summary={ranked
                   .map(
                     (m) =>
-                      `${modelName(m.model_id)}: ${formatInteger(m.mae_days_1_30_by_period[period] ?? null)} requests/day`,
+                      `${nameWithRoles(m.model_id, roles)}: ${formatInteger(m.mae_days_1_30_by_period[period] ?? null)} requests/day`,
                   )
                   .join('; ')}
                 valueLabel="MAE, horizons 1-30"
                 formatValue={(v) => formatInteger(v)}
-                rows={ranked.map((m) => ({
-                  id: m.model_id,
-                  label: modelName(m.model_id),
-                  value: m.mae_days_1_30_by_period[period] ?? null,
-                  color:
-                    m.model_id === data.recommended_model
-                      ? 'var(--series-1)'
-                      : m.model_id === data.selection.best_baseline
-                        ? 'var(--series-2)'
-                        : 'var(--neutral-mark)',
-                  notes: [`${m.family}, ${m.procedure} forecasts`, m.description],
-                }))}
-                legend={[
-                  { label: 'Recommended model', color: 'var(--series-1)', kind: 'swatch' },
-                  {
-                    label: 'Best baseline (development)',
-                    color: 'var(--series-2)',
-                    kind: 'swatch',
-                  },
-                  { label: 'Other models', color: 'var(--neutral-mark)', kind: 'swatch' },
-                ]}
+                rows={bars}
+                // Only the colours drawn: a model holding two roles has the first one's colour.
+                legend={(
+                  [
+                    { label: 'Recommended model', color: 'var(--series-1)', kind: 'swatch' },
+                    {
+                      label: 'Best baseline (development)',
+                      color: 'var(--series-2)',
+                      kind: 'swatch',
+                    },
+                    { label: 'Other models', color: 'var(--neutral-mark)', kind: 'swatch' },
+                  ] as const
+                ).filter((item) => bars.some((bar) => bar.color === item.color))}
               />
               <Async resource={buckets} label="the metrics by horizon bucket">
                 {(b) => (
@@ -438,7 +462,7 @@ function ModelComparisonPanel() {
                             key: 'model',
                             header: 'Model',
                             rowHeader: true,
-                            cell: (r) => modelName(r.model_id),
+                            cell: (r) => nameWithRoles(r.model_id, roles),
                           },
                           {
                             key: 'bucket',

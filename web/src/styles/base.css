@@ -118,4 +118,17 @@ table {
   .nav-link[aria-current='page'] {
     border-left: 3px solid Highlight;
   }
+
+  /* The chosen option of a segmented control (its wash is forced away, the radio is
+     transparent): not told by its weight alone. */
+  .segmented label:has(input:checked) {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  /* The line key of the observed and projected tags (its background is forced away). */
+  .tag-key {
+    background: none;
+    border-top: 3px solid CanvasText;
+  }
 }

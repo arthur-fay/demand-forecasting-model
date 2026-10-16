@@ -34,7 +34,10 @@ export function RangeDotChart({
   formatValue: (value: number) => string;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
-  const labelWidth = width < 520 ? 64 : 120;
+  // Room for the longest row label (12 px text: about 7 px a character, which leaves room
+  // for user text spacing), at least the usual column.
+  const longest = rows.reduce((max, row) => Math.max(max, row.label.length), 0);
+  const labelWidth = Math.max(width < 520 ? 64 : 120, Math.ceil(longest * 7) + 16);
   const height = rows.length * ROW + 28;
   const x = scaleLinear()
     .domain([domain[0], domain[1]])

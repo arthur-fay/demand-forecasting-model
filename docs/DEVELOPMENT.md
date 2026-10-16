@@ -303,10 +303,11 @@ run subsets with `--no-cov`, for example `uv run pytest -m integration --no-cov`
   `ATLAS_E2E_CONTAINER=1 uv run pytest tests/test_m6_container.py --no-cov -v` (needs Docker
   and privileges to run a container with systemd; CI runs it in the `deploy-e2e` job).
 
-The dashboard (`web/`, Node.js 22.22.2+ on development machines and CI only) has its own
-checks: `cd web && npm ci && npm run format:check && npm run lint && npm run typecheck &&
-npm test && npm run build && npm run verify:dist && npm run size`, and the browser tests
-`npx playwright test` (they start the API and two nginx stacks; see
+The dashboard (`web/`, Node.js 22.22.2+ or 24.15+ on development machines and CI only) has
+its own checks: `cd web && npm ci && npm run format:check && npm run lint && npm run
+typecheck && npm test && npm run build && npm run verify:dist && npm run size`, and the
+browser tests `npx playwright test` (first `npx playwright install chromium`; they need
+nginx and openssl on `PATH` and start the API and two nginx stacks; see
 [DASHBOARD.md](DASHBOARD.md) section 11). After `npm run build`, commit `web/dist`: CI
 rebuilds it and fails on any difference. `tests/test_m7_fixtures.py` keeps the fixtures of
 the frontend tests identical to the API's answers.

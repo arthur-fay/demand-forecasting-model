@@ -188,17 +188,21 @@ export function ChartSurface({
   stale?: boolean;
   keys?: 'horizontal' | 'vertical';
 }) {
-  const [active, setActive] = useState<number | null>(null);
+  // A reading belongs to the data it was taken on: when new data has another number of
+  // positions it is dropped, never carried over (its index would name another day, or one
+  // past the new end).
+  const [reading, setReading] = useState<{ index: number; count: number } | null>(null);
+  const active = reading?.count === count ? reading.index : null;
   const svgRef = useRef<SVGSVGElement>(null);
   const summaryId = useId();
 
   const select = useCallback(
     (index: number | null) => {
       if (index === null || count === 0) {
-        setActive(null);
+        setReading(null);
         return;
       }
-      setActive(Math.max(0, Math.min(count - 1, index)));
+      setReading({ index: Math.max(0, Math.min(count - 1, index)), count });
     },
     [count],
   );
@@ -219,7 +223,7 @@ export function ChartSurface({
     else if (event.key === 'Home') index = 0;
     else if (event.key === 'End') index = count - 1;
     else if (event.key === 'Escape') {
-      setActive(null);
+      setReading(null);
       return;
     } else return;
     event.preventDefault();
@@ -246,7 +250,7 @@ export function ChartSurface({
         aria-valuetext={content === null ? 'No value selected' : tooltipText(content)}
         onKeyDown={keydown}
         onBlur={() => {
-          setActive(null);
+          setReading(null);
         }}
       >
         <svg
@@ -260,7 +264,7 @@ export function ChartSurface({
           onPointerDown={pointer}
           onPointerLeave={(event) => {
             // A finger lifts and "leaves" at once: keep its reading until the next touch.
-            if (event.pointerType !== 'touch') setActive(null);
+            if (event.pointerType !== 'touch') setReading(null);
           }}
         >
           {children(active)}

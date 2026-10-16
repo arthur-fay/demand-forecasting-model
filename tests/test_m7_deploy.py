@@ -13,7 +13,9 @@ copies of removed releases.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import re
 import stat
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -35,7 +37,7 @@ from atlas.deploy.routes import (
     dashboard_routes,
     load_routes,
 )
-from atlas.deploy.siteconfig import load_config
+from atlas.deploy.siteconfig import RESOURCE_PROFILES, load_config
 from atlas.deploy.verify import Response, Target, Verification, _dashboard
 from tests.conftest import REPO_ROOT
 from tests.m6_helpers import DEPLOY_ENV_PRIVATE, Nginx, make_release, need_tools, write
@@ -123,6 +125,8 @@ def test_the_private_site_serves_the_dashboard_behind_authentication(tmp_path: P
     assert "default-src 'none'; frame-ancestors 'none'" in descriptor
     assert DASHBOARD_CSP not in descriptor
     # Its own rate zone, no looser than twice the API's read limit (before authentication).
+    assert "limit_req_zone $binary_remote_addr zone=atlas_static:10m rate=20r/s;" in site
+    assert all(2 * int(r.read_rate.removesuffix("r/s")) >= 20 for r in RESOURCE_PROFILES.values())
     assert "limit_req zone=atlas_static burst=60 nodelay;" in part
     api = site.split("    # Dashboard (M7)")[0]
     assert DASHBOARD_CSP not in api
@@ -164,6 +168,23 @@ def test_the_site_compresses_text_answers() -> None:
     site = renderer().nginx()
     assert "gzip on;" in site
     assert "gzip_types application/json text/css text/javascript image/svg+xml;" in site
+    # gzip_types compares a location's whole default type: a charset is added by nginx's
+    # charset filter, never written into the type ("text/html; charset=utf-8" is never
+    # compressed).
+    part = dashboard_part(site)
+    defaults = [line.strip() for line in part.splitlines() if "default_type" in line]
+    assert defaults
+    assert all(re.fullmatch(r"default_type [a-z0-9+./-]+;", line) for line in defaults), defaults
+    pages = part.split('location ~ "^/(?:')[1].split("\n    }")[0]
+    assert "default_type text/html;" in pages
+    assert "charset utf-8;" in pages
+
+
+def test_nginx_never_types_its_own_answers_by_the_requested_extension() -> None:
+    """Ubuntu's nginx.conf includes mime.types for every site: without the server's own
+    empty `types`, a JSON error on /x.js or /x.html would be labelled JavaScript or HTML."""
+    server = renderer().nginx().split("    listen 443 ssl;")[1]
+    assert "    types { }\n    default_type application/json;\n" in server
 
 
 @pytest.mark.parametrize("env", [DEPLOY_ENV_PRIVATE, PUBLIC])
@@ -179,6 +200,7 @@ def test_nginx_accepts_the_site_with_the_dashboard(tmp_path: Path, env: str) -> 
     site = Renderer.for_release(load_config(text, layout), layout, REPO_ROOT).nginx()
     result = Nginx(tmp_path / "nginx", site).test()
     assert result.returncode == 0, result.stderr
+    assert "[warn]" not in result.stderr  # e.g. a duplicate MIME type, on every reload
 
 
 # --- Publication --------------------------------------------------------------------------------
@@ -516,10 +538,13 @@ def test_verification_checks_the_published_copy(tmp_path: Path) -> None:
     _dashboard(verification, good_page(), good_descriptor(), record(), target)
     assert verification.ok, verification.render()
     (target / "favicon.svg").unlink()
+    # A link is never part of the copy, a link to a directory included.
+    (target / "assets" / "linked").symlink_to(tmp_path)
     verification = Verification()
     _dashboard(verification, good_page(), good_descriptor(), record(), target)
     assert [c.name for c in verification.failures] == ["published dashboard"]
     assert "favicon.svg" in verification.failures[0].detail
+    assert "assets/linked" in verification.failures[0].detail
 
 
 def test_verify_runs_the_dashboard_check_for_a_release_that_has_one() -> None:
@@ -552,22 +577,80 @@ def test_the_digest_of_the_recorded_index_is_the_built_one() -> None:
     )
 
 
-def test_render_apply_publishes_the_dashboard_its_site_serves(tmp_path: Path) -> None:
-    """`atlas-deploy render --apply` of an exposed site publishes (and verifies) the
-    release's dashboard first, so the site never points at a missing or unverified copy."""
-    import io
-
+def render_apply(root: Path, release_dir: Path) -> tuple[int, str]:
+    """``atlas-deploy render --apply`` in the rehearsal ``root``: its exit code and output."""
     from atlas.deploy import cli
+
+    out = io.StringIO()
+    command = ["--root", str(root), "render", "--release-dir", str(release_dir), "--apply"]
+    return cli.main(command, stdout=out), out.getvalue()
+
+
+@pytest.mark.parametrize("through_current", [False, True])
+def test_render_apply_publishes_the_dashboard_its_site_serves(
+    tmp_path: Path, through_current: bool
+) -> None:
+    """`atlas-deploy render --apply` of an exposed site publishes (and verifies) the
+    release's dashboard first, so the site never points at a missing or unverified copy;
+    /opt/atlas/current names its release."""
     from tests.test_m6_scripts import rehearsal
 
-    root = rehearsal(tmp_path / "host")
-    release = make_dashboard_release(tmp_path / "build")
-    out = io.StringIO()
-    command = ["--root", str(root), "render", "--release-dir", str(release), "--apply"]
-    assert cli.main(command, stdout=out) == 0, out.getvalue()
+    root = rehearsal(tmp_path)
+    release = make_dashboard_release(root)
+    if through_current:
+        (root / "opt/atlas/current").symlink_to(release)
+    code, output = render_apply(root, root / "opt/atlas/current" if through_current else release)
+    assert code == 0, output
     published = root / "opt/atlas/dashboard" / release.name
     build = load_build(release / DIST)
     uid = release.stat().st_uid
     assert check_published(published, build, owner=uid, proxy_gid=None) == []
     site = (root / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
     assert f"root /opt/atlas/dashboard/{release.name};" in site
+
+
+def test_render_apply_publishes_only_an_installed_release_as_recorded(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A directory named like a release elsewhere (a checkout, a copy) is refused, and so
+    is an installed release whose build was rebuilt: what is published is what
+    release.json records, as `activate` checks it. Nothing is published or written."""
+    from tests.test_m6_scripts import rehearsal
+
+    root = rehearsal(tmp_path)
+    elsewhere = make_dashboard_release(tmp_path / "srv")
+    assert render_apply(root, elsewhere)[0] == 2
+    assert "is not an installed release" in capsys.readouterr().err
+    release = make_dashboard_release(root)
+    dist = release / DIST
+    (dist / "index.html").write_text("<!doctype html><p>rebuilt</p>\n", encoding="utf-8")
+    data = (dist / "index.html").read_bytes()
+    document = json.loads((dist / MANIFEST_NAME).read_text("utf-8"))
+    document["files"]["index.html"] = {
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "bytes": len(data),
+    }
+    (dist / MANIFEST_NAME).write_text(json.dumps(document), encoding="utf-8")
+    assert render_apply(root, release)[0] == 2
+    assert "differs from the manifest" in capsys.readouterr().err
+    assert not (root / "opt/atlas/dashboard").exists()
+    assert not (root / "etc/nginx/sites-available/atlas.conf").exists()
+
+
+@pytest.mark.parametrize("command", ["render", "validate", "plan-upgrade"])
+def test_a_malformed_dashboard_manifest_is_an_error_not_a_crash(
+    tmp_path: Path, command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A release whose build file is damaged cannot be rendered: an error naming the release
+    (exit 2), never an internal error (exit 3)."""
+    from atlas.deploy import cli
+    from tests.test_m6_scripts import rehearsal
+
+    root = rehearsal(tmp_path)
+    release = make_dashboard_release(root)
+    (release / DIST / MANIFEST_NAME).write_text('{"format":"atlas-dashboard/1"}', "utf-8")
+    target = [release.name] if command == "plan-upgrade" else ["--release-dir", str(release)]
+    assert cli.main(["--root", str(root), command, *target], stdout=io.StringIO()) == 2
+    error = capsys.readouterr().err
+    assert f"{release}: the dashboard build is invalid: atlas-dashboard.json must" in error
+    assert "internal error" not in error

@@ -242,7 +242,7 @@
   transition: background var(--duration-fast) var(--ease);
 }
 
-.button:hover:not(:disabled) {
+.button:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--surface-sunken);
 }
 
@@ -252,11 +252,14 @@
   color: var(--surface);
 }
 
-.button[data-variant='primary']:hover:not(:disabled) {
+.button[data-variant='primary']:hover:not(:disabled, [aria-disabled='true']) {
   background: color-mix(in srgb, var(--accent) 88%, var(--ink));
 }
 
-.button:disabled {
+/* aria-disabled: unavailable, but keeps the focus (the simulator's Run button while its
+   run is on the server). */
+.button:disabled,
+.button[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -349,6 +352,13 @@
   border-radius: var(--radius-sm);
   background: var(--surface);
   font-variant-numeric: tabular-nums;
+}
+
+/* A field reached from the error summary (or scrolled into view from above) keeps its
+   label in view below the sticky top bar. */
+.field .input,
+.field .select {
+  scroll-margin-top: 2.25rem;
 }
 
 .input:disabled,
@@ -745,6 +755,15 @@ input[type='range'] {
   padding: var(--space-3) 0;
   background: var(--surface);
   border-top: 1px solid var(--hairline);
+}
+
+/* Sticky only where it stays within the scroll padding reserved for it (base.css): on a
+   narrow or short screen its buttons wrap, and a taller bar would hide the focused field
+   (WCAG 2.4.11). */
+@media (max-width: 40rem), (max-height: 32rem) {
+  .sim-actions {
+    position: static;
+  }
 }
 
 .field[data-changed='true'] .field-label > span:first-child {

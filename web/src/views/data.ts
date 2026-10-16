@@ -30,10 +30,9 @@ export const useHistory = (start: string | null) =>
     group: 'history',
   });
 
+/** One answer per period, with no group: another period's rows never stand in for it. */
 export const useHorizonMetrics = (period: string) =>
-  useResource(`metrics:horizon:${period}`, () => api.metrics({ scope: 'horizon', period }), {
-    group: 'metrics-horizon',
-  });
+  useResource(`metrics:horizon:${period}`, () => api.metrics({ scope: 'horizon', period }));
 
 export const useBucketMetrics = () =>
   useResource('metrics:bucket', () => api.metrics({ scope: 'bucket' }));

@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
-from atlas.dashboard import DASHBOARD_HEADERS, DashboardBuild, descriptor
+from atlas.dashboard import DASHBOARD_HEADERS, DashboardBuild, DashboardError, descriptor
 from atlas.deploy.layout import (
     ALERT_SERVICE,
     API_HOST,
@@ -69,7 +69,8 @@ NGINX_LOG_DIR: Final = "/var/log/nginx"
 #: (M7) Per-client limit of the dashboard's static files, in their own zone so that loading
 #: the dashboard (about ten files at once, more with several tabs) never uses up the API's
 #: read limit. nginx applies limits before authentication, so this is also the rate at which
-#: a client without an account can try passwords on these paths: twice the API's, no more.
+#: a client without an account can try passwords on these paths: twice the API's, no more
+#: (the zones add up: 30 requests/s per client in all; the descriptor counts as an API read).
 #: Their connections still count against the per-client connection cap.
 STATIC_RATE: Final = "20r/s"
 STATIC_BURST: Final = 60
@@ -153,6 +154,19 @@ def dashboard_headers(indent: int, hsts_max_age: int, cache_control: str) -> lis
     return [" " * indent + line for line in lines]
 
 
+def file_type(indent: int, content_type: str) -> list[str]:
+    """The type of a dashboard location's one file: the bare type as its default type and
+    the charset added by nginx's charset filter. (A charset inside default_type would be
+    part of the type gzip_types compares, so the file would never be compressed.)"""
+    mime, _, charset = content_type.partition("; charset=")
+    lines = ["types { }", f"default_type {safe('content_type', mime)};"]
+    if charset:
+        lines.append(f"charset {safe('charset', charset)};")
+        if mime != "text/html":  # (always in charset_types: naming it again is a warning)
+            lines.append(f"charset_types {mime};")
+    return [" " * indent + line for line in lines]
+
+
 def descriptor_for(profile: str) -> str:
     """The deployment descriptor of an exposed profile (what the dashboard may do)."""
     if profile == "private":
@@ -184,10 +198,15 @@ class Renderer:
 
     @classmethod
     def for_release(cls, config: DeployConfig, layout: Layout, release_dir: Path) -> Renderer:
-        build = dashboard_build(release_dir)
+        try:
+            build = dashboard_build(release_dir)
+        except DashboardError as exc:
+            raise RenderError(f"{release_dir}: the dashboard build is invalid: {exc}") from exc
+        # The release's own id names its copy, also through a link (/opt/atlas/current).
+        release_id = release_dir.resolve().name
         published = (
-            layout.dashboard(release_dir.name)
-            if valid_release_id(release_dir.name)
+            layout.dashboard(release_id)
+            if valid_release_id(release_id)
             # Rendering from a checkout (no release): its own build directory.
             else PurePosixPath(str(release_dir.resolve() / "web" / "dist"))
         )
@@ -378,8 +397,7 @@ class Renderer:
                         f'    location ~ "{pattern}" {{',
                         method,
                         *serve,
-                        "        types { }",
-                        f'        default_type "{entry.content_type}";',
+                        *file_type(8, entry.content_type),
                         f"        try_files /{safe('dashboard_file', entry.file or '')} =404;",
                         *dashboard_headers(8, hsts, entry.cache_control),
                         "    }",
@@ -420,8 +438,7 @@ class Renderer:
                         f"    location = {safe('dashboard_url', route.url)} {{",
                         method,
                         *serve,
-                        "        types { }",
-                        f'        default_type "{route.content_type}";',
+                        *file_type(8, route.content_type),
                         *dashboard_headers(8, hsts, route.cache_control),
                         "    }",
                     ]

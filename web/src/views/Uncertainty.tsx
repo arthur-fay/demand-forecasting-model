@@ -63,10 +63,11 @@ function StatusPanel() {
             <p>
               <strong>What this means.</strong> A nominal 80 % interval should contain the outcome
               about 80 % of the time, and the evidence for that must be strong enough to rely on.
-              ATLAS pre-registered both conditions before looking at the evaluation period. The
-              bands below are the method's honest output, but they <strong>failed</strong> that
-              test, so they are not decision-grade: no band or probability on this page is a
-              statistical guarantee, and none should be used to size staff or budgets.
+              ATLAS pre-registered the exact criteria, listed below, before looking at the
+              evaluation period. The bands below are the method's honest output, but they{' '}
+              <strong>failed</strong> that test, so they are not decision-grade: no band or
+              probability on this page is a statistical guarantee, and none should be used to size
+              staff or budgets.
             </p>
           </div>
           <Evidence integrity={integrity} provenance={provenance} />
@@ -104,7 +105,16 @@ function BandChartPanel() {
                     intervals={i.data}
                     history={h.data}
                     forecast={f.data}
-                    evidence={<Evidence integrity={i.integrity} provenance={i.provenance} />}
+                    evidence={
+                      <>
+                        <Evidence integrity={i.integrity} provenance={i.provenance} />
+                        <Evidence
+                          integrity={h.integrity}
+                          provenance={h.provenance}
+                          title="What the observed numbers are"
+                        />
+                      </>
+                    }
                   />
                 )}
               </Async>
@@ -218,7 +228,7 @@ function BandChart({
         />
       ) : (
         <DataTable
-          caption={`Marginal quantiles of each projected day (requests/day). Interval status ${status}${calibrated ? '' : ': not calibrated quantiles, no probability to rely on'}.`}
+          caption={`Marginal quantiles of each projected day (requests/day). Interval status ${status}${calibrated ? '' : ': not calibrated quantiles, no probability to rely on'}. The observed days the chart also draws are in the history table on the Forecasting page.`}
           rows={intervals.points}
           rowKey={(p) => p.target_date}
           columns={[
@@ -281,6 +291,11 @@ function CoverageContent({
 }) {
   const [view, setView] = useState<View>('chart');
   const levels = data.interval_levels;
+  const tolerances = levels
+    .filter((l) => l.tolerance_pct !== null)
+    .map((l) => `±${formatNumber(l.tolerance_pct, 0)} pp at ${formatShare(l.level, 0)}`)
+    .join(', ');
+  const outside = levels.filter((l) => l.scopes_outside_tolerance.length > 0);
   const shares = Object.entries(data.evaluation_share_at_or_below_quantile_days_1_30)
     .map(([level, share]) => ({ level: Number(level), share }))
     .filter((row) => Number.isFinite(row.level))
@@ -289,39 +304,54 @@ function CoverageContent({
     <div className="stack-4">
       <div className="chart-toolbar">
         <p className="small secondary">
-          Two conditions, both pre-registered: coverage within tolerance of the nominal level,{' '}
-          <em>and</em> enough independent evidence (an effective sample size of at least 30) to
-          tell.
+          Three conditions, all pre-registered: coverage within tolerance of the nominal level
+          {tolerances !== '' && ` (${tolerances})`} over days 1-30 <em>and</em> in every horizon
+          bucket; a HAC test that does not reject the nominal coverage at 5 %; and enough
+          independent evidence (the test computed, an effective sample size of at least 30). Failing
+          either of the first two is FAILED_CALIBRATION. The chart shows coverage over days 1-30.
         </p>
         <ViewToggle value={view} onChange={setView} label="Interval coverage" />
       </div>
       {view === 'chart' ? (
-        <RangeDotChart
-          label="Observed interval coverage against the nominal level"
-          summary={levels
-            .map(
-              (l) =>
-                `Nominal ${formatShare(l.level, 0)}: observed ${formatShare(l.coverage)} (interval ${formatShare(l.coverage_ci_low)} to ${formatShare(l.coverage_ci_high)}), effective sample size ${formatNumber(l.effective_sample_size, 1)}`,
-            )
-            .join('; ')}
-          rows={levels.map((l) => ({
-            id: String(l.level),
-            label: `${formatShare(l.level, 0)} interval`,
-            value: l.coverage,
-            low: l.coverage_ci_low,
-            high: l.coverage_ci_high,
-            target: l.level,
-            tolerance: l.tolerance_pct === null ? null : l.tolerance_pct / 100,
-            notes: [
-              `Effective sample size ${formatNumber(l.effective_sample_size, 1)}${l.evidence_sufficient === false ? ' (insufficient: fewer than 30)' : ''}`,
-              ...(l.scopes_outside_tolerance.length > 0
-                ? [`Outside tolerance in: ${l.scopes_outside_tolerance.join(', ')}`]
-                : []),
-            ],
-          }))}
-          domain={[0.5, 1]}
-          formatValue={(v) => formatShare(v, 0)}
-        />
+        <div className="stack-2">
+          <RangeDotChart
+            label="Observed interval coverage against the nominal level"
+            summary={levels
+              .map(
+                (l) =>
+                  `Nominal ${formatShare(l.level, 0)}: observed ${formatShare(l.coverage)} over days 1-30 (interval ${formatShare(l.coverage_ci_low)} to ${formatShare(l.coverage_ci_high)}), effective sample size ${formatNumber(l.effective_sample_size, 1)}${l.scopes_outside_tolerance.length > 0 ? `, outside tolerance in ${l.scopes_outside_tolerance.join(', ')}` : ''}`,
+              )
+              .join('; ')}
+            rows={levels.map((l) => ({
+              id: String(l.level),
+              label: `${formatShare(l.level, 0)} interval`,
+              value: l.coverage,
+              low: l.coverage_ci_low,
+              high: l.coverage_ci_high,
+              target: l.level,
+              tolerance: l.tolerance_pct === null ? null : l.tolerance_pct / 100,
+              notes: [
+                `Effective sample size ${formatNumber(l.effective_sample_size, 1)}${l.evidence_sufficient === false ? ' (insufficient: fewer than 30)' : ''}`,
+                ...(l.scopes_outside_tolerance.length > 0
+                  ? [`Outside tolerance in: ${l.scopes_outside_tolerance.join(', ')}`]
+                  : []),
+              ],
+            }))}
+            domain={[0.5, 1]}
+            formatValue={(v) => formatShare(v, 0)}
+          />
+          {/* The buckets are part of the first condition: a dot inside its band is not a pass. */}
+          {outside.length > 0 && (
+            <ul className="notice-list small">
+              {outside.map((l) => (
+                <li key={l.level}>
+                  {formatShare(l.level, 0)} interval: coverage outside tolerance in{' '}
+                  {l.scopes_outside_tolerance.join(', ')}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       ) : (
         <DataTable
           caption="Interval coverage evidence on the evaluation period, horizons 1-30"
@@ -352,6 +382,13 @@ function CoverageContent({
               numeric: true,
               cell: (l) =>
                 l.tolerance_pct === null ? '–' : `±${formatNumber(l.tolerance_pct, 0)} pp`,
+            },
+            {
+              key: 'rejected',
+              header: 'Nominal coverage rejected (HAC test, 5 %)',
+              cell: (l) =>
+                // `rejected` is false when M3 could not compute the test: ask test_computed.
+                l.test_computed !== true ? 'not computed' : l.rejected === true ? 'yes' : 'no',
             },
             {
               key: 'ess',
@@ -437,42 +474,45 @@ function ExceedancePanel() {
       subtitle="M3 also scored the probability that daily demand exceeds a threshold: the recorded statuses"
     >
       <Async resource={status} label="the exceedance statuses">
-        {({ data }) => (
-          <DataTable
-            caption="Exceedance statuses. The capacities are HYPOTHETICAL thresholds, not real capacities; the trailing-180-day 75th percentile is a demand percentile, never a capacity."
-            rows={Object.entries(data.exceedance_status)}
-            rowKey={([name]) => name}
-            columns={[
-              {
-                key: 'name',
-                header: 'Threshold',
-                rowHeader: true,
-                cell: ([name]) => humanise(name),
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                cell: ([, value]) => (
-                  <Tag
-                    tone={
-                      value === 'decision_grade'
-                        ? 'good'
-                        : value === 'failed_calibration'
-                          ? 'critical'
-                          : 'serious'
-                    }
-                  >
-                    {value.toUpperCase()}
-                  </Tag>
-                ),
-              },
-              {
-                key: 'reasons',
-                header: 'Recorded reasons',
-                cell: ([name]) => (data.exceedance_reasons[name] ?? []).join('; '),
-              },
-            ]}
-          />
+        {({ data, provenance }) => (
+          <div className="stack-3">
+            <DataTable
+              caption="Exceedance statuses. The capacities are HYPOTHETICAL thresholds, not real capacities; the trailing-180-day 75th percentile is a demand percentile, never a capacity."
+              rows={Object.entries(data.exceedance_status)}
+              rowKey={([name]) => name}
+              columns={[
+                {
+                  key: 'name',
+                  header: 'Threshold',
+                  rowHeader: true,
+                  cell: ([name]) => humanise(name),
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  cell: ([, value]) => (
+                    <Tag
+                      tone={
+                        value === 'decision_grade'
+                          ? 'good'
+                          : value === 'failed_calibration'
+                            ? 'critical'
+                            : 'serious'
+                      }
+                    >
+                      {value.toUpperCase()}
+                    </Tag>
+                  ),
+                },
+                {
+                  key: 'reasons',
+                  header: 'Recorded reasons',
+                  cell: ([name]) => (data.exceedance_reasons[name] ?? []).join('; '),
+                },
+              ]}
+            />
+            <ProvenanceFooter provenance={provenance} />
+          </div>
         )}
       </Async>
     </Panel>

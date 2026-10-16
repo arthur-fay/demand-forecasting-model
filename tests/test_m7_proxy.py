@@ -15,6 +15,7 @@ import gzip
 import hashlib
 import json
 import ssl
+import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -73,6 +74,7 @@ def test_the_dashboard_needs_an_account(private: tuple[Site, Stack]) -> None:
         reply = site.request("GET", path)
         assert reply.status == 401, path
         assert reply.json()["error"]["code"] == "unauthorized"
+        assert once(reply, "Content-Type") == "application/json", path  # never by extension
 
 
 def test_every_page_is_the_index_with_the_dashboard_policy(private: tuple[Site, Stack]) -> None:
@@ -113,6 +115,13 @@ def test_text_is_compressed_for_clients_that_ask(private: tuple[Site, Stack]) ->
     assert len(reply.body) < script.size / 2
     plain = site.request("GET", script.url, headers=AUTH)
     assert plain.header("Content-Encoding") == []
+    # A page too (from gzip_min_length, 1024 bytes, on), with its type unchanged.
+    index = (BUILD / "index.html").read_bytes()
+    compressed = len(index) >= 1024
+    page = site.request("GET", "/forecasting", headers={**AUTH, "Accept-Encoding": "gzip"})
+    assert once(page, "Content-Type") == "text/html; charset=utf-8"
+    assert page.header("Content-Encoding") == (["gzip"] if compressed else [])
+    assert (gzip.decompress(page.body) if compressed else page.body) == index
 
 
 def test_the_descriptor_lets_the_browser_simulate(private: tuple[Site, Stack]) -> None:
@@ -161,6 +170,7 @@ def test_nothing_else_is_served(private: tuple[Site, Stack], path: str) -> None:
     reply = site.request("GET", path, headers=AUTH)
     assert reply.status == 404, path
     assert reply.json()["error"]["code"] == "not_found"
+    assert once(reply, "Content-Type") == "application/json", path  # never by extension
 
 
 @pytest.mark.parametrize(
@@ -179,6 +189,7 @@ def test_no_path_leaves_the_published_directory(private: tuple[Site, Stack], pat
     reply = site.request("GET", path, headers=AUTH)
     assert reply.status == 400, path
     assert reply.json()["error"]["code"] == "bad_request"
+    assert once(reply, "Content-Type") == "application/json", path
 
 
 def test_an_unlisted_file_or_a_link_is_never_served(private: tuple[Site, Stack]) -> None:
@@ -243,7 +254,13 @@ def test_the_access_log_records_dashboard_requests_without_queries(
     private: tuple[Site, Stack],
 ) -> None:
     site, _ = private
+    before = len(site.log())
     site.request("GET", "/decisions?scenario=reduced_budget", headers=AUTH)
+    # nginx writes the line just after its answer (the client may read the log first): wait
+    # for this request's own line, not for any line that happens to name a page.
+    deadline = time.monotonic() + 5
+    while len(site.log()) <= before and time.monotonic() < deadline:
+        time.sleep(0.05)
     last = site.log()[-1]
     # A page is logged as the file that answered it (try_files), and never with its query.
     assert last["path"] == "/index.html"

@@ -64,7 +64,7 @@ function StatusStrip() {
               return <Stat label="Model against best baseline" value="not reported" />;
             return (
               <Stat
-                label="Model lead over the best baseline (H1)"
+                label="MAE difference, model minus best baseline (H1)"
                 value={formatSigned(h1.mae_difference)}
                 unit="requests/day"
                 tags={
@@ -76,7 +76,7 @@ function StatusStrip() {
                     <Tag tone="neutral">Significance not computed</Tag>
                   )
                 }
-                note={`Interval ${formatSigned(h1.mae_difference_ci_low)} to ${formatSigned(h1.mae_difference_ci_high)}, Holm-adjusted p ${formatP(h1.holm_adjusted_p_value)}.`}
+                note={`Negative means the model is more accurate. Interval ${formatSigned(h1.mae_difference_ci_low)} to ${formatSigned(h1.mae_difference_ci_high)}, Holm-adjusted p ${formatP(h1.holm_adjusted_p_value)}.`}
               />
             );
           }}
@@ -126,7 +126,7 @@ function SnapshotPanel() {
       tags={<Tag tone="observed">Observed</Tag>}
     >
       <Async resource={history} label="the snapshot">
-        {({ data, provenance }) => (
+        {({ data, integrity, provenance }) => (
           <div className="stack-3">
             <dl className="kv">
               <dt>Source</dt>
@@ -152,7 +152,11 @@ function SnapshotPanel() {
               No new data has been extracted since {formatDate(data.snapshot_last_date)}: every view
               describes the frozen snapshot and outputs computed from it.
             </p>
-            <ProvenanceFooter provenance={provenance} />
+            <Evidence
+              integrity={integrity}
+              provenance={provenance}
+              title="What the observed numbers are"
+            />
           </div>
         )}
       </Async>
@@ -287,7 +291,9 @@ function ScenarioPanel() {
                         <EquallyScoredTag unique={s.optimal_plan_unique} />
                       </>
                     ) : (
-                      <DiagnosticTag />
+                      <>
+                        <DiagnosticTag /> <EquallyScoredTag unique={s.optimal_plan_unique} />
+                      </>
                     ),
                 },
                 {
@@ -326,6 +332,14 @@ function LimitationsPanel() {
   const limitations = fromSystem ?? [
     ...new Set([...notices(forecast.data?.integrity), ...notices(scenarios.data?.integrity)]),
   ];
+  // Without the system's own list, the answers whose limitations are missing are named.
+  const missing =
+    fromSystem === undefined
+      ? [
+          ...(forecast.snapshot.status === 'error' ? ['the forecast'] : []),
+          ...(scenarios.snapshot.status === 'error' ? ['the scenarios'] : []),
+        ].join(' and ')
+      : '';
   return (
     <Panel
       title="Warnings and limitations"
@@ -336,16 +350,24 @@ function LimitationsPanel() {
           <p className="muted small">Loading the limitations…</p>
         ) : (
           <p className="small" role="status">
-            The limitations could not be loaded because the API did not answer. No number is shown
-            without them.
+            The limitations could not be loaded
+            {missing !== '' && `: the requests for ${missing} failed (their panels say why)`}. Each
+            number still shown on this page carries its own status label.
           </p>
         )
       ) : (
-        <ul className="notice-list">
-          {limitations.map((text) => (
-            <li key={text}>{text}</li>
-          ))}
-        </ul>
+        <>
+          <ul className="notice-list">
+            {limitations.map((text) => (
+              <li key={text}>{text}</li>
+            ))}
+          </ul>
+          {missing !== '' && (
+            <p className="small" role="status">
+              This list is incomplete: the limitations sent with {missing} could not be loaded.
+            </p>
+          )}
+        </>
       )}
     </Panel>
   );

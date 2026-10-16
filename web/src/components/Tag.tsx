@@ -81,7 +81,7 @@ export function EquallyScoredTag({ unique }: { unique: boolean | null }) {
   return (
     <Tag
       tone="neutral"
-      title="Other plans reach the same optimal score under these HYPOTHETICAL values: one of several equally scored HYPOTHETICAL plans"
+      title="Other plans score the same under these HYPOTHETICAL values: one of several equally scored HYPOTHETICAL plans"
     >
       One of several equally scored
     </Tag>

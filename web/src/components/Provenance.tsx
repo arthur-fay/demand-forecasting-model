@@ -106,13 +106,16 @@ export function Notices({
 export function Evidence({
   integrity,
   provenance,
+  title,
 }: {
   integrity: Integrity;
   provenance: ProvenanceBlock;
+  /** The notices' heading, when a panel shows the evidence of more than one answer. */
+  title?: string;
 }) {
   return (
     <div className="stack-3">
-      <Notices integrity={integrity} />
+      <Notices integrity={integrity} {...(title !== undefined ? { title } : {})} />
       <ProvenanceFooter provenance={provenance} />
     </div>
   );

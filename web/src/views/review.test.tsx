@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { SIMULATION_TIMEOUT_MS } from '../api/endpoints';
 import { App } from '../App';
-import { apiError, DESCRIPTORS, FIXTURES, json, mockApi } from '../test/api';
+import { apiError, DESCRIPTORS, FIXTURES, json, mockApi, type Handler } from '../test/api';
 
 function at(path: string) {
   window.history.replaceState(null, '', path);
@@ -20,15 +20,35 @@ function copy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** An answer that never comes: the request ends only when the client aborts it. */
+const unanswered: Handler = (_url, init) =>
+  new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      reject(new DOMException('aborted', 'AbortError'));
+    });
+  });
+
+/** What the live regions of the page say, as a screen reader hears it (aria-hidden left out). */
+function spoken(): string[] {
+  const regions = document.querySelectorAll(
+    '[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"]',
+  );
+  return [...regions].map((region) => {
+    const clone = region.cloneNode(true) as Element;
+    for (const hidden of clone.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+    return clone.textContent;
+  });
+}
+
 describe('M2: the significance shown is H1, found by name', () => {
   it('is not taken from the first test the API happens to list', async () => {
     const models = copy(FIXTURES.models);
     models.data.primary_tests.reverse(); // H2 (significant) first
     mockApi({ '/api/v1/models': () => json(models) });
     at('/');
-    const tile = (await screen.findByText('Model lead over the best baseline (H1)')).closest(
-      '.stat',
-    ) as HTMLElement;
+    const tile = (
+      await screen.findByText('MAE difference, model minus best baseline (H1)')
+    ).closest('.stat') as HTMLElement;
     expect(within(tile).getByText('Not significant after Holm')).toBeInTheDocument();
     expect(within(tile).queryByText('Significant after Holm')).not.toBeInTheDocument();
   });
@@ -90,25 +110,51 @@ describe('the simulator', () => {
     expect(screen.getByText(/The inputs have changed since this result/)).toBeInTheDocument();
   });
 
-  it('says when it stopped waiting, without blaming the server', async () => {
+  it('waits past every server deadline, then says it stopped waiting without blaming the server', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      mockApi({
-        '/api/v1/simulations': (_url, init) =>
-          new Promise((_resolve, reject) => {
-            init?.signal?.addEventListener('abort', () => {
-              reject(new DOMException('aborted', 'AbortError'));
-            });
-          }),
-      });
+      mockApi({ '/api/v1/simulations': unanswered });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
       at('/simulator');
       await user.click(await screen.findByRole('button', { name: 'Run simulation' }));
+      // The longest deadline the API accepts (ATLAS_API_SIMULATION_TIMEOUT_SECONDS, 120 s;
+      // the deployment's is shorter): the dashboard still waits, so the server's own answer
+      // (504 at its deadline) arrives first.
+      const longest = 120_000;
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(SIMULATION_TIMEOUT_MS + 1000);
+        await vi.advanceTimersByTimeAsync(longest + 1000);
+      });
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      expect(screen.queryByText(/No answer arrived in time/)).not.toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SIMULATION_TIMEOUT_MS - longest);
       });
       expect(await screen.findByText(/No answer arrived in time/)).toBeInTheDocument();
       expect(screen.queryByText(/server stopped the solve/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('announces a run once, not each tick of its counter', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockApi({ '/api/v1/simulations': unanswered });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+      at('/simulator');
+      await user.click(await screen.findByRole('button', { name: 'Run simulation' }));
+      const counter = () => screen.getByText(/Solving on the server… [\d.]+ s/).textContent;
+      const later = async () => {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1000);
+        });
+      };
+      await later();
+      const [shown, heard] = [counter(), spoken()];
+      expect(heard).toContain('Running the simulation on the server.');
+      await later();
+      expect(counter()).not.toBe(shown);
+      expect(spoken()).toEqual(heard);
     } finally {
       vi.useRealTimers();
     }

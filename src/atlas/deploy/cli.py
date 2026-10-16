@@ -32,6 +32,7 @@ from atlas.deploy.layout import PROXY_GROUP, SERVICE_GROUP, Layout, valid_releas
 from atlas.deploy.manifest import (
     ManifestError,
     build_manifest,
+    check_dashboard,
     check_release,
     load_manifest,
     write_manifest,
@@ -280,17 +281,28 @@ def _validate(ctx: Context, args: argparse.Namespace, out: TextIO) -> int:
 
 def _publish_for_site(ctx: Context, renderer: Renderer) -> None:
     """(M7) The site serves the release's published dashboard: publish (and verify) it
-    first. A checkout is not a release; on a server its build is never served."""
-    release, build = renderer.release_dir, renderer.dashboard
+    first. Only an installed release is published (its directory in /opt/atlas/releases,
+    its dashboard as its release.json records it, as activate checks). A checkout is not a
+    release; on a server its build is never served."""
+    release, build = renderer.release_dir.resolve(), renderer.dashboard
     if build is None:
         return
-    if not valid_release_id(release.name):
-        if ctx.rehearsal:
-            return
+    installed = valid_release_id(release.name) and (
+        release == ctx.layout.local(ctx.layout.release(release.name)).resolve()
+    )
+    if not installed:
+        if ctx.rehearsal and not valid_release_id(release.name):
+            return  # a rehearsal of a checkout: its site reads the checkout's own build
         raise DeployError(
             f"{release} is not an installed release: its dashboard is not verified for nginx. "
             "Use --release-dir /opt/atlas/releases/<id>, or atlas-deploy activate <id>."
         )
+    try:
+        problems = check_dashboard(release, load_manifest(release).get("dashboard"))
+    except ManifestError as exc:
+        problems = [str(exc)]
+    if problems:
+        raise DeployError("the dashboard could not be published: " + "; ".join(problems[:5]))
     try:
         publish(
             ctx.layout,

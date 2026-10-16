@@ -224,10 +224,12 @@ See [DASHBOARD.md](DASHBOARD.md).
   production server needs no Node.js. Charts are the dashboard's own SVG (d3-scale and
   d3-shape only), each a keyboard control with a data table.
 - Six pages: Overview, Forecasting, Uncertainty and risk, Decision optimisation, the
-  Simulator, Methods and provenance. Every number is a field of a validated API answer;
+  Simulator, Methods and provenance. Every result shown is a field of a validated API answer
+  (the page chrome states two fixed facts of this release: the snapshot's end date and the
+  number of reference scenarios);
   the integrity statements sit next to the numbers they qualify (M2 not significant after
   Holm, M3 FAILED_CALIBRATION, M4 HYPOTHETICAL, archived projections, exploratory
-  simulations), with provenance on every panel.
+  simulations), with provenance under every panel of results.
 - API integration from the contract: generated types, runtime schemas checked against them
   at compile time, typed errors (network, timeout, HTTP, contract, integrity), a refusal of
   any answer claiming validation, no fallback numbers; component tests on fixtures that a

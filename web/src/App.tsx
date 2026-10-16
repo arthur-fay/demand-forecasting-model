@@ -59,7 +59,13 @@ function DeploymentBadge({ deployment }: { deployment: Deployment }) {
   const profile = deployment.descriptor?.profile;
   if (profile === 'public-demo') return <Tag tone="neutral">Public demo · read-only</Tag>;
   if (profile === 'private') return <Tag tone="neutral">Private deployment</Tag>;
-  if (profile === 'local') return <Tag tone="neutral">Local API</Tag>;
+  // A local API with a key (also behind the SSH tunnel) refuses the browser's simulations.
+  if (profile === 'local')
+    return (
+      <Tag tone="neutral">
+        {deployment.descriptor?.simulations === 'enabled' ? 'Local API' : 'Local API · read-only'}
+      </Tag>
+    );
   return null;
 }
 
@@ -85,22 +91,52 @@ export function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const main = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const header = useRef<HTMLElement>(null);
+  const nav = useRef<HTMLElement>(null);
   const first = useRef(true);
   const page = PAGES.find((candidate) => candidate.path === pathname);
 
-  // Escape closes the open navigation menu (phones) and returns to its button.
+  // The open navigation menu (phones) lies over the page: Escape from within it closes it
+  // and returns to its button, and the focus moving on into the page closes it, so it
+  // never covers the focused element. Escape elsewhere belongs to the focused control (a
+  // chart clears its reading).
   useEffect(() => {
     if (!menuOpen) return;
+    const inMenu = (target: EventTarget | null) =>
+      target === document.body ||
+      (target instanceof Node &&
+        (header.current?.contains(target) === true || nav.current?.contains(target) === true));
     const close = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || !inMenu(event.target)) return;
       setMenuOpen(false);
       menuButton.current?.focus();
     };
+    const leave = (event: FocusEvent) => {
+      if (!inMenu(event.target)) setMenuOpen(false);
+    };
     document.addEventListener('keydown', close);
+    document.addEventListener('focusin', leave);
     return () => {
       document.removeEventListener('keydown', close);
+      document.removeEventListener('focusin', leave);
     };
   }, [menuOpen]);
+
+  // The top bar's height, where the open phone menu starts (the bar grows when its tags
+  // wrap or the text is enlarged).
+  useEffect(() => {
+    const bar = header.current;
+    if (bar === null || typeof ResizeObserver === 'undefined') return;
+    const root = document.documentElement;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty('--topbar-height', `${bar.offsetHeight}px`);
+    });
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--topbar-height');
+    };
+  }, []);
 
   useEffect(() => {
     document.title = `${page?.title ?? 'Page not found'} · ATLAS`;
@@ -120,7 +156,7 @@ export function App() {
         Skip to content
       </a>
       <div className="shell">
-        <header className="topbar">
+        <header className="topbar" ref={header}>
           <button
             ref={menuButton}
             type="button"
@@ -136,7 +172,7 @@ export function App() {
           </button>
           <Link href="/" className="brand">
             <AtlasMark />
-            ATLAS
+            <span className="brand-name">ATLAS</span>
           </Link>
           <span className="research-tag tag-row">
             <DeploymentBadge deployment={deployment} />
@@ -149,6 +185,7 @@ export function App() {
           </span>
         </header>
         <nav
+          ref={nav}
           id="site-nav"
           className="sidebar"
           data-open={menuOpen ? 'true' : 'false'}
