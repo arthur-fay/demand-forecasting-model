@@ -98,7 +98,12 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--stage", choices=STAGES, default="tls")
     target = render.add_mutually_exclusive_group()
     target.add_argument("--output-dir", type=Path, default=None, help="Write under this directory.")
-    target.add_argument("--apply", action="store_true", help="Install the files (root).")
+    target.add_argument(
+        "--apply",
+        action="store_true",
+        help="Install the current release's files (root; under the deployment lock, recorded "
+        "in history.jsonl; before the first activation, the acme stage only).",
+    )
 
     secrets = sub.add_parser("secrets", help="The simulation key and the proxy users.")
     secret_sub = secrets.add_subparsers(dest="secrets_command", required=True)
@@ -279,13 +284,18 @@ def _validate(ctx: Context, args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK if not problems else EXIT_FAILED
 
 
-def _applied_release(ctx: Context, deployment: Deployment, release_dir: Path) -> str | None:
-    """The release whose files `render --apply` may install (under the deployment lock):
-    the current one, the release nginx and the service already serve. Any other release is
-    activated instead, which switches, restarts, verifies and records it: rendering its site
-    by hand would put its dashboard and routes in front of another release's API. Refused
-    too while an activation is unfinished. In a rehearsal (``--root``) a checkout may be
-    rendered (``None``)."""
+def _applied_release(
+    ctx: Context, deployment: Deployment, release_dir: Path, stage: str
+) -> tuple[Path, str | None]:
+    """The release whose files `render --apply` may install (under the deployment lock),
+    resolved once: its directory and id. It is the current one, the release nginx and the
+    service already serve. Any other release is activated instead, which switches,
+    restarts, verifies and records it: rendering its site by hand would put its dashboard
+    and routes in front of another release's API. While no release is current (a new
+    server), the ``acme`` stage of an installed release is accepted too: that site serves
+    only ACME challenges, and the certificate it obtains is what the first activation in an
+    exposed profile needs. Refused while an activation is unfinished. In a rehearsal
+    (``--root``) a checkout may be rendered (id ``None``)."""
     interrupted = deployment.pending()
     if interrupted is not None:
         raise DeployError(
@@ -296,20 +306,27 @@ def _applied_release(ctx: Context, deployment: Deployment, release_dir: Path) ->
     named = valid_release_id(release.name)
     if not named or release != deployment.release_path(release.name).resolve():
         if ctx.rehearsal and not named:
-            return None  # a rehearsal of a checkout: its site reads the checkout's own build
+            return release, None  # a rehearsal of a checkout: its site reads its own build
         raise DeployError(
             f"{release} is not an installed release (nothing in it is verified for this "
             "server). Use --release-dir /opt/atlas/current, or atlas-deploy activate <id>."
         )
     current = deployment.current()
-    if release.name != current:
+    if release.name == current or (current is None and stage == "acme"):
+        return release, release.name
+    if current is None:
         raise DeployError(
-            f"{release.name} is not the current release ({current or 'none is active'}): "
-            "render --apply installs the current release's files only. To serve it, run "
-            f"`atlas-deploy activate {release.name}` (it installs, switches, restarts and "
-            "verifies, and restores the current release on failure)."
+            "no release is active: before the first activation, render --apply installs "
+            f"only the ACME site (--stage acme). Run `atlas-deploy activate {release.name}` "
+            "(in an exposed profile, once the ACME site has obtained the certificate: "
+            "docs/DEPLOYMENT.md section 7)."
         )
-    return current
+    raise DeployError(
+        f"{release.name} is not the current release ({current}): render --apply installs "
+        "the current release's files only. To serve it, run `atlas-deploy activate "
+        f"{release.name}` (it installs, switches, restarts and verifies, and restores the "
+        "current release on failure)."
+    )
 
 
 def _publish_for_site(ctx: Context, renderer: Renderer) -> None:
@@ -342,14 +359,16 @@ def _publish_for_site(ctx: Context, renderer: Renderer) -> None:
 
 def _render(ctx: Context, args: argparse.Namespace, out: TextIO) -> int:
     config = ctx.config()
-    renderer = Renderer.for_release(config, ctx.layout, _release_dir(args.release_dir))
-    files = renderer.files(args.stage)
+    release_dir = _release_dir(args.release_dir)
     if args.apply:
         ctx.require_root()
         ctx.ids()
         deployment = ctx.deployment()
         with deployment.locked():
-            release = _applied_release(ctx, deployment, renderer.release_dir)
+            # One release, resolved once, is checked, rendered, published, written, recorded.
+            release_dir, release = _applied_release(ctx, deployment, release_dir, args.stage)
+            renderer = Renderer.for_release(config, ctx.layout, release_dir)
+            files = renderer.files(args.stage)
             if config.exposed and args.stage == "tls":
                 _publish_for_site(ctx, renderer)
             results = write_files(
@@ -376,6 +395,7 @@ def _render(ctx: Context, args: argparse.Namespace, out: TextIO) -> int:
             + " if the site was removed)",
         )
         return EXIT_OK
+    files = Renderer.for_release(config, ctx.layout, release_dir).files(args.stage)
     if args.output_dir is not None:
         scratch = Layout(root=args.output_dir)
         write_files(files, scratch, chown=False)

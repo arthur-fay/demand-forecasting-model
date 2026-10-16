@@ -129,12 +129,14 @@ def _uv_build(info: Path, built: int) -> None:
 def test_two_builds_of_one_commit_have_one_environment_fingerprint(tmp_path: Path) -> None:
     """uv records the time of each build in the project's own metadata (``uv_cache.json``
     and the ``RECORD`` that hashes it): the environment fingerprint leaves those two out, so
-    two builds of one commit (same lock, uv, Python and path) share it (M8-24). Everything
-    else in the environment still counts."""
+    two builds of one commit (same lock, uv, Python, platform and path) share it (M8-24).
+    Everything else in the environment still counts, the RECORD of any other distribution
+    included."""
     release = make_release(tmp_path)
     info = _project_metadata(release)
     write(info / "METADATA", "Metadata-Version: 2.4\nName: atlas\n")
     _uv_build(info, 1_760_000_000)
+    other = write(info.parent / "uvicorn-0.54.0.dist-info/RECORD", "uvicorn/__init__.py,,\n")
     manifest = build_manifest(
         release,
         release_id=release.name,
@@ -159,6 +161,10 @@ def test_two_builds_of_one_commit_have_one_environment_fingerprint(tmp_path: Pat
     )
     assert check_release(release) == []
     write(info / "METADATA", "Metadata-Version: 2.4\nName: atlas\nVersion: 9\n")
+    assert any("environment (.venv) differs" in p for p in check_release(release))
+    write(info / "METADATA", "Metadata-Version: 2.4\nName: atlas\n")
+    assert check_release(release) == []
+    write(other, "uvicorn/__init__.py,,\nuvicorn/planted.py,,\n")
     assert any("environment (.venv) differs" in p for p in check_release(release))
 
 

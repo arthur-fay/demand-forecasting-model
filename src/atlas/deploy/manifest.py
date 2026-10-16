@@ -12,7 +12,7 @@ later step. It identifies:
   by SHA-256, and a fingerprint of the whole set;
 * every file of the exported commit (code, templates, configuration) by SHA-256, and one
   fingerprint of the installed environment (``.venv``), the same for every build of the
-  commit with the same lock, uv, Python and path (:func:`environment_fingerprint`);
+  commit with the same lock, uv, Python, platform and path (:func:`environment_fingerprint`);
 * the API contract (SHA-256 of ``docs/api/openapi.json``);
 * (M7) the dashboard build (``web/dist``): its version, manifest hash, fingerprint, every
   file's SHA-256, its routes and its Content-Security-Policy; (M8) its other response
@@ -128,7 +128,9 @@ def environment_fingerprint(
 ) -> str:
     """One fingerprint of the installed environment (``.venv``: files and links; bytecode
     excluded and, from ``version`` 2, the metadata uv rewrites at every build). Two builds
-    of a commit with the same lock, uv, Python and path then share it."""
+    of a commit with the same lock, uv, Python (patch version included), platform (the
+    architecture and C library, which select the wheels installed) and path then share
+    it."""
     files: dict[str, str] = {}
     base = release_dir / ".venv"
     for path in sorted(base.rglob("*")):

@@ -107,25 +107,46 @@ class FakeHost:
 
 
 class InterruptedHost(FakeHost):
-    """The fake host, with what nginx has loaded (the site file at each reload). The restart
-    of the release ``interrupt`` completes, as systemd finishes a restart job whatever
-    happens to its client, but `atlas-deploy` dies there, as a lost SSH session or Ctrl-C
-    would kill it: after the switch, before nginx is reloaded."""
+    """The fake host, with what the service and nginx have loaded: the release and
+    environment of the last restart, and at each nginx reload the site file and the release
+    then running behind it. `atlas-deploy` dies, as a lost SSH session or Ctrl-C would kill
+    it, in the activation of the release ``interrupt`` after the switch, before nginx is
+    reloaded: at ``reset-failed`` (before the restart is issued) or at ``restart`` (the
+    restart completes, as systemd finishes a restart job whatever happens to its client)."""
 
-    def __init__(self, layout: Layout, interrupt: str = "") -> None:
+    def __init__(self, layout: Layout, interrupt: str = "", at: str = "restart") -> None:
         super().__init__(layout)
-        self.interrupt = interrupt
+        self.interrupt, self.at = interrupt, at
+        self.running, self.environment = "-", ""
         self.loaded: list[str] = []
+        self.behind: list[str] = []
 
-    def restart(self, unit: str) -> tuple[bool, str]:
-        result = super().restart(unit)
-        if unit == "atlas.service" and self.current() == self.interrupt:
+    def _die(self, step: str) -> None:
+        if step == self.at and self.current() == self.interrupt:
             self.interrupt = ""
             raise KeyboardInterrupt
-        return result
+
+    def reset_failed(self, unit: str) -> tuple[bool, str]:
+        self._die("reset-failed")
+        return super().reset_failed(unit)
+
+    def restart(self, unit: str) -> tuple[bool, str]:
+        ok, detail = super().restart(unit)
+        if unit == "atlas.service":
+            if ok:
+                self.running = self.current()
+                env = self.layout.local(self.layout.runtime_env)
+                self.environment = env.read_text("utf-8")
+            self._die("restart")
+        return ok, detail
+
+    def stop(self, unit: str) -> tuple[bool, str]:
+        self.running = "-"
+        return super().stop(unit)
 
     def nginx_reload(self) -> tuple[bool, str]:
         self.loaded.append(self.layout.local(self.layout.nginx_site).read_text("utf-8"))
+        self.behind.append(self.running)
         return super().nginx_reload()
 
 
@@ -136,6 +157,19 @@ def verifier(broken: set[str]) -> Callable[[Target], Verification]:
         result.add(
             "readiness", name not in broken, f"{name} {'broken' if name in broken else 'ready'}"
         )
+        return result
+
+    return check
+
+
+def runs(host: InterruptedHost, broken: set[str] | None = None) -> Callable[[Target], Verification]:
+    """The fake verifier, with the real one's "process release" check: the service's main
+    process runs the release verified."""
+
+    def check(target: Target) -> Verification:
+        result = verifier(broken or set())(target)
+        name = target.release_dir.name if target.release_dir else "?"
+        result.add("process release", host.running == name, f"the service runs {host.running}")
         return result
 
     return check
@@ -570,17 +604,22 @@ def test_an_interrupted_activation_that_verifies_is_kept(tmp_path: Path) -> None
     assert deploy.recover()["outcome"] == ACTIVATED
 
 
-def test_recover_has_nginx_load_the_configuration_it_keeps_as_verified(tmp_path: Path) -> None:
-    """A configuration change whose activation dies while the service restarts: its site
-    is written, but nginx still runs the previous one. `recover` reloads nginx before it
-    keeps the new deploy.env as verified (M8-02)."""
+@pytest.mark.parametrize("at", ["reset-failed", "restart"])
+def test_recover_has_the_service_and_nginx_load_the_configuration_it_keeps(
+    tmp_path: Path, at: str
+) -> None:
+    """A configuration change whose activation dies after its files are written, before or
+    while the service restarts: nginx still runs the previous site, and the service may
+    still run with the previous environment. `recover` restarts the service and reloads
+    nginx before it keeps the new deploy.env as verified (M8-02): what it keeps is what
+    both have loaded, even where verification cannot tell (the simulation deadline)."""
     deploy, _ = deployment(tmp_path, DEPLOY_ENV_PRIVATE)
-    host = InterruptedHost(deploy.layout)
+    host = InterruptedHost(deploy.layout, at=at)
     deploy.host = host
     make_release(tmp_path, commit=A)
     assert deploy.activate(name(A))["outcome"] == ACTIVATED
-    allow = "ATLAS_DEPLOY_ALLOW_CIDRS=203.0.113.0/24\n"
-    write(tmp_path / "etc/atlas/deploy.env", DEPLOY_ENV_PRIVATE + allow, 0o644)
+    change = "ATLAS_DEPLOY_ALLOW_CIDRS=203.0.113.0/24\nATLAS_DEPLOY_SIMULATION_TIMEOUT_SECONDS=20\n"
+    write(tmp_path / "etc/atlas/deploy.env", DEPLOY_ENV_PRIVATE + change, 0o644)
     host.interrupt = name(A)
     with pytest.raises(KeyboardInterrupt):
         deploy.activate(name(A))
@@ -588,9 +627,12 @@ def test_recover_has_nginx_load_the_configuration_it_keeps_as_verified(tmp_path:
     record = deploy.recover()
     assert record["outcome"] == ACTIVATED, record
     assert "allow 203.0.113.0/24;" in host.loaded[-1]
+    runtime_env = deploy.layout.local(deploy.layout.runtime_env).read_text("utf-8")
+    assert "ATLAS_API_SIMULATION_TIMEOUT_SECONDS=20" in runtime_env
+    assert host.environment == runtime_env
     good = deploy.good_state()
     assert good is not None
-    assert allow in good["deploy_env"]
+    assert change in good["deploy_env"]
 
 
 def test_pruning_keeps_the_current_and_rollback_releases(tmp_path: Path) -> None:

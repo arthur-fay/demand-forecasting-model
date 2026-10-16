@@ -22,7 +22,8 @@ Templates use ``{{name}}`` placeholders. Every value inserted comes from the val
 configuration or from constants, and is checked against a character set without
 whitespace, quotes, braces, semicolons or ``$``: no value can add a directive (a release's
 recorded dashboard headers and descriptors are checked against character sets of their
-own, as narrow). An unknown placeholder is an error, never an empty string.
+own, narrow enough that no value can leave its quoted string or add a directive). An
+unknown placeholder is an error, never an empty string.
 
 Writing (:func:`write_files`) is atomic per file and idempotent: unchanged files are not
 touched, and the result lists what changed, so the operator knows what to reload.

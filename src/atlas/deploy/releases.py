@@ -28,9 +28,10 @@ artifacts of any release. Each step is appended to ``/var/lib/atlas/deploy/histo
 an activation interrupted half-way (a lost SSH session, Ctrl-C) leaves an ``in_progress``
 record (with an operation id) that only :func:`recover` completes; until then every other
 change is refused. If the link already points to the interrupted release, ``recover``
-finishes its activation (its files installed again, nginx reloaded, verified) before it
-keeps it; otherwise, or if that fails, it restores the last verified state. Every host
-action goes through :class:`Host`, so the tests replace systemd and nginx with fakes.
+finishes its activation (its files installed again, the service restarted, nginx
+reloaded, verified) before it keeps it; otherwise, or if that fails, it restores the last
+verified state. Every host action goes through :class:`Host`, so the tests replace
+systemd and nginx with fakes.
 """
 
 from __future__ import annotations
@@ -555,12 +556,8 @@ class Deployment:
         ok, detail = self.host.restart(SERVICE)
         if not ok:
             return False, [f"systemctl restart {SERVICE} failed: {detail}"]
-        return self._expose(release_id, config)
-
-    def _expose(self, release_id: str, config: DeployConfig) -> tuple[bool, list[str]]:
-        """Reload nginx (exposed profiles), so it serves the installed site of the release
-        the service runs, then verify. Verification reaches the API directly and never sees
-        what nginx has loaded: the reload comes first, always."""
+        # Verification reaches the API directly and never sees what nginx has loaded: nginx
+        # is reloaded first, so it serves the installed site of the release now running.
         if config.exposed:
             ok, detail = self.host.nginx_reload()
             if not ok:
@@ -756,16 +753,19 @@ class Deployment:
         return list(unfinished.values())[-1] if unfinished else None
 
     def _complete(self, release_id: str, config: DeployConfig) -> tuple[bool, list[str]]:
-        """Finish an activation interrupted after its switch (a lost SSH session or Ctrl-C
-        while the service restarted, before nginx was reloaded): install the release's files
-        again (idempotent: published dashboard, units, environment, site, nginx -t, systemd
-        reloaded), reload nginx and verify. The service already runs from the link and is
-        not restarted; if it does not run the release, verification says so."""
+        """Finish an activation interrupted after its switch (a lost SSH session or Ctrl-C,
+        before or while the service restarted, before nginx was reloaded): its steps after
+        the switch again. Install the release's files (idempotent: published dashboard,
+        units, environment, site, nginx -t, systemd reloaded), restart the service, reload
+        nginx and verify. The restart is not skipped when the release already runs: it is
+        what loads the environment and units just installed (``deploy.env`` may have been
+        fixed since), and the interruption may have come before it; nginx loads the new
+        site only once the service runs the release."""
         try:
             ok, detail = self.install(release_id, config)
             if not ok:
                 return False, [detail]
-            ok, lines = self._expose(release_id, config)
+            ok, lines = self._serve(release_id, config)
         except Exception as exc:  # never keep a release without a verdict
             return False, [f"unexpected error: {type(exc).__name__}: {exc}"]
         return ok, [*lines, detail]

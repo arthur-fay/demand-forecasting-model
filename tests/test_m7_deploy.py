@@ -65,6 +65,7 @@ from tests.test_m6_releases import (
     InterruptedHost,
     deployment,
     name,
+    runs,
     verifier,
 )
 
@@ -453,33 +454,39 @@ def test_an_explicit_rollback_renders_the_previous_dashboard(tmp_path: Path) -> 
     assert site_root(tmp_path).endswith(name(A))
 
 
-def test_recover_completes_an_activation_interrupted_during_the_restart(tmp_path: Path) -> None:
-    """An activation that dies while the service restarts on the new release (a lost SSH
-    session, Ctrl-C) has switched the link and written the new site, but nginx still runs
-    the previous one. `recover` completes it (the release's files again, nginx -t, nginx
-    reloaded, then verified) before it keeps the release as verified: nginx serves the
-    dashboard of the release the API runs (M8-02). The running service is not restarted."""
+@pytest.mark.parametrize("at", ["reset-failed", "restart"])
+def test_recover_completes_an_interrupted_activation(tmp_path: Path, at: str) -> None:
+    """An activation that dies after the switch, before or while the service restarts on
+    the new release (a lost SSH session, Ctrl-C), has written the new site, but nginx still
+    runs the previous one. `recover` completes it (the release's files again, nginx -t, the
+    service restarted, nginx reloaded, then verified) before it keeps the release as
+    verified: nginx serves the dashboard of the release the API runs (M8-02), and never
+    loads it in front of another release's API."""
     deploy, _ = private_deployment(tmp_path)
-    host = InterruptedHost(deploy.layout, interrupt=name(B))
+    host = InterruptedHost(deploy.layout, interrupt=name(B), at=at)
     deploy.host = host
+    deploy.verifier = runs(host)
     make_dashboard_release(tmp_path, commit=A)
     make_dashboard_release(tmp_path, commit=B)
     assert deploy.activate(name(A))["outcome"] == ACTIVATED
     with pytest.raises(KeyboardInterrupt):
         deploy.activate(name(B))
     assert deploy.current() == name(B)
+    assert host.running == (name(B) if at == "restart" else name(A))
     assert site_root(tmp_path).endswith(f"/opt/atlas/dashboard/{name(B)}")
     assert dashboard_root(host.loaded[-1]).endswith(f"/opt/atlas/dashboard/{name(A)}")
     calls = len(host.calls)
     record = deploy.recover()
     assert record["outcome"] == ACTIVATED, record
     done = host.calls[calls:]
-    assert done.index("nginx -t") < done.index("nginx reload")
-    assert f"restart {name(B)}" not in done
+    assert done.index("nginx -t") < done.index(f"restart {name(B)}") < done.index("nginx reload")
     loaded = host.loaded[-1]
     assert dashboard_root(loaded).endswith(f"/opt/atlas/dashboard/{name(B)}")
-    # What is kept as verified is what nginx serves.
+    for site, running in zip(host.loaded, host.behind, strict=True):
+        assert dashboard_root(site).endswith(f"/opt/atlas/dashboard/{running}")
+    # What is kept as verified is what nginx serves and the service runs.
     assert loaded == (tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
+    assert host.running == name(B)
     good = deploy.good_state()
     assert good is not None
     assert good["release"] == name(B)
@@ -488,16 +495,22 @@ def test_recover_completes_an_activation_interrupted_during_the_restart(tmp_path
 
 #: A later atlas-deploy whose dashboard has another policy than the releases built before it.
 NEWER_CSP = DASHBOARD_CSP + "; upgrade-insecure-requests"
+PERMISSIONS = DASHBOARD_HEADERS["Permissions-Policy"]
+NEWER_PERMISSIONS = PERMISSIONS + ", fullscreen=()"
 NEWER_FORMAT = "atlas-deployment/2"
 
 
 def newer_tool(monkeypatch: pytest.MonkeyPatch, *, new_format: bool = True) -> None:
-    """Make this process stand for a later atlas-deploy: another Content-Security-Policy (and
-    descriptor format), wherever the tool's modules hold them."""
+    """Make this process stand for a later atlas-deploy: another Content-Security-Policy and
+    Permissions-Policy (and descriptor format), wherever the tool's modules hold them."""
     import atlas.dashboard
     from atlas.deploy import manifest, render, verify
 
-    headers = {**DASHBOARD_HEADERS, "Content-Security-Policy": NEWER_CSP}
+    headers = {
+        **DASHBOARD_HEADERS,
+        "Content-Security-Policy": NEWER_CSP,
+        "Permissions-Policy": NEWER_PERMISSIONS,
+    }
     for module in (atlas.dashboard, manifest, render, verify):
         monkeypatch.setattr(module, "DASHBOARD_CSP", NEWER_CSP, raising=False)
         monkeypatch.setattr(module, "DASHBOARD_HEADERS", headers, raising=False)
@@ -522,12 +535,16 @@ def as_each_release_serves(broken: set[str] | None = None) -> Callable[[Target],
     return check
 
 
-def assert_site_serves(tmp_path: Path, release: str, csp: str, descriptor_format: str) -> None:
+def assert_site_serves(
+    tmp_path: Path, release: str, csp: str, permissions: str, descriptor_format: str
+) -> None:
     site = (tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
     assert dashboard_root(site).endswith(f"/opt/atlas/dashboard/{release}")
     part = dashboard_part(site)
     assert part.count(f'add_header Content-Security-Policy "{csp}" always;') == 3
     assert part.count("add_header Content-Security-Policy") == 3 + 1  # + the descriptor's
+    assert part.count(f'add_header Permissions-Policy "{permissions}" always;') == 3
+    assert part.count("add_header Permissions-Policy") == 3
     assert f'"format":"{descriptor_format}"' in part
 
 
@@ -547,7 +564,7 @@ def test_a_newer_tool_restores_an_older_release_with_its_own_policy(
     record = deploy.activate(name(B))
     assert record["outcome"] == ROLLED_BACK, record
     assert deploy.current() == name(A)
-    assert_site_serves(tmp_path, name(A), DASHBOARD_CSP, DESCRIPTOR_FORMAT)
+    assert_site_serves(tmp_path, name(A), DASHBOARD_CSP, PERMISSIONS, DESCRIPTOR_FORMAT)
 
 
 def test_an_explicit_rollback_by_a_newer_tool_serves_the_older_policy(
@@ -560,11 +577,11 @@ def test_an_explicit_rollback_by_a_newer_tool_serves_the_older_policy(
     newer_tool(monkeypatch)
     make_dashboard_release(tmp_path, commit=B)
     assert deploy.activate(name(B))["outcome"] == ACTIVATED
-    assert_site_serves(tmp_path, name(B), NEWER_CSP, NEWER_FORMAT)
+    assert_site_serves(tmp_path, name(B), NEWER_CSP, NEWER_PERMISSIONS, NEWER_FORMAT)
     record = deploy.rollback()
     assert record["outcome"] == ACTIVATED, record
     assert deploy.current() == name(A)
-    assert_site_serves(tmp_path, name(A), DASHBOARD_CSP, DESCRIPTOR_FORMAT)
+    assert_site_serves(tmp_path, name(A), DASHBOARD_CSP, PERMISSIONS, DESCRIPTOR_FORMAT)
 
 
 def rewrite_dashboard_record(release: Path, **changes: object) -> dict[str, Any]:
@@ -595,6 +612,7 @@ def test_a_release_that_records_only_its_csp_keeps_it(
     site = Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
     assert dashboard_part(site).count(f'Content-Security-Policy "{DASHBOARD_CSP}" always;') == 3
     assert "upgrade-insecure-requests" not in site
+    assert "fullscreen" in site  # its other headers are the tool's
     verification = Verification()
     _dashboard(verification, good_page(), good_descriptor(), record, None)
     assert verification.ok, verification.render()
@@ -781,13 +799,13 @@ def test_the_digest_of_the_recorded_index_is_the_built_one() -> None:
     )
 
 
-def render_apply(root: Path, release_dir: Path) -> tuple[int, str]:
+def render_apply(root: Path, release_dir: Path, stage: str = "tls") -> tuple[int, str]:
     """``atlas-deploy render --apply`` in the rehearsal ``root``: its exit code and output."""
     from atlas.deploy import cli
 
     out = io.StringIO()
-    command = ["--root", str(root), "render", "--release-dir", str(release_dir), "--apply"]
-    return cli.main(command, stdout=out), out.getvalue()
+    command = ["--root", str(root), "render", "--release-dir", str(release_dir)]
+    return cli.main([*command, "--stage", stage, "--apply"], stdout=out), out.getvalue()
 
 
 @pytest.mark.parametrize("through_current", [False, True])
@@ -877,6 +895,47 @@ def test_render_apply_installs_the_current_release_only(
     deploy.record("activate", IN_PROGRESS, op="op-x", release=other.name, previous=current.name)
     assert render_apply(root, current)[0] == 2
     assert "atlas-deploy recover" in capsys.readouterr().err
+
+
+def test_render_apply_installs_the_acme_site_before_the_first_activation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """On a new server (no release current) in an exposed profile, the first activation
+    needs the certificate that the ACME site obtains: `render --stage acme --apply` of an
+    installed release is accepted then (that site serves only ACME challenges, nothing
+    from any release), locked and recorded. The complete site is not: it is activated
+    (M8-26)."""
+    from tests.test_m6_scripts import rehearsal
+
+    root = rehearsal(tmp_path)
+    release = make_dashboard_release(root, commit=A)
+    site = root / "etc/nginx/sites-available/atlas.conf"
+    history = root / "var/lib/atlas/deploy/history.jsonl"
+    code, output = render_apply(root, release, "acme")
+    assert code == 0, output
+    acme = site.read_text("utf-8")
+    assert "location ^~ /.well-known/acme-challenge/" in acme
+    assert "/opt/atlas/dashboard" not in acme
+    assert "proxy_pass" not in acme
+    assert not (root / "opt/atlas/dashboard").exists()
+    records = [json.loads(line) for line in history.read_text("utf-8").splitlines()]
+    assert [(r["action"], r["release"], r["stage"]) for r in records] == [
+        ("render", release.name, "acme")
+    ]
+    assert render_apply(root, release)[0] == 2
+    error = capsys.readouterr().err
+    assert "no release is active" in error
+    assert "--stage acme" in error
+    assert f"atlas-deploy activate {release.name}" in error
+    assert site.read_text("utf-8") == acme
+    assert not (root / "opt/atlas/dashboard").exists()
+    assert len(history.read_text("utf-8").splitlines()) == 1
+    # Once a release is current, only its own files are rendered, at either stage.
+    other = make_dashboard_release(root, commit=B)
+    (root / "opt/atlas/current").symlink_to(f"releases/{release.name}")
+    assert render_apply(root, other, "acme")[0] == 2
+    assert "is not the current release" in capsys.readouterr().err
+    assert render_apply(root, release, "acme")[0] == 0
 
 
 @pytest.mark.parametrize("command", ["render", "validate", "plan-upgrade"])
