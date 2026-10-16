@@ -543,16 +543,24 @@ def as_each_release_serves(broken: set[str] | None = None) -> Callable[[Target],
     return check
 
 
+def static_locations(dist: Path = BUILD) -> int:
+    """The dashboard's locations with its own policy: the pages, the hashed assets and one
+    per other top-level file of the build (the favicon and the licence notices)."""
+    files = [f for f in load_build(dist).files if "/" not in f.path and f.path != "index.html"]
+    return 2 + len(files)
+
+
 def assert_site_serves(
     tmp_path: Path, release: str, csp: str, permissions: str, descriptor_format: str
 ) -> None:
     site = (tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
     assert dashboard_root(site).endswith(f"/opt/atlas/dashboard/{release}")
     part = dashboard_part(site)
-    assert part.count(f'add_header Content-Security-Policy "{csp}" always;') == 3
-    assert part.count("add_header Content-Security-Policy") == 3 + 1  # + the descriptor's
-    assert part.count(f'add_header Permissions-Policy "{permissions}" always;') == 3
-    assert part.count("add_header Permissions-Policy") == 3
+    locations = static_locations()
+    assert part.count(f'add_header Content-Security-Policy "{csp}" always;') == locations
+    assert part.count("add_header Content-Security-Policy") == locations + 1  # + the descriptor's
+    assert part.count(f'add_header Permissions-Policy "{permissions}" always;') == locations
+    assert part.count("add_header Permissions-Policy") == locations
     assert f'"format":"{descriptor_format}"' in part
 
 
@@ -618,7 +626,8 @@ def test_a_release_that_records_only_its_csp_keeps_it(
     )
     newer_tool(monkeypatch, new_format=False)
     site = Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
-    assert dashboard_part(site).count(f'Content-Security-Policy "{DASHBOARD_CSP}" always;') == 3
+    policy = f'Content-Security-Policy "{DASHBOARD_CSP}" always;'
+    assert dashboard_part(site).count(policy) == static_locations(release / DIST)
     assert "upgrade-insecure-requests" not in site
     assert "fullscreen" in site  # its other headers are the tool's
     verification = Verification()
