@@ -14,6 +14,11 @@ infeasibility, maps tradeoffs and reports sensitivity and certified shadow price
 > have the status **FAILED_CALIBRATION** ([UNCERTAINTY.md](UNCERTAINTY.md), section 9.2).
 > M4 results are exploratory illustrations of a method. **Nothing here is a validated
 > staffing, budget or service-capacity recommendation.**
+>
+> The planning horizon's demand is an ARCHIVED PROJECTION: issued from the frozen snapshot,
+> whose last observed day is 2026-06-30, for the target days 2026-07-01 to 2026-07-30. It is
+> not a live forecast, and it has never been scored: no outcome after 2026-06-30 is in the
+> snapshot. (M8 addition; see the erratum in section 9.)
 
 Sections 1-8 describe the method and were committed, with the code, the tests and the
 configuration `configs/optimization/atlas-m4-optimization-v1.json`, **before the first run
@@ -498,6 +503,15 @@ verification (section 10).
 **Every number below is computed from HYPOTHETICAL parameters and an unvalidated point
 forecast (MAE 985 requests/day over these horizons). It illustrates the method; it is not a
 staffing, budget or capacity recommendation, and no number is a probability.**
+
+**M8 erratum.** The committed [`report.md`](results/atlas-m4-optimization-v1/report.md)
+keeps its original wording: its inputs call the demand a "FUTURE PROJECTION: forecasts
+beyond the last observed day. No outcome has been observed". That is true only relative to
+the frozen snapshot. The horizon 2026-07-01..2026-07-30 is an ARCHIVED PROJECTION: issued
+from the frozen snapshot, whose last observed day is 2026-06-30, for the target days
+2026-07-01 to 2026-07-30. It is not a live forecast, and it has never been scored: no
+outcome after 2026-06-30 is in the snapshot. The report is not edited: its hash is part of
+the reference run that `optimize verify` reproduces.
 
 ### 9.1 Scenarios (reported plan)
 
