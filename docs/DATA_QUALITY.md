@@ -90,6 +90,34 @@ reference)`. Days without eight complete predecessors are not scored. Using the 
 removes the strong weekly cycle. The median and MAD resist earlier anomalies. The 5 % floor
 prevents a near-constant history from producing huge scores.
 
+**Known limits of the detectors (M8 correction).** The median and MAD resist a single
+earlier anomaly, but the detectors have power limits, and the flags are not a complete
+inventory of anomalous days:
+
+- *MAD inflation.* When the eight-week window mixes holiday-season lows with December and
+  January peaks, the MAD, and with it the scale, grows enough to hide large surges. On
+  2026-01-27 the eight preceding Tuesdays ranged from 8,354 to 14,078 (MAD 1,215, scale
+  1,801), so 19,225 requests, 70 % above the reference of 11,306, scored only +4.40.
+- *An interruption shortly after another one is undetectable.* The interruption rule needs
+  the 10th percentile of the previous 28 days to be at least 50, and an outage pulls that
+  percentile down. DHS fell to 0, 0, 3 and 3 requests on 2026-02-22..25, ten days after its
+  flagged interruption of 2026-01-31..02-12; the percentile over the preceding 28 days was
+  0, so these days carry no flag.
+
+Over the whole series, 61 days lie at least 25 % above their same-weekday reference and 16
+are flagged as surges; in 2025-07..2026-06 the counts are 24 and 4. Three of the five
+largest days of the series carry no flag:
+
+| day | requests | reference | above reference | score |
+|---|---:|---:|---:|---:|
+| 2026-01-27 | 19,225 | 11,306 | 70 % | +4.40 |
+| 2026-01-28 | 16,982 | 10,486.5 | 62 % | +2.58 |
+| 2025-12-15 | 16,388 | 11,447.5 | 43 % | +3.76 |
+
+(Computed in M8 with `atlas.quality.same_weekday_scores` on `legacy-v0`.) Analyses that
+leave out flagged days therefore leave out the flagged days only, not every anomalous day;
+see [BACKTESTING.md](BACKTESTING.md), section 10.
+
 **Interruption rule.** A segment absent from `daily_segments` on a date has zero requests (M0
 contract). Requiring the reference percentile to be at least 50 means sparse, bursty segments
 are never flagged. For a Poisson count with mean 50, a day at or below 5 has probability about
@@ -124,12 +152,17 @@ What the flags show, and what they do not show:
 - **HPD 2024-04-11..14** is the clearest intake interruption. HPD reports zero for four days,
   then 7,398 on 2024-04-15. That day is also the second-largest city-wide surge (score +15.0).
   The catch-up offsets about 72 % of the missing volume (about 7,600 expected over the four
-  days; 7,398 − 1,902 ≈ 5,500 excess on the catch-up day). The pattern is consistent with a
-  recording or intake problem rather than a real change in demand. Models in M2 should treat these days explicitly
-  (for example, exclude them from evaluation or score them separately). Any such decision is
-  M2's, and the data stays unchanged.
+  days; 7,398 − 1,902 ≈ 5,500 excess on the catch-up day). (**M8 correction:** the share
+  depends on the reference. The 72 % uses the weekday-blind 28-day median, 1,902 per day,
+  for all five days, although HPD receives fewer requests at weekends and more on Mondays.
+  With same-weekday medians it is about 69 % (the eight preceding same weekdays, as the
+  surge score uses) or about 86 % (the four preceding ones), so about 69-86 %.) The pattern
+  is consistent with a recording or intake problem rather than a real change in demand.
+  Models in M2 should treat these days explicitly (for example, exclude them from evaluation
+  or score them separately). Any such decision is M2's, and the data stays unchanged.
 - **DHS 2026-01-31..02-12** is a sustained collapse rather than a short outage. It may be a
-  reporting change; the data cannot tell.
+  reporting change; the data cannot tell. A second drop, 2026-02-22..25, is not flagged
+  (M8; see the detector limits in this section).
 - City-wide surges may reflect real events (for example severe weather) or recording
   problems. ATLAS does not verify external events, and the flags make no claim about causes.
 - Borough series show no interruption, so the interruptions are agency-specific.
