@@ -239,6 +239,32 @@ def test_models_carry_the_selection_and_its_tests(api: TestClient) -> None:
     assert any("4.93" in n for n in body["integrity"]["notices"])
 
 
+def test_the_selection_test_is_served_with_its_size_caveat(api: TestClient) -> None:
+    # M8-04: the development selection test passed its pre-registered gate, as M2 recorded
+    # it, but the HLN-DM test over-rejects at h = 30 with these origin counts. The response
+    # that says "significant" says so next to it, in numbers taken from the committed run.
+    body = get(api, "/api/v1/models")
+    metrics = read_json(M2_FULL / "metrics.json")
+    selection = body["data"]["selection"]
+    assert selection["significant"] is metrics["selection"]["significant"] is True
+    assert "DM test is significant at 0.05" in selection["reason"]
+    gate = metrics["selection"]["regression_vs_best_baseline"]
+    origins = {p["name"]: p["n_origins"] for p in metrics["periods"]}
+    assert f"{gate['dm_p_value_conservative']:.3f}" == "0.044"
+    assert (origins["confirmation"], origins["development"]) == (336, 486)
+    evidence = [n for n in body["integrity"]["notices"] if n.startswith("M2 SELECTION EVIDENCE")]
+    assert evidence == [
+        "M2 SELECTION EVIDENCE: the pre-registered development selection test (HLN-DM, "
+        "conservative p 0.044) passed its 5 % gate, but at a 30-day horizon with 336-486 "
+        "overlapping origins this test over-rejects under its own assumptions (roughly 7-10 % "
+        "false rejections at a nominal 5 %); after a size correction the selection evidence is "
+        "borderline (p roughly 0.06-0.09). The pre-registered choice stands, but its "
+        "statistical support is weak."
+    ]
+    description = api.get("/openapi.json").json()["components"]["schemas"]["SelectionInfo"]
+    assert "M2 SELECTION EVIDENCE" in description["properties"]["significant"]["description"]
+
+
 def test_metrics_filters(api: TestClient) -> None:
     summary = read_json(M2_FULL / "metrics.json")["summary"]
     every_bucket = get(api, "/api/v1/forecasts/metrics")["data"]["rows"]

@@ -315,21 +315,48 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** Certificate */
+        /**
+         * Certificate
+         * @description The optimality certificate of one solved programme, computed from its primal and dual
+         *     values without trusting the solver's status. primal, dual_sign, stationarity and
+         *     duality_gap are unitless ratios: each is the largest violation in units of its tolerance,
+         *     so at most 1 passes and 1.0 is exactly at the tolerance.
+         */
         Certificate: {
-            /** Dual Objective */
+            /**
+             * Dual Objective
+             * @description Objective value of the dual solution (same units).
+             */
             dual_objective: number | null;
-            /** Dual Sign */
+            /**
+             * Dual Sign
+             * @description Largest dual multiplier of the wrong sign, in units of its tolerance (1e-9 x max(1, the largest absolute objective coefficient)); at most 1 passes.
+             */
             dual_sign: number | null;
-            /** Duality Gap */
+            /**
+             * Duality Gap
+             * @description |primal_objective - dual_objective| in units of its tolerance (1e-9 x max(1, the sum of the absolute objective terms)); at most 1 passes. A unitless ratio, not the absolute gap, which is the difference of the two objectives.
+             */
             duality_gap: number | null;
-            /** Holds */
+            /**
+             * Holds
+             * @description True when the four ratios are finite and at most 1: the solution is optimal within the tolerances (1e-7 absolute, 1e-9 relative).
+             */
             holds: boolean;
-            /** Primal */
+            /**
+             * Primal
+             * @description Largest violation of a constraint row or variable bound, in units of its tolerance (1e-7 + 1e-9 x the magnitude of the row or bound); at most 1 passes.
+             */
             primal: number | null;
-            /** Primal Objective */
+            /**
+             * Primal Objective
+             * @description Objective value of the solution in the units of the programme's objective, its constant included.
+             */
             primal_objective: number | null;
-            /** Stationarity */
+            /**
+             * Stationarity
+             * @description Largest reduced-cost residual, in units of its tolerance (1e-9 x max(1, the magnitude of its terms)); at most 1 passes.
+             */
             stationarity: number | null;
         };
         /** ComparisonData */
@@ -1440,6 +1467,7 @@ export interface components {
          * @description One solved programme: its status, the three independent checks and the plan totals.
          */
         Programme: {
+            /** @description Optimality certificate of this programme (its objective is named in objective). For reported_plan it is the certificate of the last tie-break stage (reported_plan_selection); strict_programme carries that of the penalised-score programme. */
             certificate: components["schemas"]["Certificate"] | null;
             /** Constraints Not Checked */
             constraints_not_checked: string[];
@@ -1752,7 +1780,10 @@ export interface components {
             rule: string | null;
             /** Selected Model */
             selected_model: string;
-            /** Significant */
+            /**
+             * Significant
+             * @description Whether the development selection test passed its pre-registered gate, as M2 recorded it. Read the M2 SELECTION EVIDENCE notice with it: at a 30-day horizon with these origin counts the test over-rejects, and after a size correction the selection evidence is borderline.
+             */
             significant: boolean | null;
         };
         /** ShadowPriceHeadline */
@@ -2025,7 +2056,10 @@ export interface components {
             record_type: string | null;
             /** Result Fingerprint */
             result_fingerprint: string | null;
-            /** Run Id */
+            /**
+             * Run Id
+             * @description The run's identifier. A projection run's (m2_projection_run, m3_projection_run) is null while the M4 reference run, the only record of its manifest, is not ready (see /health/ready).
+             */
             run_id: string | null;
         };
         /** SystemData */

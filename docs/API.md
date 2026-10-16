@@ -6,6 +6,11 @@ M4 linear-programming engine. It is a read-mostly modular monolith inside the `a
 package: no database, no message broker, no recomputation of any research experiment.
 
 > **Read this first.** The API changes nothing about what the numbers mean.
+> - The forecast is an **archived projection**: issued from the frozen snapshot, whose last
+>   observed day is 2026-06-30, for the target days 2026-07-01 to 2026-07-30. It is not a
+>   live forecast, and it has never been scored: no outcome after 2026-06-30 is in the
+>   snapshot. Every response that serves projected numbers, or numbers derived from them,
+>   says so in its notices.
 > - The forecast is an unvalidated point forecast. On M2's confirmation period its MAE
 >   over horizons 1-30 was 985 requests/day, with a bias of -256.
 > - The M3 prediction intervals have the status **FAILED_CALIBRATION** (`failed_calibration`).
@@ -45,9 +50,11 @@ uv run atlas api openapi > docs/api/openapi.json   # regenerate the committed co
 uv run atlas api bench                 # measure latency and memory on this machine
 ```
 
-Interactive documentation: `http://127.0.0.1:8000/docs` (Swagger UI) and `/redoc`. The
-committed contract is [`docs/api/openapi.json`](api/openapi.json) (OpenAPI 3.1; a test
-fails if it differs from the code).
+Interactive documentation: `http://127.0.0.1:8000/docs` (Swagger UI) and `/redoc`, each
+loading one pinned version of its viewer from a CDN under Subresource Integrity and its own
+Content-Security-Policy ([§7](#7-security)). The committed contract is
+[`docs/api/openapi.json`](api/openapi.json) (OpenAPI 3.1; a test fails if it differs from
+the code).
 
 ### Configuration
 
@@ -123,10 +130,10 @@ memory; nothing is recomputed per request. The only computation is
 | Component | Loaded through | Checks |
 |---|---|---|
 | `snapshot` | `runner.load_series` | M0 integrity and contract validation of `legacy-v0` (fail-closed) |
-| `forecast_and_uncertainty_status` | the reference M4 configuration, `optimization_runner.load_inputs`, `decision_inputs.load_m3_quantile_path` | every pin of the M4 provenance chain: M2 projection SHA-256 and recommending run, result fingerprint, M3 status through M3's own `_status_source`, the same data fingerprint |
+| `forecast_and_uncertainty_status` | the reference M4 configuration, `optimization_runner.load_inputs`, `decision_inputs.load_m3_quantile_path` | every pin of the M4 provenance chain: M2 projection SHA-256 and recommending run, result fingerprint, M3 status through M3's own `_status_source`, the same data fingerprint; the API's fixed wording is true of the data (the M3 status is `failed_calibration`, as the interval label and descriptions state, and the projection was issued from the snapshot's last observed day, as the archived-projection notice states) |
 | `m2_backtest` | the recommending run's `metrics.json` and manifest | the exact bytes whose SHA-256 the chain verified; result fingerprint of the run's outputs; configuration and data fingerprints; the run's configuration (from its manifest) gives the recorded configuration fingerprint, and its pre-registered significance level (0.05) is read from it |
-| `m3_projection_intervals` | `projection_intervals.csv` | the SHA-256 pinned by the configuration; point predictions equal the M2 projection; every quantile present, non-negative and ordered |
-| `m4_reference_run` | `optimization_runner.inspect_optimization_command` (no recomputation) | every file against its manifest, result fingerprint, zero failed checks, configuration fingerprint equals the pinned configuration, M2 projection and M3 status equal the current ones, every CSV row labelled |
+| `m3_projection_intervals` | `projection_intervals.csv` and the run's manifest | the SHA-256 pinned by the configuration; the manifest is the one the stress paths were read from (same SHA-256); point predictions equal the M2 projection; every quantile present, non-negative and ordered |
+| `m4_reference_run` | `optimization_runner.inspect_optimization_command` (no recomputation) | every file against its manifest, result fingerprint, zero failed checks, configuration fingerprint equals the pinned configuration, M2 projection and M3 status equal the current ones, the M2 and M3 projection manifests (SHA-256 and run id) are the ones the run recorded, every CSV row labelled |
 | `simulation` | the reference configuration and inputs | ready when they are **and** the M4 reference run is verified: the defaults a simulation starts from are then those of the committed run |
 
 `/health/ready` adds a seventh entry, `simulation_workers`, from the running worker pool: ready
@@ -219,16 +226,17 @@ Scenario comparison is a sub-resource of `scenarios`.
 | `uncertainty_decision_grade` | `false` |
 | `parameter_provenance` | `HYPOTHETICAL` on every M4 result, otherwise `null` |
 | `validated_recommendation` | always `false` (schema `const`) |
-| `notices` | the labels ATLAS writes with these numbers: M2's record-type label, the M3 status guidance, the M4 simulation label, the DIAGNOSTIC and stress-path notices |
+| `notices` | the labels ATLAS writes with these numbers: M2's record-type label, the M3 status guidance, the M4 simulation label, the DIAGNOSTIC and stress-path notices; the archived-projection notice on every response that serves projected numbers or numbers derived from them (forecasts, intervals, scenarios, simulations); the M2 selection-evidence notice on `/models` |
 
 `provenance` gives the ATLAS and API versions, the snapshot and its data fingerprint, and
 every committed source of the data. Each source has its repository-relative directory
 (`path`), run id, result and configuration fingerprints (`null` where the source records
-none: the snapshot has no run), and `files`: the SHA-256 of each file the response was built
-from, by file name in `path`, each verified at startup. For example, a scenario's detail
-lists `metrics.json`, `plans.csv` and `scenarios.csv` of the M4 run. A response built from
-the M3 projection (the intervals, the q0.9 reference scenario, a quantile stress simulation)
-lists it as a source.
+none: the snapshot has no run; a projection run's id is also `null` while the M4 reference
+run, the only record of its manifest, is not ready, §8), and `files`: the SHA-256 of each
+file the response was built from, by file name in `path`, each verified at startup. For
+example, a scenario's detail lists `metrics.json`, `plans.csv` and `scenarios.csv` of the M4
+run. A response built from the M3 projection (the intervals, the q0.9 reference scenario, a
+quantile stress simulation) lists it as a source.
 
 ```json
 {"kind": "m4_reference_run", "path": "docs/results/atlas-m4-optimization-v1",
@@ -313,8 +321,8 @@ Returns:
 - `snapshot`: `legacy-v0`, 2023-01-01..2026-06-30, 1,277 days;
 - `components`;
 - `scientific_status`: the forecast model and its confirmation MAE, the M3 status and
-  statement, the M4 label, fixed `false` flags, and the limitations (including the H1
-  notice below);
+  statement, the M4 label, fixed `false` flags, and the limitations (first the
+  archived-projection notice, given under `/api/v1/forecasts` below, then the H1 notice);
 - `limits`: body size, workers, deadline, whether a key is required, the history and
   horizon caps;
 - `simulation_workers`: pool size, processes alive, idle workers, and counters of answered,
@@ -342,6 +350,19 @@ statistically established: MAE difference -127 requests/day (interval -256 to +2
 Holm-adjusted p 0.054, not below 0.05."* The notices of `/models` and `/forecasts/metrics`
 also carry M2's backtest label and the legacy 4.93 % MAPE note.
 
+`selection.significant` is `true`, and `selection.reason` says the selection-period DM test
+is significant at 0.05: the development selection test passed its pre-registered gate, as M2
+recorded it. The M8 audit found that this test is oversized at this horizon, so `/models`
+serves it with a second notice: *"M2 SELECTION EVIDENCE: the pre-registered development
+selection test (HLN-DM, conservative p 0.044) passed its 5 % gate, but at a 30-day horizon
+with 336-486 overlapping origins this test over-rejects under its own assumptions (roughly
+7-10 % false rejections at a nominal 5 %); after a size correction the selection evidence is
+borderline (p roughly 0.06-0.09). The pre-registered choice stands, but its statistical
+support is weak."* The p-value and the origin counts are those of the committed run (a test
+ties them to it); the size figures are the audit's rounded Monte Carlo results
+([M8-04](audit/M8_FINDINGS_REGISTER.md#m8-04)). No other string the API sends states or
+implies that the selection is significant or robust.
+
 ### `GET /api/v1/forecasts?horizon_days=1..30`
 
 ```json
@@ -357,6 +378,14 @@ also carry M2's backtest label and the legacy 4.93 % MAPE note.
 ```
 
 - The predictions are the committed `projections.csv` values, exactly.
+- `label` is M2's record-type label (*"FUTURE PROJECTION: forecasts beyond the last observed
+  day. ..."*): future relative to the snapshot. The notice after it says what the numbers
+  are today, with dates taken from the loaded projection and snapshot: *"ARCHIVED
+  PROJECTION: issued from the frozen snapshot, whose last observed day is 2026-06-30, for
+  the target days 2026-07-01 to 2026-07-30. It is not a live forecast, and it has never been
+  scored: no outcome after 2026-06-30 is in the snapshot."* The intervals, the scenarios
+  (list, detail and comparison), the simulations and their parameters carry the same notice,
+  and `/system` lists it first among its limitations.
 - `federal_holiday` names the observed federal holiday (M1 rules): 2026-07-03 is
   Independence Day observed.
 - `holiday_related` marks M3's holiday-related stratum: the actual and observed dates and
@@ -406,7 +435,10 @@ the projection starts on 2026-07-01.
   from the sealed M3 interval method (built from past forecast errors), which FAILED its
   pre-registered calibration criteria (failed_calibration): they are not calibrated
   quantiles and carry no probability to rely on."* (M3's general projection label, which
-  describes the method as calibrated, is not used here.)
+  describes the method as calibrated, is not used here.) This wording, like the interval
+  descriptions of the contract and M4's stress-path notice, states the status
+  `failed_calibration`; the API serves the forecast chain only when the committed status is
+  that one ([§8](#8-reliability-and-operations)).
 
 ### `GET /api/v1/scenarios`
 
@@ -427,7 +459,14 @@ scenario's demand comes from the M3 projection, which is therefore listed as a s
 
 - `outcome`: the scenario exactly as `metrics.json` records it. A test checks every recorded
   value is served unchanged; added schema keys are `null`. That includes:
-  - the reported plan with its certificate and independent check;
+  - the reported plan with its certificate and independent check. The certificate's
+    `primal`, `dual_sign`, `stationarity` and `duality_gap` are unitless: each is the
+    largest violation in units of its tolerance, so at most 1 passes. The tolerance is
+    1e-7 + 1e-9 × the magnitude of the row or bound for `primal`, and 1e-9 × max(1, the
+    magnitude of the quantity checked) for the other three; the contract gives each.
+    `duality_gap` is therefore not the gap itself, which is
+    `|primal_objective - dual_objective|`. The reported plan's certificate is that of its last
+    tie-break stage; `strict_programme` carries the penalised-score programme's;
   - the strict programme;
   - the programme without the target;
   - the diagnosis;
@@ -619,7 +658,7 @@ which can be protected with a key.
 | Host header and DNS rebinding | Explicit allowed hosts (default `localhost`, `127.0.0.1`, `::1`); bracketed IPv6 hosts are parsed, the port must be 1-5 digits, wildcards need two labels (`*.example.org`); others get 400 |
 | Cross-origin use | CORS off by default. Explicit origins only (no `*`), GET/POST, no credentials; rejected preflights get the JSON `cors_rejected` error. A JSON content type is required for POST, so a cross-site form cannot submit a simulation without a preflight. Errors made before the CORS layer (413, invalid host, the last-resort 500, `server_busy`) still carry CORS headers for an allowed origin, so a dashboard can read them |
 | Access control | Optional `ATLAS_API_KEY` for `POST /simulations`: `X-API-Key`, constant-time comparison, at least 24 characters, never logged or returned. It is checked by the outer middleware before the body is read (so an unauthenticated client cannot hold a request slot with a slow body) and again by the route. `serve` refuses a non-loopback bind without it |
-| Response handling | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` on JSON |
+| Response handling | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` on JSON and on any other answer on a documentation path; the two documentation pages carry their own policy (below) |
 | Log injection and privacy | JSON lines with whitelisted fields only. No bodies, query strings, headers, keys or client addresses. Client request ids accepted only if `[A-Za-z0-9._-]{8,64}` |
 
 **Assumptions and what is deferred to M6.**
@@ -628,21 +667,59 @@ which can be protected with a key.
 - GET endpoints are unauthenticated: they serve committed research outputs that are already
   in the repository.
 - The API key is a single shared secret. It is not a user system.
-- The Swagger UI page loads its scripts from a CDN in the viewer's browser. Set
-  `ATLAS_API_DOCS=false` where that is unwanted.
+- The documentation pages (`/docs`, `/redoc`; on by default, off with `ATLAS_API_DOCS=false`)
+  are this package's own (`src/atlas/api/docs.py`). They share the origin of the API and
+  the dashboard, and Swagger UI's "Authorize" dialog takes the simulation key. Each page
+  therefore loads one exact version of its viewer from jsDelivr (`swagger-ui-dist` 5.33.1,
+  `redoc` 2.5.4, each published at least two weeks before it was pinned) with a Subresource
+  Integrity hash, the SHA-384 of the file in the npm registry tarball: the browser refuses a
+  file that differs.
+- Each documentation page has its own `Content-Security-Policy`: nothing by default; scripts
+  only from that exact file (and, for Swagger UI, its initialisation script by hash); styles
+  only from the pinned stylesheet (Swagger UI) or inline (ReDoc writes its styles at run
+  time); images only `data:`; connections only to the API's own origin; ReDoc's search
+  worker from `blob:`; no framing, base URL or form target. No web font, favicon or online
+  validator is fetched, and the policy refuses ReDoc's footer logo (cdn.redoc.ly).
+- Both pages were checked in headless Chromium, with the CDN files served from the npm
+  tarballs: they render, Swagger UI's "Try it out" reaches the API, the policy reports no
+  other violation, and a changed file is refused. The pages still need jsDelivr to be
+  reachable from the viewer's browser; where it is not, or where any third-party script is
+  unwanted, set `ATLAS_API_DOCS=false`.
 
 ## 8. Reliability and operations
 
 - **Startup never fails on data.** A missing or altered artifact makes its component, and the
   components built on it, not ready. `/health/ready` answers 503 naming them; their endpoints
   answer 503 `artifact_unavailable`; everything else keeps serving.
-- **Fail closed.** Any break in the M2/M3 provenance chain takes down the forecast,
-  uncertainty, M4 and simulation components together, because they all rest on it. An edited
+- **Fail closed.** Any break in the pinned M2/M3 provenance chain (the files the reference
+  configuration pins and the checks of M4's input loader, §2) takes down the forecast,
+  uncertainty, M4 and simulation components together, because they all rest on it. The
+  projection manifests, which no configuration pins, are checked against the M4 record
+  instead (next item). An edited
   M4 file or an edited configuration value takes down the M4 reference component and
   simulations (whose defaults must be those of the verified run); a configuration that cannot
   be read takes down every component loaded through it (all but the snapshot). An edited
   snapshot takes down everything except liveness and system metadata
   (`tests/test_m5_reliability.py`).
+- **Projection manifests.** The manifests of the M2 and M3 projection runs are pinned by no
+  configuration, yet their run ids are served as provenance. The M4 reference run recorded
+  the SHA-256 and run id of each one, so an edited manifest (a changed run id, for example)
+  takes down the M4 reference component and simulations, and readiness answers 503 naming
+  it. The forecast and interval endpoints and `/api/v1/system` keep answering, because
+  their numbers are pinned and checked, but while the M4 reference component is not ready
+  (for this or any other reason) they serve the projection runs' `run_id` as `null`: an id
+  that cannot be checked is not served. The intervals component reads the M3 manifest
+  again for the id it serves; it must be the same bytes the stress paths were read from
+  (and the M4 record was compared with), so a manifest changed between the two reads takes
+  that component down (`tests/test_m5_guards.py`).
+- **Wording that must be true of the data.** Some caveats are fixed text: the interval
+  label, the interval descriptions of the contract and M4's stress-path notice state that
+  the intervals failed their calibration, and the archived-projection notice states that
+  the projection was issued from the snapshot's last observed day. The forecast component is
+  ready only when the committed data agree (status `failed_calibration`; projection origin
+  equal to the snapshot's last day). Otherwise the whole chain stays unavailable until the
+  wording has been reviewed, rather than serve a status next to a sentence that contradicts
+  it (`tests/test_m5_guards.py`).
 - **Immutable artifacts.** The store is built once, held in memory and never written. Files
   are opened read-only; the API's own parsers read each file once (see §2).
 - **Logging** (`atlas api serve`) writes one JSON object per line on stderr:
@@ -686,7 +763,12 @@ Re-run the command to measure another machine; the numbers below are this machin
 includes loading and checking every committed artifact (about 1 s, the snapshot validation
 alone about 0.9 s) and building the OpenAPI document. The first simulation took 1.42 s
 because its worker was still importing ATLAS. Workers announce themselves when their imports
-are done; import time is never counted against the deadline.
+are done; import time is never counted against the deadline. A worker replaced after a
+timeout or a crash imports ATLAS again, so the pool takes it last. A simulation goes to the
+idle worker that answered most recently; failing that, to the idle worker started longest
+ago. Sequential requests reuse one worker, so when it is replaced the others have never
+answered, but they started with the server and have usually finished importing. Only a
+request that finds no idle worker but freshly replaced ones waits for an import.
 
 **Read endpoints** (100 sequential requests each, after one warm-up request):
 
@@ -762,13 +844,13 @@ uv run pytest tests/test_m5_*.py --no-cov              # the M5 tests only
 
 | Module | What it checks |
 |---|---|
-| `test_m5_endpoints.py` | every GET endpoint against the committed files (read independently with `json`/`csv`); exact values; holiday flags; H1 notice and Holm flags; sources and fingerprints; comparison rules (DIAGNOSTIC rows, no differences unless both plans are strict); the endpoint inventory equals the OpenAPI document; filters; windows; errors; determinism |
+| `test_m5_endpoints.py` | every GET endpoint against the committed files (read independently with `json`/`csv`); exact values; holiday flags; H1 notice and Holm flags; the selection-evidence notice next to the recorded selection, tied to the committed p-value and origin counts; sources and fingerprints; comparison rules (DIAGNOSTIC rows, no differences unless both plans are strict); the endpoint inventory equals the OpenAPI document; filters; windows; errors; determinism |
 | `test_m5_simulation.py` | request semantics; neutral wording of reference defaults; limitations computed from the request; reproduction of six reference scenarios exactly; property-based invariants (balance, capacity, limits, budget, target, cost arithmetic, labels) on random bounded inputs; one field-naming rule for every error layer; HTTP validation of hostile bodies |
-| `test_m5_security.py` | hosts (IPv6, ports, wildcards), CORS (JSON rejections, headers on middleware errors), security headers and the exact docs exemption, body limits (declared and streamed), JSON-only, duplicate keys in linear time, deep nesting, strict and non-repeating query parameters, history dates far out of range, the in-flight cap, HEAD probes, API key, generic 500 with a logged traceback, bind policy |
-| `test_m5_concurrency.py` | a real uvicorn server and worker processes: parallel reads, bounded parallel simulations with identical results, metadata latency while every worker computes, idle and slow connections closed, deadline kill and replacement (logged), busy refusal, crashes counted and reported by readiness, recovery after failed restarts, Ctrl+C and SIGTERM, the HTTP mapping of uncertified and unexpected worker results (the worker's own fail-closed rule is in `test_m5_guards.py`), the API key checked before a slow body |
-| `test_m5_reliability.py` | twelve kinds of damaged or missing artifacts; degraded startup; no writes |
-| `test_m5_guards.py` | the guards ordinary damage never reaches: self-consistent forged M4 runs (a claimed validated recommendation, unlabelled rows), a file swapped after its check, cross-references between the M2, M3 and M4 runs, readiness over presence, and the worker failing closed on an uncertified result (mutation-checked, §14) |
-| `test_m5_contract.py` | committed OpenAPI equals the code; every operation documents its errors and cost; every response field required; fixed integrity flags; optional API key; request bounds equal the validation; units equal M4's; the M4 wording rules (no unnegated "probability", no "recommend" outside a not-a-recommendation phrase or the M2 model recommendation, no "calibrated" unless negated, no promotional terms) over every string of every response and every description in the contract |
+| `test_m5_security.py` | hosts (IPv6, ports, wildcards), CORS (JSON rejections, headers on middleware errors), security headers, the documentation pages (exact pinned files, their SRI values and each page's own policy; the JSON policy on anything else on their paths), body limits (declared and streamed), JSON-only, duplicate keys in linear time, deep nesting, strict and non-repeating query parameters, history dates far out of range, the in-flight cap, HEAD probes, API key, generic 500 with a logged traceback, bind policy |
+| `test_m5_concurrency.py` | a real uvicorn server and worker processes: parallel reads, bounded parallel simulations with identical results, metadata latency while every worker computes, idle and slow connections closed, deadline kill and replacement (logged), busy refusal, crashes counted and reported by readiness, recovery after failed restarts, a replaced worker taken last (also after sequential use, when no other worker has answered), `warm_up` pinging every worker, Ctrl+C and SIGTERM, the HTTP mapping of uncertified and unexpected worker results (the worker's own fail-closed rule is in `test_m5_guards.py`), the API key checked before a slow body |
+| `test_m5_reliability.py` | fourteen kinds of damaged or missing artifacts, including a changed run id in either projection manifest (never served, while the forecast endpoints keep answering); degraded startup; no writes |
+| `test_m5_guards.py` | the guards ordinary damage never reaches: self-consistent forged M4 runs (a claimed validated recommendation, unlabelled rows), a file swapped after its check, the M3 projection manifest changed between its two reads, cross-references between the M2, M3 and M4 runs (including the projection manifests the M4 run recorded), fixed wording that must be true of the data, readiness over presence, and the worker failing closed on an uncertified result (mutation-checked, §14) |
+| `test_m5_contract.py` | committed OpenAPI equals the code; every operation documents its errors and cost; every response field required; fixed integrity flags; optional API key; request bounds equal the validation; units equal M4's; the M4 wording rules (no unnegated "probability", no "recommend" outside a not-a-recommendation phrase or the M2 model recommendation, no "calibrated" unless negated, no promotional terms) over every string of every response and every description in the contract; the archived-projection notice on every response that serves projected numbers; the certificate fields described as tolerance ratios |
 | `test_m5_settings_cli.py` | settings ranges, environment parsing, `atlas api serve/openapi/bench`, JSON logging, a real benchmark run |
 
 CI runs the whole suite, including the M5 tests, on pushes to `main` and on pull requests
@@ -778,10 +860,17 @@ regenerates the OpenAPI document and requires it to equal the committed one.
 ## 11. Scientific limitations
 
 The API inherits every limitation of M2-M4 and adds none of its own claims:
+- The forecast is an archived projection, not a live forecast: it was issued from the frozen
+  snapshot (last observed day 2026-06-30) for 2026-07-01 to 2026-07-30 and has never been
+  scored. Every response that serves projected numbers, or numbers derived from them, says
+  so in its notices.
 - The forecast is an unvalidated point forecast. Its accuracy context is historical (M2's
   confirmation period, already used to confirm the model), not prospective. The recommended
   model's lead over the best baseline is not significant after the Holm adjustment
-  (p = 0.054); every response that serves M2 numbers says so in its notices.
+  (p = 0.054); every response that serves M2 numbers says so in its notices. The
+  development selection test passed its pre-registered gate (conservative p 0.044), but it
+  over-rejects at this horizon; after a size correction the selection evidence is
+  borderline (p roughly 0.06-0.09), and `/models` says so next to the selection.
 - The M3 intervals **failed** their pre-registered calibration criteria. No interval,
   quantile or probability the API serves is decision-grade. Quantile stress paths are marginal
   per day, not joint, and carry no probability.

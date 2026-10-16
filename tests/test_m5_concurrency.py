@@ -23,6 +23,7 @@ import pytest
 from atlas.api.reference import ReferenceStore
 from atlas.api.schemas import SimulationRequest
 from atlas.api.simulation import (
+    Busy,
     SimulationPool,
     SimulationService,
     Timeout,
@@ -218,6 +219,72 @@ def test_pool_exchange_and_close(api_store: ReferenceStore) -> None:
         pool.close()
     assert pool.idle == 0
     assert all(pid is None or pid > 0 for pid in pool.pids())
+
+
+def test_a_replaced_worker_waits_while_a_warm_one_is_idle(api_store: ReferenceStore) -> None:
+    # M8-22: a worker replaced after a timeout is a fresh process that still has to import
+    # ATLAS; the next simulation goes to the warm idle worker instead of waiting for it.
+    pool = SimulationPool(worker_context(api_store), 2, slow_worker)
+    try:
+        for worker in (pool.acquire(), pool.acquire()):
+            assert pool.exchange(worker, None, 60) == ("ok", "pong")  # both warm
+        replaced = pool.acquire()
+        with pytest.raises(Timeout):
+            pool.exchange(replaced, "{}", 0.2)
+        assert replaced.ready is False
+        chosen = pool.acquire()
+        assert chosen is not replaced
+        assert chosen.ready is True
+        # With the warm worker busy, the replaced one is still used (no queue, no refusal).
+        assert pool.acquire() is replaced
+        with pytest.raises(Busy):
+            pool.acquire()
+    finally:
+        pool.close()
+
+
+def test_after_sequential_use_a_replaced_worker_is_taken_last(api_store: ReferenceStore) -> None:
+    # M8-22 as a running server meets it: every worker starts (and imports ATLAS) at once,
+    # but sequential requests reuse the worker released last, so only that one has ever
+    # answered. When it is replaced, the next simulation goes to a worker whose import has
+    # finished, not to the fresh process that is still starting.
+    pool = SimulationPool(worker_context(api_store), 2, slow_worker)
+    try:
+        for worker in pool._workers:  # both imports done: each handshake is waiting
+            assert worker.connection is not None
+            assert worker.connection.poll(60)
+        used = pool.acquire()
+        assert pool.exchange(used, None, 60) == ("ok", "pong")
+        assert pool.acquire() is used  # sequential use: the same worker again
+        with pytest.raises(Timeout):
+            pool.exchange(used, "{}", 0.2)
+        (other,) = (worker for worker in pool._workers if worker is not used)
+        assert (other.ready, used.ready) == (False, False)  # neither has answered yet
+        chosen = pool.acquire()
+        assert chosen is other  # imported and waiting, not the replaced process
+        assert pool.exchange(chosen, None, 60) == ("ok", "pong")
+        # The warm worker is taken first again; the replaced one only when it is the last.
+        assert pool.acquire() is chosen
+        assert pool.acquire() is used
+        with pytest.raises(Busy):
+            pool.acquire()
+    finally:
+        pool.close()
+
+
+def test_warm_up_pings_every_worker(api_store: ReferenceStore) -> None:
+    # Taking the workers one at a time would ping the same worker each time: a pinged worker
+    # is released as the preferred one.
+    service = SimulationService(api_store, size=2, timeout_seconds=5.0, worker_target=slow_worker)
+    try:
+        service.start()
+        assert service.warm_up() == 2
+        pool = service._pool
+        assert pool is not None
+        assert [worker.ready for worker in pool._workers] == [True, True]
+        assert pool.idle == 2
+    finally:
+        service.close()
 
 
 def test_closed_service_refuses(api_store: ReferenceStore) -> None:
