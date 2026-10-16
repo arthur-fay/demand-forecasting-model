@@ -123,9 +123,12 @@ What the evidence supports:
 - It beats seasonal naive clearly (H2).
 - **M8 erratum.** The development selection test that chose this model (HLN-DM, conservative
   p 0.044 against a 5 % gate) over-rejects at a 30-day horizon with a few hundred overlapping
-  origins; after a size correction the selection evidence is borderline. The pre-registered choice
-  stands, but its statistical support is weak. Details and exact figures:
-  [BACKTESTING.md](BACKTESTING.md), M8 erratum.
+  origins: under its own assumptions the pre-registered rule rejects a true null 7.6 % of the time
+  with 486 origins and 9.1 % with 336, instead of 5 %. After a size correction the selection
+  p-value is 0.069, so the gate would not have been passed; H1 becomes 0.095 and H2 0.022 (Holm
+  0.045). The pre-registered choice stands (changing it after the fact would be worse science),
+  but its statistical support is weak. Details: [BACKTESTING.md](BACKTESTING.md), M8 erratum, and
+  the reproducible study in `docs/audit/scripts/`.
 - The lead is not uniform: the model loses to B\* in 6 of 28 origin months. In the confirmation
   period, almost all of its error growth with horizon comes from the recursion.
 - The original project's "4.93 % MAPE" is a horizon-1 score on observed inputs over 90 easy days;

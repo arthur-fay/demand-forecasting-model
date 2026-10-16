@@ -37,8 +37,9 @@ section 9.
   established**: confirmation MAE 984.9 against 1,112.2, 95 % interval of the difference
   −256 to +2, Holm-adjusted p 0.054; about 10-14 effective independent observations.
 - **(M8)** The development selection test over-rejects at a 30-day horizon with a few hundred
-  overlapping origins; after a size correction the evidence for the selection is borderline. The
-  pre-registered choice stands; its statistical support is weak (M8 erratum in BACKTESTING.md).
+  overlapping origins (the nominal 5 % rule rejects a true null 7.6-9.1 % of the time); after a
+  size correction the selection p-value is 0.069, above its 5 % gate. The pre-registered choice
+  stands; its statistical support is weak (M8 erratum in BACKTESTING.md).
 - The confirmation period has been exposed: a new, untouched evaluation needs data after
   2026-06-30.
 - The lead is not uniform (6 of 28 origin months lost to B\*), and recursion drives most of the
