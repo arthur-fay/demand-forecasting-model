@@ -30,11 +30,10 @@ describe('scientific warnings next to the numbers', () => {
     expect(
       await screen.findByText('An archived projection, not a live forecast'),
     ).toBeInTheDocument();
-    // The API's own notices travel with the chart.
-    expect(
-      (await screen.findAllByText(/FUTURE PROJECTION: forecasts beyond the last observed day/))
-        .length,
-    ).toBeGreaterThan(0);
+    // The API's own notices travel with the chart: its label, in the API's words (the start
+    // of the recorded answer's label, so that the API may reword it).
+    const label = FIXTURES.forecast.data.label.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    expect((await screen.findAllByText(new RegExp(label))).length).toBeGreaterThan(0);
   });
 
   it('forecasting: the H1 test is reported as not significant after Holm', async () => {
