@@ -11,10 +11,14 @@ later step. It identifies:
 * every research artifact (``snapshots/``, ``01 Data/``, ``docs/results/``, ``configs/``)
   by SHA-256, and a fingerprint of the whole set;
 * every file of the exported commit (code, templates, configuration) by SHA-256, and one
-  fingerprint of the installed environment (``.venv``);
+  fingerprint of the installed environment (``.venv``), the same for every build of the
+  commit with the same lock, uv, Python and path (:func:`environment_fingerprint`);
 * the API contract (SHA-256 of ``docs/api/openapi.json``);
 * (M7) the dashboard build (``web/dist``): its version, manifest hash, fingerprint, every
-  file's SHA-256, its routes and its Content-Security-Policy;
+  file's SHA-256, its routes and its Content-Security-Policy; (M8) its other response
+  headers and the deployment descriptor of each exposed profile, with its format, so that
+  a later tool restoring or rolling back to the release serves and verifies its dashboard
+  as the release's own code does (:func:`dashboard_record`);
 * the scientific-integrity status: the M3 interval status (``failed_calibration``), the M4
   parameter provenance (``HYPOTHETICAL``) and ``validated_recommendation: false``;
 * the build: when, with which uv, and which checks passed.
@@ -35,10 +39,22 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePath
 from typing import Any, Final
 
-from atlas.dashboard import DIST, MANIFEST_NAME, DashboardError, manifest_record
+from atlas.dashboard import (
+    DASHBOARD_HEADERS,
+    DESCRIPTOR_FORMAT,
+    DIST,
+    MANIFEST_NAME,
+    DashboardError,
+    manifest_record,
+)
 from atlas.deploy.layout import RELEASE_MANIFEST, valid_release_id
+from atlas.deploy.routes import PROFILE_ACCESS, descriptor_for
 
 MANIFEST_VERSION: Final = 1
+#: How :func:`environment_fingerprint` is computed: 2 (M8) leaves out the metadata uv
+#: rewrites at every build; a manifest without ``environment_fingerprint_version`` (M6, M7)
+#: fingerprinted every file (1), and is still checked that way.
+ENVIRONMENT_FINGERPRINT_VERSION: Final = 2
 RESEARCH_PATHS: Final = ("snapshots", "01 Data", "docs/results", "configs")
 CONTRACT: Final = "docs/api/openapi.json"
 LOCK: Final = "uv.lock"
@@ -95,15 +111,31 @@ def source_files(release_dir: Path) -> dict[str, str]:
     return files
 
 
-def environment_fingerprint(release_dir: Path) -> str:
+def _rebuilt(relative: PurePath, release_dir: Path) -> bool:
+    """uv's record of a distribution it built locally (the project itself, installed
+    editable): ``uv_cache.json``, which holds the project's file times at the build, and the
+    ``RECORD`` of the same ``.dist-info`` that hashes it. Both differ between two builds of
+    one commit; neither is ever run."""
+    if not relative.parent.name.endswith(".dist-info"):
+        return False
+    if relative.name == "uv_cache.json":
+        return True
+    return relative.name == "RECORD" and (release_dir / relative.parent / "uv_cache.json").exists()
+
+
+def environment_fingerprint(
+    release_dir: Path, version: int = ENVIRONMENT_FINGERPRINT_VERSION
+) -> str:
     """One fingerprint of the installed environment (``.venv``: files and links; bytecode
-    excluded)."""
+    excluded and, from ``version`` 2, the metadata uv rewrites at every build). Two builds
+    of a commit with the same lock, uv, Python and path then share it."""
     files: dict[str, str] = {}
     base = release_dir / ".venv"
     for path in sorted(base.rglob("*")):
-        if _bytecode(path.relative_to(release_dir)):
+        relative_path = path.relative_to(release_dir)
+        if _bytecode(relative_path) or (version >= 2 and _rebuilt(relative_path, release_dir)):
             continue
-        relative = path.relative_to(release_dir).as_posix()
+        relative = relative_path.as_posix()
         if path.is_symlink():
             files[relative] = "symlink:" + str(path.readlink())
         elif path.is_file():
@@ -190,13 +222,21 @@ def scientific_status(release_dir: Path) -> dict[str, Any]:
 
 def dashboard_record(release_dir: Path) -> dict[str, Any] | None:
     """The release's dashboard, verified against its own build manifest (``None``: the
-    release has no dashboard build)."""
+    release has no dashboard build), and (M8) what the release's code sends with it: its
+    response headers and the deployment descriptor of each exposed profile, with its
+    format. A later tool serving this release (a rollback, a restoration) renders nginx's
+    dashboard headers and descriptor from here and verifies the API against them
+    (:mod:`atlas.deploy.render`, :mod:`atlas.deploy.verify`)."""
     if not (release_dir / DIST / MANIFEST_NAME).exists():
         return None
     try:
-        return manifest_record(release_dir / DIST)
+        record = manifest_record(release_dir / DIST)
     except DashboardError as exc:
         raise ManifestError(f"the dashboard build does not verify: {exc}") from exc
+    record["headers"] = dict(DASHBOARD_HEADERS)
+    record["descriptor_format"] = DESCRIPTOR_FORMAT
+    record["descriptors"] = {profile: descriptor_for(profile) for profile in PROFILE_ACCESS}
+    return record
 
 
 def check_dashboard(release_dir: Path, recorded: Mapping[str, Any] | None) -> list[str]:
@@ -269,6 +309,7 @@ def build_manifest(
         },
         "source": {"fingerprint": tree_fingerprint(sources), "files": sources},
         "environment_fingerprint": environment_fingerprint(release_dir),
+        "environment_fingerprint_version": ENVIRONMENT_FINGERPRINT_VERSION,
         "api_contract_sha256": sha256_file(release_dir / CONTRACT),
         "dashboard": dashboard_record(release_dir),
         "scientific_status": scientific_status(release_dir),
@@ -341,8 +382,11 @@ def check_release(release_dir: Path, manifest: Mapping[str, Any] | None = None) 
     problems += [f"release file altered, added or removed: {path}" for path in changed[:20]]
     problems += check_dashboard(release_dir, manifest.get("dashboard"))
     executable = release_dir / ".venv" / "bin" / "atlas"
+    version = manifest.get("environment_fingerprint_version", 1)
     if not executable.exists():
         problems.append("the release has no environment (.venv/bin/atlas)")
-    elif environment_fingerprint(release_dir) != manifest.get("environment_fingerprint"):
+    elif version not in (1, ENVIRONMENT_FINGERPRINT_VERSION):
+        problems.append(f"unsupported environment fingerprint version {version!r}")
+    elif environment_fingerprint(release_dir, version) != manifest.get("environment_fingerprint"):
         problems.append("the installed environment (.venv) differs from the manifest")
     return problems[:50]

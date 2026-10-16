@@ -17,17 +17,33 @@ import io
 import json
 import re
 import stat
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
 
-from atlas.dashboard import DASHBOARD_CSP, DESCRIPTOR_PATH, DIST, MANIFEST_NAME, load_build
+from atlas.dashboard import (
+    DASHBOARD_CSP,
+    DASHBOARD_HEADERS,
+    DESCRIPTOR_FORMAT,
+    DESCRIPTOR_PATH,
+    DIST,
+    MANIFEST_NAME,
+    load_build,
+)
 from atlas.deploy.layout import Layout
 from atlas.deploy.manifest import check_release, load_manifest
 from atlas.deploy.publish import PublishError, check_published, prune_published, publish
-from atlas.deploy.releases import ACTIVATED, REFUSED, ROLLED_BACK, compare_manifests
-from atlas.deploy.render import Renderer
+from atlas.deploy.releases import (
+    ACTIVATED,
+    IN_PROGRESS,
+    REFUSED,
+    ROLLED_BACK,
+    Deployment,
+    compare_manifests,
+)
+from atlas.deploy.render import Renderer, RenderError, descriptor_for
 from atlas.deploy.routes import (
     DASHBOARD,
     PROFILE_ACCESS,
@@ -42,7 +58,15 @@ from atlas.deploy.verify import Response, Target, Verification, _dashboard
 from tests.conftest import REPO_ROOT
 from tests.m6_helpers import DEPLOY_ENV_PRIVATE, Nginx, make_release, need_tools, write
 from tests.m7_helpers import BUILD, make_dashboard_release
-from tests.test_m6_releases import A, B, deployment, name
+from tests.test_m6_releases import (
+    A,
+    B,
+    FakeHost,
+    InterruptedHost,
+    deployment,
+    name,
+    verifier,
+)
 
 PUBLIC = (
     "ATLAS_DEPLOY_PROFILE=public-demo\nATLAS_DEPLOY_DOMAIN=atlas.example.org\n"
@@ -308,6 +332,13 @@ def test_the_manifest_identifies_the_dashboard(tmp_path: Path) -> None:
     assert record["fingerprint"] == build.fingerprint()
     assert record["files"] == {f.path: f.sha256 for f in build.files}
     assert record["csp"] == DASHBOARD_CSP
+    # (M8) What a later tool needs to serve this dashboard as this release's code does.
+    assert record["headers"] == DASHBOARD_HEADERS
+    assert record["descriptor_format"] == DESCRIPTOR_FORMAT
+    assert record["descriptors"] == {
+        "private": descriptor_for("private"),
+        "public-demo": descriptor_for("public-demo"),
+    }
     assert check_release(release) == []
 
 
@@ -345,13 +376,17 @@ def test_an_upgrade_plan_shows_a_dashboard_change(tmp_path: Path) -> None:
 # --- Activation and rollback --------------------------------------------------------------------
 
 
-def site_root(tmp_path: Path) -> str:
-    site = (tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
+def dashboard_root(site: str) -> str:
+    """The directory a site serves the dashboard from."""
     return next(
         line.split()[1].rstrip(";")
         for line in site.splitlines()
         if " root /" in line and "dashboard" in line
     )
+
+
+def site_root(tmp_path: Path) -> str:
+    return dashboard_root((tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8"))
 
 
 def private_deployment(tmp_path: Path, broken: set[str] | None = None) -> Any:
@@ -416,6 +451,175 @@ def test_an_explicit_rollback_renders_the_previous_dashboard(tmp_path: Path) -> 
     assert site_root(tmp_path).endswith(name(B))
     assert deploy.rollback()["outcome"] == ACTIVATED
     assert site_root(tmp_path).endswith(name(A))
+
+
+def test_recover_completes_an_activation_interrupted_during_the_restart(tmp_path: Path) -> None:
+    """An activation that dies while the service restarts on the new release (a lost SSH
+    session, Ctrl-C) has switched the link and written the new site, but nginx still runs
+    the previous one. `recover` completes it (the release's files again, nginx -t, nginx
+    reloaded, then verified) before it keeps the release as verified: nginx serves the
+    dashboard of the release the API runs (M8-02). The running service is not restarted."""
+    deploy, _ = private_deployment(tmp_path)
+    host = InterruptedHost(deploy.layout, interrupt=name(B))
+    deploy.host = host
+    make_dashboard_release(tmp_path, commit=A)
+    make_dashboard_release(tmp_path, commit=B)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    with pytest.raises(KeyboardInterrupt):
+        deploy.activate(name(B))
+    assert deploy.current() == name(B)
+    assert site_root(tmp_path).endswith(f"/opt/atlas/dashboard/{name(B)}")
+    assert dashboard_root(host.loaded[-1]).endswith(f"/opt/atlas/dashboard/{name(A)}")
+    calls = len(host.calls)
+    record = deploy.recover()
+    assert record["outcome"] == ACTIVATED, record
+    done = host.calls[calls:]
+    assert done.index("nginx -t") < done.index("nginx reload")
+    assert f"restart {name(B)}" not in done
+    loaded = host.loaded[-1]
+    assert dashboard_root(loaded).endswith(f"/opt/atlas/dashboard/{name(B)}")
+    # What is kept as verified is what nginx serves.
+    assert loaded == (tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
+    good = deploy.good_state()
+    assert good is not None
+    assert good["release"] == name(B)
+    assert deploy.pending() is None
+
+
+#: A later atlas-deploy whose dashboard has another policy than the releases built before it.
+NEWER_CSP = DASHBOARD_CSP + "; upgrade-insecure-requests"
+NEWER_FORMAT = "atlas-deployment/2"
+
+
+def newer_tool(monkeypatch: pytest.MonkeyPatch, *, new_format: bool = True) -> None:
+    """Make this process stand for a later atlas-deploy: another Content-Security-Policy (and
+    descriptor format), wherever the tool's modules hold them."""
+    import atlas.dashboard
+    from atlas.deploy import manifest, render, verify
+
+    headers = {**DASHBOARD_HEADERS, "Content-Security-Policy": NEWER_CSP}
+    for module in (atlas.dashboard, manifest, render, verify):
+        monkeypatch.setattr(module, "DASHBOARD_CSP", NEWER_CSP, raising=False)
+        monkeypatch.setattr(module, "DASHBOARD_HEADERS", headers, raising=False)
+        if new_format:
+            monkeypatch.setattr(module, "DESCRIPTOR_FORMAT", NEWER_FORMAT, raising=False)
+
+
+def as_each_release_serves(broken: set[str] | None = None) -> Callable[[Target], Verification]:
+    """The fake verifier, and the real dashboard check against what each release's own API
+    sends: its index.html with the policy of its code (which its manifest records) and a
+    descriptor in its own format."""
+
+    def check(target: Target) -> Verification:
+        result = verifier(broken or set())(target)
+        record = (target.manifest or {})["dashboard"]
+        headers = {"content-security-policy": record["csp"]}
+        page = answer(200, (BUILD / "index.html").read_bytes(), headers)
+        own = json.dumps({"format": record.get("descriptor_format", DESCRIPTOR_FORMAT)})
+        _dashboard(result, page, answer(200, own.encode()), record, target.dashboard_dir)
+        return result
+
+    return check
+
+
+def assert_site_serves(tmp_path: Path, release: str, csp: str, descriptor_format: str) -> None:
+    site = (tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
+    assert dashboard_root(site).endswith(f"/opt/atlas/dashboard/{release}")
+    part = dashboard_part(site)
+    assert part.count(f'add_header Content-Security-Policy "{csp}" always;') == 3
+    assert part.count("add_header Content-Security-Policy") == 3 + 1  # + the descriptor's
+    assert f'"format":"{descriptor_format}"' in part
+
+
+def test_a_newer_tool_restores_an_older_release_with_its_own_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed upgrade run by a later atlas-deploy whose dashboard policy differs restores
+    the older release: verified against the policy that release records, and its site sent
+    with its own headers and descriptor (M8-03). The restoration used to fail its dashboard
+    check, so the service was stopped and disabled."""
+    deploy, _ = private_deployment(tmp_path)
+    deploy.verifier = as_each_release_serves({name(B)})
+    make_dashboard_release(tmp_path, commit=A)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    newer_tool(monkeypatch)
+    make_dashboard_release(tmp_path, commit=B)  # built by the later tool; it does not verify
+    record = deploy.activate(name(B))
+    assert record["outcome"] == ROLLED_BACK, record
+    assert deploy.current() == name(A)
+    assert_site_serves(tmp_path, name(A), DASHBOARD_CSP, DESCRIPTOR_FORMAT)
+
+
+def test_an_explicit_rollback_by_a_newer_tool_serves_the_older_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deploy, _ = private_deployment(tmp_path)
+    deploy.verifier = as_each_release_serves()
+    make_dashboard_release(tmp_path, commit=A)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    newer_tool(monkeypatch)
+    make_dashboard_release(tmp_path, commit=B)
+    assert deploy.activate(name(B))["outcome"] == ACTIVATED
+    assert_site_serves(tmp_path, name(B), NEWER_CSP, NEWER_FORMAT)
+    record = deploy.rollback()
+    assert record["outcome"] == ACTIVATED, record
+    assert deploy.current() == name(A)
+    assert_site_serves(tmp_path, name(A), DASHBOARD_CSP, DESCRIPTOR_FORMAT)
+
+
+def rewrite_dashboard_record(release: Path, **changes: object) -> dict[str, Any]:
+    """Change the dashboard record in ``release``'s manifest (``None`` removes a key)."""
+    path = release / "release.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    for key, value in changes.items():
+        if value is None:
+            manifest["dashboard"].pop(key, None)
+        else:
+            manifest["dashboard"][key] = value
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    record: dict[str, Any] = manifest["dashboard"]
+    return record
+
+
+def test_a_release_that_records_only_its_csp_keeps_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Releases built before 1.0.0 (M7) record only their Content-Security-Policy: a later
+    tool serves and verifies them with it (their other headers and descriptors are the
+    tool's, unchanged since M7)."""
+    release = make_dashboard_release(tmp_path)
+    record = rewrite_dashboard_record(
+        release, headers=None, descriptor_format=None, descriptors=None
+    )
+    newer_tool(monkeypatch, new_format=False)
+    site = Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
+    assert dashboard_part(site).count(f'Content-Security-Policy "{DASHBOARD_CSP}" always;') == 3
+    assert "upgrade-insecure-requests" not in site
+    verification = Verification()
+    _dashboard(verification, good_page(), good_descriptor(), record, None)
+    assert verification.ok, verification.render()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("headers", {"X-Test": 'x" always;\n    return 200 "y'}),
+        ("headers", {"X Test": "x"}),
+        ("headers", ["Content-Security-Policy"]),
+        ("csp", "default-src 'none'; img-src $host"),
+        ("descriptors", {"private": "{}'; return 200 '{}", "public-demo": "{}"}),
+        ("descriptors", {"public-demo": "{}"}),
+    ],
+)
+def test_a_recorded_policy_that_could_alter_the_site_is_refused(
+    tmp_path: Path, key: str, value: object
+) -> None:
+    """What a release records is written into its nginx site: only plain header names and
+    values, and compact JSON descriptors, are accepted."""
+    release = make_dashboard_release(tmp_path)
+    rewrite_dashboard_record(release, **{key: value})
+    with pytest.raises(RenderError, match="dashboard"):
+        Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
 
 
 def test_a_release_with_an_altered_dashboard_is_refused_before_anything_changes(
@@ -597,8 +801,7 @@ def test_render_apply_publishes_the_dashboard_its_site_serves(
 
     root = rehearsal(tmp_path)
     release = make_dashboard_release(root)
-    if through_current:
-        (root / "opt/atlas/current").symlink_to(release)
+    (root / "opt/atlas/current").symlink_to(release)
     code, output = render_apply(root, root / "opt/atlas/current" if through_current else release)
     assert code == 0, output
     published = root / "opt/atlas/dashboard" / release.name
@@ -622,6 +825,7 @@ def test_render_apply_publishes_only_an_installed_release_as_recorded(
     assert render_apply(root, elsewhere)[0] == 2
     assert "is not an installed release" in capsys.readouterr().err
     release = make_dashboard_release(root)
+    (root / "opt/atlas/current").symlink_to(release)
     dist = release / DIST
     (dist / "index.html").write_text("<!doctype html><p>rebuilt</p>\n", encoding="utf-8")
     data = (dist / "index.html").read_bytes()
@@ -635,6 +839,44 @@ def test_render_apply_publishes_only_an_installed_release_as_recorded(
     assert "differs from the manifest" in capsys.readouterr().err
     assert not (root / "opt/atlas/dashboard").exists()
     assert not (root / "etc/nginx/sites-available/atlas.conf").exists()
+
+
+def test_render_apply_installs_the_current_release_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`render --apply` rewrites the site nginx serves next to the running API: only the
+    current release's, under the deployment lock, and recorded in the history. Another
+    release is refused (activate it instead), so nginx is never made to serve a dashboard
+    and routes that the API does not run (M8-26)."""
+    from tests.test_m6_scripts import rehearsal
+
+    root = rehearsal(tmp_path)
+    current = make_dashboard_release(root, commit=A)
+    other = make_dashboard_release(root, commit=B)
+    (root / "opt/atlas/current").symlink_to(f"releases/{current.name}")
+    site = root / "etc/nginx/sites-available/atlas.conf"
+    history = root / "var/lib/atlas/deploy/history.jsonl"
+    assert render_apply(root, other)[0] == 2
+    error = capsys.readouterr().err
+    assert "is not the current release" in error
+    assert f"atlas-deploy activate {other.name}" in error
+    assert not site.exists()
+    assert not (root / "opt/atlas/dashboard").exists()
+    assert not history.exists()
+    code, output = render_apply(root, current)
+    assert code == 0, output
+    assert dashboard_root(site.read_text("utf-8")).endswith(f"/opt/atlas/dashboard/{current.name}")
+    last = json.loads(history.read_text("utf-8").splitlines()[-1])
+    assert (last["action"], last["outcome"], last["release"]) == ("render", "applied", current.name)
+    # Not while another deployment runs, nor while an activation is unfinished.
+    layout = Layout(root=root)
+    deploy = Deployment(layout, FakeHost(layout), verifier(set()))
+    with deploy.locked():
+        assert render_apply(root, current)[0] == 2
+    assert "another deployment holds the lock" in capsys.readouterr().err
+    deploy.record("activate", IN_PROGRESS, op="op-x", release=other.name, previous=current.name)
+    assert render_apply(root, current)[0] == 2
+    assert "atlas-deploy recover" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("command", ["render", "validate", "plan-upgrade"])

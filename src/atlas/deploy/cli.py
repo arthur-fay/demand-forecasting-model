@@ -279,24 +279,47 @@ def _validate(ctx: Context, args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK if not problems else EXIT_FAILED
 
 
+def _applied_release(ctx: Context, deployment: Deployment, release_dir: Path) -> str | None:
+    """The release whose files `render --apply` may install (under the deployment lock):
+    the current one, the release nginx and the service already serve. Any other release is
+    activated instead, which switches, restarts, verifies and records it: rendering its site
+    by hand would put its dashboard and routes in front of another release's API. Refused
+    too while an activation is unfinished. In a rehearsal (``--root``) a checkout may be
+    rendered (``None``)."""
+    interrupted = deployment.pending()
+    if interrupted is not None:
+        raise DeployError(
+            f"the {interrupted.get('action')} of {interrupted.get('release')} was interrupted: "
+            "run `atlas-deploy recover` first"
+        )
+    release = release_dir.resolve()
+    named = valid_release_id(release.name)
+    if not named or release != deployment.release_path(release.name).resolve():
+        if ctx.rehearsal and not named:
+            return None  # a rehearsal of a checkout: its site reads the checkout's own build
+        raise DeployError(
+            f"{release} is not an installed release (nothing in it is verified for this "
+            "server). Use --release-dir /opt/atlas/current, or atlas-deploy activate <id>."
+        )
+    current = deployment.current()
+    if release.name != current:
+        raise DeployError(
+            f"{release.name} is not the current release ({current or 'none is active'}): "
+            "render --apply installs the current release's files only. To serve it, run "
+            f"`atlas-deploy activate {release.name}` (it installs, switches, restarts and "
+            "verifies, and restores the current release on failure)."
+        )
+    return current
+
+
 def _publish_for_site(ctx: Context, renderer: Renderer) -> None:
     """(M7) The site serves the release's published dashboard: publish (and verify) it
-    first. Only an installed release is published (its directory in /opt/atlas/releases,
-    its dashboard as its release.json records it, as activate checks). A checkout is not a
-    release; on a server its build is never served."""
+    first, as its release.json records it (as activate checks). Only for the release
+    :func:`_applied_release` accepted (a checkout only in a rehearsal, where its site reads
+    the checkout's own build)."""
     release, build = renderer.release_dir.resolve(), renderer.dashboard
-    if build is None:
+    if build is None or not valid_release_id(release.name):
         return
-    installed = valid_release_id(release.name) and (
-        release == ctx.layout.local(ctx.layout.release(release.name)).resolve()
-    )
-    if not installed:
-        if ctx.rehearsal and not valid_release_id(release.name):
-            return  # a rehearsal of a checkout: its site reads the checkout's own build
-        raise DeployError(
-            f"{release} is not an installed release: its dashboard is not verified for nginx. "
-            "Use --release-dir /opt/atlas/releases/<id>, or atlas-deploy activate <id>."
-        )
     try:
         problems = check_dashboard(release, load_manifest(release).get("dashboard"))
     except ManifestError as exc:
@@ -324,19 +347,25 @@ def _render(ctx: Context, args: argparse.Namespace, out: TextIO) -> int:
     if args.apply:
         ctx.require_root()
         ctx.ids()
-        if config.exposed and args.stage == "tls":
-            _publish_for_site(ctx, renderer)
-        results = write_files(
-            files,
-            ctx.layout,
-            chown=not ctx.rehearsal,
-            group_ids={"root": 0, SERVICE_GROUP: ctx.service_gid, PROXY_GROUP: ctx.proxy_gid},
-        )
-        changed = [str(r.path) for r in results if r.changed]
-        if config.exposed:
-            enable_site(ctx.layout)
-        elif disable_site(ctx.layout):  # not exposed: no earlier site may keep serving
-            changed.append(f"{ctx.layout.nginx_site} (removed)")
+        deployment = ctx.deployment()
+        with deployment.locked():
+            release = _applied_release(ctx, deployment, renderer.release_dir)
+            if config.exposed and args.stage == "tls":
+                _publish_for_site(ctx, renderer)
+            results = write_files(
+                files,
+                ctx.layout,
+                chown=not ctx.rehearsal,
+                group_ids={"root": 0, SERVICE_GROUP: ctx.service_gid, PROXY_GROUP: ctx.proxy_gid},
+            )
+            changed = [str(r.path) for r in results if r.changed]
+            if config.exposed:
+                enable_site(ctx.layout)
+            elif disable_site(ctx.layout):  # not exposed: no earlier site may keep serving
+                changed.append(f"{ctx.layout.nginx_site} (removed)")
+            deployment.record(
+                "render", "applied", release=release, stage=args.stage, changed=changed
+            )
         _emit(
             out,
             {"changed": changed},

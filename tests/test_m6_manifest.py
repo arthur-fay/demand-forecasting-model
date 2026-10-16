@@ -19,10 +19,12 @@ from atlas.deploy.manifest import (
     ManifestError,
     build_manifest,
     check_release,
+    environment_fingerprint,
     load_manifest,
     research_files,
     runtime_packages,
     scientific_status,
+    write_manifest,
 )
 from tests.conftest import REPO_ROOT
 from tests.m6_helpers import make_release, write
@@ -107,6 +109,76 @@ def test_bytecode_written_later_does_not_alter_the_release(tmp_path: Path) -> No
     assert check_release(release) == []
     write(release / "src/atlas/__pycache__/planted.py", "import os\n")  # not bytecode
     assert any("planted.py" in p for p in check_release(release))
+
+
+def _project_metadata(release: Path) -> Path:
+    """The dist-info uv writes for the project itself (installed editable)."""
+    version = release.name.split("-")[0]
+    return release / f".venv/lib/python3.12/site-packages/atlas-{version}.dist-info"
+
+
+def _uv_build(info: Path, built: int) -> None:
+    """What uv writes for a build of the project: its cache record (the source files' times
+    at that build) and the RECORD listing it with its hash."""
+    cache = f'{{"timestamp":{built},"commit":null,"tags":null}}'
+    write(info / "uv_cache.json", cache)
+    digest = hashlib.sha256(cache.encode()).hexdigest()
+    write(info / "RECORD", f"{info.name}/uv_cache.json,sha256={digest},{len(cache)}\n")
+
+
+def test_two_builds_of_one_commit_have_one_environment_fingerprint(tmp_path: Path) -> None:
+    """uv records the time of each build in the project's own metadata (``uv_cache.json``
+    and the ``RECORD`` that hashes it): the environment fingerprint leaves those two out, so
+    two builds of one commit (same lock, uv, Python and path) share it (M8-24). Everything
+    else in the environment still counts."""
+    release = make_release(tmp_path)
+    info = _project_metadata(release)
+    write(info / "METADATA", "Metadata-Version: 2.4\nName: atlas\n")
+    _uv_build(info, 1_760_000_000)
+    manifest = build_manifest(
+        release,
+        release_id=release.name,
+        commit="a" * 40,
+        built_at="2026-10-15T12:00:00+00:00",
+        uv_version="0.11.32",
+        checks=[],
+    )
+    write_manifest(release, manifest)
+    assert check_release(release) == []
+    _uv_build(info, 1_760_086_400)  # the same commit, built a day later
+    assert (
+        build_manifest(
+            release,
+            release_id=release.name,
+            commit="a" * 40,
+            built_at="2026-10-15T12:00:00+00:00",
+            uv_version="0.11.32",
+            checks=[],
+        )
+        == manifest
+    )
+    assert check_release(release) == []
+    write(info / "METADATA", "Metadata-Version: 2.4\nName: atlas\nVersion: 9\n")
+    assert any("environment (.venv) differs" in p for p in check_release(release))
+
+
+def test_a_manifest_written_before_m8_is_checked_as_it_was_written(tmp_path: Path) -> None:
+    """Releases built before 1.0.0 record no fingerprint version: their environment
+    fingerprint covers every file and is checked so, and a later tool can still restore or
+    roll back to them."""
+    release = make_release(tmp_path)
+    info = _project_metadata(release)
+    _uv_build(info, 1_760_000_000)
+    manifest = load_manifest(release)
+    assert manifest["environment_fingerprint_version"] == 2
+    del manifest["environment_fingerprint_version"]
+    manifest["environment_fingerprint"] = environment_fingerprint(release, 1)
+    write_manifest(release, manifest)
+    assert check_release(release) == []
+    _uv_build(info, 1_760_086_400)
+    assert any("environment (.venv) differs" in p for p in check_release(release))
+    write_manifest(release, manifest | {"environment_fingerprint_version": 3})
+    assert "unsupported environment fingerprint version 3" in check_release(release)
 
 
 def test_manifest_errors(tmp_path: Path) -> None:

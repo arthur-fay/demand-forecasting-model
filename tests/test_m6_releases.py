@@ -106,6 +106,29 @@ class FakeHost:
         return True, ""
 
 
+class InterruptedHost(FakeHost):
+    """The fake host, with what nginx has loaded (the site file at each reload). The restart
+    of the release ``interrupt`` completes, as systemd finishes a restart job whatever
+    happens to its client, but `atlas-deploy` dies there, as a lost SSH session or Ctrl-C
+    would kill it: after the switch, before nginx is reloaded."""
+
+    def __init__(self, layout: Layout, interrupt: str = "") -> None:
+        super().__init__(layout)
+        self.interrupt = interrupt
+        self.loaded: list[str] = []
+
+    def restart(self, unit: str) -> tuple[bool, str]:
+        result = super().restart(unit)
+        if unit == "atlas.service" and self.current() == self.interrupt:
+            self.interrupt = ""
+            raise KeyboardInterrupt
+        return result
+
+    def nginx_reload(self) -> tuple[bool, str]:
+        self.loaded.append(self.layout.local(self.layout.nginx_site).read_text("utf-8"))
+        return super().nginx_reload()
+
+
 def verifier(broken: set[str]) -> Callable[[Target], Verification]:
     def check(target: Target) -> Verification:
         result = Verification()
@@ -545,6 +568,29 @@ def test_an_interrupted_activation_that_verifies_is_kept(tmp_path: Path) -> None
     deploy.record("activate", IN_PROGRESS, release=name(A), previous=None)
     deploy.switch(name(A))
     assert deploy.recover()["outcome"] == ACTIVATED
+
+
+def test_recover_has_nginx_load_the_configuration_it_keeps_as_verified(tmp_path: Path) -> None:
+    """A configuration change whose activation dies while the service restarts: its site
+    is written, but nginx still runs the previous one. `recover` reloads nginx before it
+    keeps the new deploy.env as verified (M8-02)."""
+    deploy, _ = deployment(tmp_path, DEPLOY_ENV_PRIVATE)
+    host = InterruptedHost(deploy.layout)
+    deploy.host = host
+    make_release(tmp_path, commit=A)
+    assert deploy.activate(name(A))["outcome"] == ACTIVATED
+    allow = "ATLAS_DEPLOY_ALLOW_CIDRS=203.0.113.0/24\n"
+    write(tmp_path / "etc/atlas/deploy.env", DEPLOY_ENV_PRIVATE + allow, 0o644)
+    host.interrupt = name(A)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.activate(name(A))
+    assert "allow 203.0.113.0/24;" not in host.loaded[-1]
+    record = deploy.recover()
+    assert record["outcome"] == ACTIVATED, record
+    assert "allow 203.0.113.0/24;" in host.loaded[-1]
+    good = deploy.good_state()
+    assert good is not None
+    assert allow in good["deploy_env"]
 
 
 def test_pruning_keeps_the_current_and_rollback_releases(tmp_path: Path) -> None:
