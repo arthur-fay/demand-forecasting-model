@@ -203,6 +203,10 @@ describe('M8-31: the Methods links', () => {
     expect(link).toHaveAccessibleName('BACKTESTING.md on the main branch (opens GitHub)');
     expect(panel).toHaveTextContent(/may have changed since this release/);
     expect(panel).toHaveTextContent(/docs\/ directory of the release/);
+    // M8-11: the legacy figures are reproduced within their published precision, but one.
+    expect(panel).toHaveTextContent(
+      /every legacy figure within its published precision \(one RMSE rounding is a declared exception\)/,
+    );
   });
 });
 
