@@ -46,4 +46,4 @@ import os
 for _variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_variable, "1")
 
-__version__ = "0.7.0"
+__version__ = "1.0.0"

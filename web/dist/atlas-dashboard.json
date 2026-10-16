@@ -1,6 +1,6 @@
 {
   "format": "atlas-dashboard/1",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "entry": "index.html",
   "routes": [
     "/",
@@ -11,52 +11,52 @@
     "/provenance"
   ],
   "files": {
-    "assets/BarChart-DgMm_ez-.js": {
-      "sha256": "fb0f4fc9d9a7a8f93b14e6dc5ff425f244117512e3ba7b1374dd128800130293",
+    "assets/BarChart-DFOHtVf-.js": {
+      "sha256": "a9e83deb4cccf9f53767443d3f50c81770c7defe42b4892699b8154da68c9f1a",
       "bytes": 2445
     },
-    "assets/Decisions-Bphpj2Bu.js": {
-      "sha256": "03e93131c4795a40e8ecd24db0be87b7bbe4dd0d1835c294c1150ed0bacc9ffc",
+    "assets/Decisions-CBjaQYem.js": {
+      "sha256": "1b8a030ee5a2e70153a0c96cadfad1fb677ce1db8d70970d0752078646e8b08b",
       "bytes": 12339
     },
-    "assets/Forecasting-TbwHjXyw.js": {
-      "sha256": "a165a0d9a8a1d888c5d6e26909382f8c59adaa26bfc67b922e804fd163a81ae2",
+    "assets/Forecasting-D8OK6wR0.js": {
+      "sha256": "fa3f9ff12b9ff0fedc3803bcb26cad5746ff781ab2d818ef1e105075817d542d",
       "bytes": 14191
     },
-    "assets/Overview-D1Z_WEGo.js": {
-      "sha256": "d48818a3c80223cecf12752a73e9ba938a01740203b42428887ab822016445f0",
+    "assets/Overview-Vh4TY4wF.js": {
+      "sha256": "c502d37257d0b6258f926cef4d850b085fb0c10e9be3c1264730a2e33a048b0f",
       "bytes": 9315
     },
-    "assets/Panel-0sul3gI1.js": {
-      "sha256": "88934c0e80ec6295d14bafd66fa71b2c05109e2ee6b8b7a6078557eab937efb2",
+    "assets/Panel-XnNy0UQg.js": {
+      "sha256": "4d2dfbe8a761e25f82c506df9db70d39c52a854f27b4b514b77d4abaabbc9384",
       "bytes": 567
     },
-    "assets/Provenance-D4vRnrWJ.js": {
-      "sha256": "0d60ed55ba317f85f22dda310998a9999ff03e5c352f7c14d35a3cf9b0e41603",
-      "bytes": 8708
-    },
-    "assets/Provenance-DWMzu4rw.js": {
-      "sha256": "cef09051a14dabe08cb4ce7acbe4065fb5532f636e9eec5455147043cd1ea480",
+    "assets/Provenance-DFMdwJzG.js": {
+      "sha256": "aa18bdb56a5686bc4ed1793286d9cc0ef947c921e7f3ca2b65436bbb39039bf9",
       "bytes": 2491
     },
-    "assets/Simulator-Dk0_cUse.js": {
-      "sha256": "14c9d67c4d97724e59bffb89aafb6d27b7dc5e919db64933725e22edeee30fc5",
+    "assets/Provenance-PzU0BVQk.js": {
+      "sha256": "c4ea946a06c340c676eb5df694d56c1870a4776d60ebc6901628c59ba439399c",
+      "bytes": 8708
+    },
+    "assets/Simulator-rM_dJ0FY.js": {
+      "sha256": "2f280aab78ff080f2e863fec27cd4cd369876f18120e021e432229f460a087ea",
       "bytes": 19939
     },
-    "assets/Uncertainty-laDB3zQE.js": {
-      "sha256": "c3b3358fa60f6cf73f1c13f45d3efd0d091117d6fe1759cbfcbfcb2ea9db3d5d",
+    "assets/Uncertainty-Bg6lS7Ch.js": {
+      "sha256": "5da37ff8c8bad28a3ea3e4d9ec126f08a1cf369eed3630afb59727da686b5339",
       "bytes": 16296
     },
-    "assets/band-D3ohiFeM.js": {
-      "sha256": "7e3f276def48ae28ea1cd699dd2ddfe95fb51237e4b6fc6973d45d210bf40ef0",
+    "assets/band-CvNgL753.js": {
+      "sha256": "49c3895fdfa298f90e7e6f135512538b8a1cce111c6ce14f533bfd02360607cf",
       "bytes": 2406
     },
-    "assets/data-CC7c4QXA.js": {
-      "sha256": "b1b1c9a762ecd221320172e829a403078b424fb1d663181b894c72ea27868953",
+    "assets/data-DaT4_fAy.js": {
+      "sha256": "0bc80341e4ef17d0394c14d44a1db36a8b815bbdc40dd2433575b956e2e34d9b",
       "bytes": 58165
     },
-    "assets/index-BClXseUf.js": {
-      "sha256": "eebe0dbeb4409259bb2696e816eb90d92df2a60503b3d531e2c8dd7c4d225de6",
+    "assets/index-Be22hG7V.js": {
+      "sha256": "e514bb315d773ecbe0ea271d51b233aba04a35cd6b3d659b7b2dd1099c67f8de",
       "bytes": 274009
     },
     "assets/index-DAEL3D3P.css": {
@@ -67,8 +67,8 @@
       "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
       "bytes": 48256
     },
-    "assets/plan-D3kjJ-Wr.js": {
-      "sha256": "50635d7b0b868140775bf8eab0f53b3feb8e54a1fe6646e96b82e0de1fe09ab5",
+    "assets/plan-BA8ZMj29.js": {
+      "sha256": "c006007ec40c806f9c104b7b2069a7ee866e25fe683fb2885678fa89bd25bd1d",
       "bytes": 14797
     },
     "favicon.svg": {
@@ -76,7 +76,7 @@
       "bytes": 365
     },
     "index.html": {
-      "sha256": "9b0dc9d01d639317723932a721286cbc4336e65d0e6da25b2f01593bc39e1776",
+      "sha256": "51bee0aa8f4ac1ffb4c4a67df9402e62f687884c11c9e8c67746fb8a48f05997",
       "bytes": 1024
     },
     "inter-licence.txt": {

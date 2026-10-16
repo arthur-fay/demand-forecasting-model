@@ -827,7 +827,7 @@ fingerprint of two builds (`test_m6_manifest.py`); IPv6 off by default
 releases (it re-activated the current one before).
 
 All earlier tests (M0-M5) run unchanged except one line: the version literal in
-`test_m5_endpoints.py` (now 0.7.0). CI runs the whole suite with
+`test_m5_endpoints.py` (now 1.0.0). CI runs the whole suite with
 `ATLAS_REQUIRE_DEPLOY_TOOLS=1` (a missing nginx, openssl, shellcheck or systemd-analyze
 fails instead of skipping), shellcheck, and the container job.
 

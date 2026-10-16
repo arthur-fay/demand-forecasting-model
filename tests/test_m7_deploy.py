@@ -426,9 +426,8 @@ def test_a_private_activation_publishes_the_dashboard_before_the_site(
         == []
     )
     assert site_root(tmp_path).endswith(f"/opt/atlas/dashboard/{name(A)}")
-    assert any(
-        "dashboard 0.7.0 published" in line or "published in" in line for line in record["detail"]
-    )
+    version = load_build(release / DIST).version
+    assert any(f"dashboard {version} published in " in line for line in record["detail"])
     assert host.calls.index("nginx -t") < host.calls.index("nginx reload")
 
 
