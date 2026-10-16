@@ -230,6 +230,14 @@ jobs:
       - name: End to end in a browser (the API, a phone, nginx private and public demo)
         run: npx playwright test
 
+      - name: The API-backed pages and failure states in Firefox and WebKit (M8)
+        # WebKit is Safari's engine, not Safari; real Safari and screen readers stay untested.
+        env:
+          ATLAS_E2E_ALL_BROWSERS: "1"
+        run: |
+          npx playwright install --with-deps firefox webkit
+          npx playwright test --project firefox --project webkit
+
       - name: Keep the Playwright report of a failed run
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

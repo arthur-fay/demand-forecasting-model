@@ -29,6 +29,19 @@ export const PRIVATE_PORT = 8443;
 export const PUBLIC_PORT = 8444;
 export const ACCOUNT = { username: 'alice', password: 'correct-horse-battery-staple-1234' };
 
+/**
+ * M8: the API-backed pages and failure states in Firefox (Gecko) and WebKit (Safari's
+ * engine, not Safari itself), when ATLAS_E2E_ALL_BROWSERS=1. CI installs those browsers;
+ * the development container has Chromium only, so they are off by default. They take no
+ * Chromium launch flags: the API answers on 127.0.0.1, so no host mapping is needed.
+ */
+const otherEngines = process.env.ATLAS_E2E_ALL_BROWSERS === '1';
+const engine = (name: string, device: string) => ({
+  name,
+  testMatch: /(dashboard|failures)\.spec\.ts/,
+  use: { ...devices[device], launchOptions: {}, baseURL: `http://127.0.0.1:${API_PORT}` },
+});
+
 const stack = (profile: string, https: number, http: number) => ({
   command: `uv run python -m tests.m7_stack --profile ${profile} --https-port ${https} --http-port ${http}`,
   cwd: '..',
@@ -82,6 +95,9 @@ export default defineConfig({
         ignoreHTTPSErrors: true,
       },
     },
+    ...(otherEngines
+      ? [engine('firefox', 'Desktop Firefox'), engine('webkit', 'Desktop Safari')]
+      : []),
   ],
   webServer: [
     {
