@@ -319,8 +319,12 @@ smoke and reference runs followed by `atlas optimize verify` and `inspect`, and 
 that checks the committed OpenAPI contract and serves the reference data from a real server,
 shellcheck of the deployment scripts, and (job `deploy-e2e`) the M6 end-to-end deployment
 test in a disposable systemd container, and (job `dashboard`) the dashboard's checks, a
-reproducible build and the browser tests, on pushes to `main` and on pull requests. The GitHub Actions are pinned to commit SHAs. It installs uv from a hash-pinned requirements file
-(`.github/ci-requirements.txt`).
+reproducible build and the browser tests, on pushes to `main` and on pull requests.
+
+Every action is pinned to a full commit SHA with its version in a comment:
+`actions/checkout` v7.0.1, `actions/setup-python` v7.0.0, `actions/setup-node` v7.0.0 and
+`actions/upload-artifact` v7.0.1, all of which run on Node.js 24. uv is installed from a
+hash-pinned requirements file (`.github/ci-requirements.txt`).
 
 ## Versioning
 
