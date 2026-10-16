@@ -36,6 +36,61 @@ const BANDS = [
   { low: '0.025', high: '0.975', fill: 'var(--series-2-wash)' },
 ] as const;
 
+/**
+ * The outcome of the calibration test in the dashboard's own words, from the served
+ * status: the intervals are said to have failed only when M3 says FAILED_CALIBRATION.
+ */
+const OUTCOME: Record<
+  UncertaintyStatusData['interval_status'],
+  { header: string; prose: React.ReactNode; chart: string }
+> = {
+  failed_calibration: {
+    header: 'They failed that test, and this page shows what failing means rather than hiding it.',
+    prose: (
+      <>
+        The bands below are the method's honest output, but they <strong>failed</strong> that test,
+        so they are not decision-grade: no band or probability on this page is a statistical
+        guarantee, and none should be used to size staff or budgets.
+      </>
+    ),
+    chart: 'Their calibration failed: they are not reliable intervals.',
+  },
+  insufficient_evidence: {
+    header:
+      'The evidence was not sufficient to show that they are calibrated, and this page shows that evidence.',
+    prose: (
+      <>
+        The bands below are the method's honest output, but the evidence was{' '}
+        <strong>not sufficient</strong> to show that they are calibrated, so they are not
+        decision-grade: no band or probability on this page is a statistical guarantee, and none
+        should be used to size staff or budgets.
+      </>
+    ),
+    chart: 'Their calibration is not established: they are not reliable intervals.',
+  },
+  unavailable: {
+    header: 'Its result is not available here, and this page shows what is known.',
+    prose: (
+      <>
+        The calibration status of the bands below is <strong>not available</strong>, so they are not
+        decision-grade: no band or probability on this page is a statistical guarantee, and none
+        should be used to size staff or budgets.
+      </>
+    ),
+    chart: 'Their calibration status is not available: they are not reliable intervals.',
+  },
+  decision_grade: {
+    header: 'They passed that test, and this page shows the evidence.',
+    prose: (
+      <>
+        The bands below <strong>passed</strong> that test on the evaluation period, so they are
+        decision-grade there. They remain an archived projection, not a forecast of today.
+      </>
+    ),
+    chart: 'Their calibration passed the pre-registered test.',
+  },
+};
+
 function StatusPanel() {
   const status = useUncertaintyStatus();
   return (
@@ -64,10 +119,7 @@ function StatusPanel() {
               <strong>What this means.</strong> A nominal 80 % interval should contain the outcome
               about 80 % of the time, and the evidence for that must be strong enough to rely on.
               ATLAS pre-registered the exact criteria, listed below, before looking at the
-              evaluation period. The bands below are the method's honest output, but they{' '}
-              <strong>failed</strong> that test, so they are not decision-grade: no band or
-              probability on this page is a statistical guarantee, and none should be used to size
-              staff or budgets.
+              evaluation period. {OUTCOME[data.interval_status].prose}
             </p>
           </div>
           <Evidence integrity={integrity} provenance={provenance} />
@@ -77,13 +129,19 @@ function StatusPanel() {
   );
 }
 
+/** The bands are called calibrated only when M3 says they are decision-grade. */
+function bandsWord(status: UncertaintyStatusData['interval_status']): string {
+  return status === 'decision_grade' ? 'calibrated' : 'uncalibrated';
+}
+
 function BandChartPanel() {
   const intervals = useIntervals();
   const history = useHistory(null);
   const forecast = useForecast();
+  const status = intervals.data?.data.interval_status;
   return (
     <Panel
-      title="The projection with its uncalibrated bands"
+      title={`The projection with its ${status === undefined ? 'quantile' : bandsWord(status)} bands`}
       subtitle="Recent observed days, then the archived projection and the marginal quantiles of each projected day (requests/day)"
       tags={
         <span className="tag-row">
@@ -144,6 +202,7 @@ function BandChart({
   );
   const status = intervals.interval_status.toUpperCase();
   const calibrated = intervals.interval_status === 'decision_grade';
+  const word = bandsWord(intervals.interval_status);
   const bands = BANDS.map((band) => ({
     id: `${band.low}-${band.high}`,
     label: `Marginal ${band.low}-${band.high} quantiles (${status})`,
@@ -175,12 +234,12 @@ function BandChart({
         <span className="small secondary">
           Origin {formatDate(intervals.origin)} · method {intervals.pair_id}
         </span>
-        <ViewToggle value={view} onChange={setView} label="Projection with uncalibrated bands" />
+        <ViewToggle value={view} onChange={setView} label={`Projection with ${word} bands`} />
       </div>
       {view === 'chart' ? (
         <LineChart
-          label="Archived projection with uncalibrated marginal quantile bands"
-          summary={`The last ${recent.length} observed days, then the archived projection from ${formatDate(intervals.origin)} with two shaded bands of marginal quantiles. Their calibration failed: they are not reliable intervals.`}
+          label={`Archived projection with ${word} marginal quantile bands`}
+          summary={`The last ${recent.length} observed days, then the archived projection from ${formatDate(intervals.origin)} with two shaded bands of marginal quantiles. ${OUTCOME[intervals.interval_status].chart}`}
           series={[
             {
               id: 'observed',
@@ -267,9 +326,16 @@ function BandChart({
 
 function CoveragePanel() {
   const status = useUncertaintyStatus();
+  const grade = status.data?.data.decision_grade;
   return (
     <Panel
-      title="Why the intervals are not decision-grade"
+      title={
+        grade === undefined
+          ? 'Interval coverage'
+          : grade
+            ? 'Why the intervals are decision-grade'
+            : 'Why the intervals are not decision-grade'
+      }
       subtitle="Observed coverage on the evaluation period, with its confidence interval, against the nominal level and the pre-registered tolerance"
       tags={<Tag tone="neutral">Calibration assessment</Tag>}
     >
@@ -437,7 +503,7 @@ function CoverageContent({
           xDomain={[0, 1]}
           yDomain={[0, 1]}
           legendExtra={[
-            { label: 'Perfect calibration', color: 'var(--ink-muted)', kind: 'dashed' },
+            { label: 'Perfect calibration', color: 'var(--ink-muted)', kind: 'dotted' },
           ]}
           formatValue={(v) => formatShare(v)}
           formatTick={(v) => formatShare(v, 0)}
@@ -520,6 +586,7 @@ function ExceedancePanel() {
 }
 
 export default function Uncertainty() {
+  const status = useUncertaintyStatus().data?.data.interval_status;
   return (
     <>
       <PageHeader
@@ -528,8 +595,8 @@ export default function Uncertainty() {
       >
         <p>
           How uncertain is the projection? ATLAS built horizon-specific intervals from past forecast
-          errors and tested their calibration with a pre-registered, dependence-aware protocol. They
-          failed that test, and this page shows what failing means rather than hiding it.
+          errors and tested their calibration with a pre-registered, dependence-aware protocol.{' '}
+          {status === undefined ? 'The status below says how they did.' : OUTCOME[status].header}
         </p>
       </PageHeader>
       <StatusPanel />

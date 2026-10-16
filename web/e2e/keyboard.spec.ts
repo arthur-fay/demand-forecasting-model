@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { open } from './helpers';
 
 test('the skip link, the navigation and the charts work from the keyboard', async ({ page }) => {
-  await open(page, '/', 'Decision-intelligence research on NYC 311 demand');
+  await open(page, '/', 'NYC 311 demand: forecasts, uncertainty and hypothetical scenarios');
   await page.keyboard.press('Tab');
   const skip = page.getByRole('link', { name: 'Skip to content' });
   await expect(skip).toBeFocused();
@@ -38,7 +38,7 @@ test('focus is always visible', async ({ page }) => {
 
 test('reduced motion turns the page transition off', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await open(page, '/', 'Decision-intelligence research on NYC 311 demand');
+  await open(page, '/', 'NYC 311 demand: forecasts, uncertainty and hypothetical scenarios');
   const duration = await page
     .locator('.page-enter')
     .evaluate((element) => getComputedStyle(element).animationDuration);

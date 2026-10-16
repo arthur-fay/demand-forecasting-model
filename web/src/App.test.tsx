@@ -18,7 +18,7 @@ describe('scientific warnings next to the numbers', () => {
   it('overview: not validated, not significant, FAILED_CALIBRATION, HYPOTHETICAL', async () => {
     mockApi();
     at('/');
-    await heading(/Decision-intelligence research/);
+    await heading(/NYC 311 demand: forecasts, uncertainty and hypothetical scenarios/);
     const status = (await screen.findByRole('heading', { name: 'Scientific status' })).closest(
       'section',
     )!;
@@ -127,7 +127,7 @@ describe('loading and error states', () => {
           : json(FIXTURES.scenarios),
     });
     at('/');
-    await heading(/Decision-intelligence research/);
+    await heading(/NYC 311 demand: forecasts, uncertainty and hypothetical scenarios/);
     const alerts = await screen.findAllByText(/This component is unavailable/);
     expect(alerts.length).toBeGreaterThan(0);
     expect(
@@ -272,7 +272,7 @@ describe('navigation and keyboard', () => {
     mockApi();
     const user = userEvent.setup();
     at('/');
-    await heading(/Decision-intelligence research/);
+    await heading(/NYC 311 demand: forecasts, uncertainty and hypothetical scenarios/);
     const nav = screen.getByRole('navigation', { name: 'Dashboard sections' });
     await user.click(within(nav).getByRole('link', { name: /Uncertainty & risk/ }));
     await heading('Uncertainty and risk');

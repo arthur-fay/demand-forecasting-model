@@ -93,7 +93,9 @@ describe('every chart has its table', () => {
       ),
     ).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: /Committed sources/ })).toBeInTheDocument();
-    expect(screen.getByText('BACKTESTING.md (opens GitHub)')).toBeInTheDocument();
+    expect(
+      screen.getByText('BACKTESTING.md on the main branch (opens GitHub)'),
+    ).toBeInTheDocument();
   });
 });
 

@@ -19,7 +19,7 @@ import {
   humanise,
 } from '../lib/format';
 import { setQueryParam, useQueryParam } from '../router';
-import { PageHeader } from './common';
+import { intervalsWithStatus, PageHeader } from './common';
 import { useComparison, useScenario, useScenarios } from './data';
 import { FeasibilityTag, formatSignedUsd, PlanOutcome } from './plan';
 
@@ -457,12 +457,13 @@ function TradeoffsPanel() {
         </p>
         <p>
           Every result is <strong>certified</strong>: the solver's answer is checked for primal and
-          dual feasibility with a zero duality gap, and every constraint of the plan is re-checked
-          independently (a DIAGNOSTIC plan against every constraint but the terminal target it
-          misses). That makes each plan the exact optimum of an <em>assumed</em> problem. It does
-          not make the assumptions true: the demand (the unvalidated point forecast, or a labelled
-          stress path) is treated as known, and staffing, productivity, costs and budget are
-          illustrative.
+          dual feasibility and for its duality gap, each within small tolerances (1e-7 absolute and
+          1e-9 relative), and every constraint of the plan is re-checked independently (a DIAGNOSTIC
+          plan against every constraint but the terminal target it misses). That makes each plan an
+          optimum of an <em>assumed</em> problem within those tolerances, and one of several when
+          the optimum is not unique (such plans are labelled). It does not make the assumptions
+          true: the demand (the unvalidated point forecast, or a labelled stress path) is treated as
+          known, and staffing, productivity, costs and budget are illustrative.
         </p>
       </div>
     </Panel>
@@ -470,6 +471,7 @@ function TradeoffsPanel() {
 }
 
 export default function Decisions() {
+  const scenarios = useScenarios();
   return (
     <>
       <PageHeader eyebrow="M4 · Hypothetical decision simulation" title="Decision optimisation">
@@ -487,8 +489,8 @@ export default function Decisions() {
         <p>
           ATLAS has no data on NYC staffing, productivity, operating costs or budgets. Every such
           value below is illustrative and labelled HYPOTHETICAL, and the demand is the unvalidated
-          M2 point forecast or, where labelled, a per-day M3 quantile stress path from the
-          FAILED_CALIBRATION intervals, with no probability.
+          M2 point forecast or, where labelled, a per-day M3 quantile stress path from{' '}
+          {intervalsWithStatus(scenarios.data?.integrity)}, with no probability.
         </p>
       </Callout>
       <ComparisonPanel />

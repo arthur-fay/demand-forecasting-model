@@ -132,3 +132,46 @@ test('the served files are the build, byte for byte, with the dashboard policy',
   }
   expect((await request.get('/atlas-dashboard.json')).status()).toBe(404);
 });
+
+test('the footer opens the licence notices of the bundled code and of the font', async ({
+  page,
+}) => {
+  await open(page, '/', PAGES[0].heading);
+  await page.getByRole('link', { name: 'third-party licences' }).click();
+  await expect(page.locator('body')).toContainText('## react - 19.3.0 (MIT)');
+  await expect(page.locator('body')).toContainText('## d3-shape - 3.2.0 (ISC)');
+  await page.goBack();
+  await page.getByRole('link', { name: 'Inter font licence' }).click();
+  await expect(page.locator('body')).toContainText('SIL OPEN FONT LICENSE Version 1.1');
+});
+
+// Calendar dates are formatted in UTC: the same days 14 hours east of UTC and 7 hours west
+// of it. A date read or written in local time is a day off in one of the two (M8-29).
+for (const timezoneId of ['Pacific/Kiritimati', 'America/Los_Angeles']) {
+  test.describe(`in the ${timezoneId} time zone`, () => {
+    test.use({ timezoneId });
+
+    test('the forecasting page shows the calendar days of the data', async ({ page }) => {
+      await open(page, '/forecasting', 'Forecasting');
+      expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(
+        timezoneId,
+      );
+      const panel = page.getByRole('region', {
+        name: 'Observed history and the archived projection',
+      });
+      await expect(panel.getByText('Observed to Jun 30, 2026')).toBeVisible();
+      await expect(panel.getByText('Projected from Jun 30, 2026')).toBeVisible();
+      await expect(panel.getByText(/covers Jul 1, 2026 to Jul 30, 2026\./)).toBeVisible();
+      await panel.getByRole('radio', { name: 'Table' }).check();
+      const table = panel.getByRole('table', { name: /Observed history and the archived/ });
+      const day = (name: string) =>
+        table.getByRole('row').filter({ has: page.getByRole('rowheader', { name, exact: true }) });
+      // The last observed day, the first projected day, the observed Independence Day.
+      await expect(day('Tue, Jun 30, 2026')).toContainText('observed');
+      await expect(day('Wed, Jul 1, 2026')).toContainText('projected');
+      await expect(day('Fri, Jul 3, 2026')).toContainText('Independence Day');
+      await expect(day('Thu, Jul 2, 2026')).not.toContainText('Independence Day');
+      await expect(day('Sat, Jul 4, 2026')).not.toContainText('Independence Day');
+    });
+  });
+}

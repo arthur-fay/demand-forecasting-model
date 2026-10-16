@@ -101,25 +101,14 @@ export function SignificanceCallout({
   );
 }
 
-export function IntervalStatusCallout({
-  integrity,
-  statement,
-}: {
-  integrity: Integrity;
-  statement?: string;
-}) {
-  if (integrity.uncertainty_interval_status === 'decision_grade') return null;
-  return (
-    <Callout
-      tone="critical"
-      title={`Uncertainty status: ${integrity.uncertainty_interval_status.toUpperCase()}`}
-    >
-      <p>
-        {statement ??
-          'The M3 prediction intervals failed their pre-registered calibration criteria: no interval, band or probability shown here is a reliable statistical guarantee.'}
-      </p>
-    </Callout>
-  );
+/**
+ * The M3 intervals named by the status an answer was served with ("the FAILED_CALIBRATION
+ * intervals"), never by a status written into the page; "the M3 intervals" until it loads.
+ */
+export function intervalsWithStatus(integrity: Integrity | undefined): string {
+  return integrity === undefined
+    ? 'the M3 intervals'
+    : `the ${integrity.uncertainty_interval_status.toUpperCase()} intervals`;
 }
 
 const WINDOW_LABEL = 'Observed history and the archived 30-day projection';

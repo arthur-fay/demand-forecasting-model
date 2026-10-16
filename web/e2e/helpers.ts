@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, type Request } from '@playwright/test';
 
 export const PAGES = [
-  { path: '/', heading: 'Decision-intelligence research on NYC 311 demand' },
+  { path: '/', heading: 'NYC 311 demand: forecasts, uncertainty and hypothetical scenarios' },
   { path: '/forecasting', heading: 'Forecasting' },
   { path: '/uncertainty', heading: 'Uncertainty and risk' },
   { path: '/decisions', heading: 'Decision optimisation' },
