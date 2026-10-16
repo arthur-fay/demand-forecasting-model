@@ -1010,8 +1010,9 @@ sensitivity covers, and the projection is described as archived.
   the confirmation year they are 18 days, 13 of them the agency-level DHS interruption of
   2026-01-31..02-12; DHS is about 1.4 % of five-borough volume. The most extreme city-wide
   days of that winter, 2026-01-27, 2026-01-28 and 2025-12-15, carry no flag and stay in
-  ([DATA_QUALITY.md](DATA_QUALITY.md), section 3). So the result shows robustness to the
-  M1-flagged days, not to city-wide anomalies.)
+  ([DATA_QUALITY.md](DATA_QUALITY.md), section 3; the counts are reproduced by
+  [`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py)). So the result
+  shows robustness to the M1-flagged days, not to city-wide anomalies.)
 - **Seasonality from one to three years of history.** Training data span 13 months at the
   first development origin and 41 months at the last confirmation origin, so annual
   effects are estimated from one to three cycles.

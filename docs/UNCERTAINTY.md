@@ -271,7 +271,9 @@ quantile ordering. Its bytes equal ATLAS's CSV writer applied to those rows read
 pandas' default float parser, which rounds some 17-digit values, so it is not a verbatim
 copy: against the reference run regenerated in M8 (byte-identical to the manifest), 1,149
 of its floating-point fields differ by 1-2 units in the last place (at most 2.3e-16
-relative) and 94 of its 600 lines are verbatim; every other field is identical.
+relative) and 94 of its 600 lines are verbatim; every other field is identical
+([`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py) reproduces this
+comparison).
 
 ### 9.1 Selection (selection period only)
 
@@ -486,7 +488,8 @@ expected): an order of magnitude less than the miss, and in the other direction.
 correction:** this passage previously called these days "intake drops that the forecast
 does not anticipate", the opposite of what the sign of the error shows. The counts and
 quantile shares come from the evaluation intervals regenerated in M8, byte-identical to the
-committed manifest.) The strata leave gaps in the origin grid, so no test is computed; 33
+committed manifest, through
+[`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py).) The strata leave gaps in the origin grid, so no test is computed; 33
 holiday-related and 18 flagged days are too few for a reliable statement either way.
 
 ### 9.7 Sensitivity analyses (pre-registered, descriptive)

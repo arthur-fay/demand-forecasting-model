@@ -114,7 +114,10 @@ largest days of the series carry no flag:
 | 2026-01-28 | 16,982 | 10,486.5 | 62 % | +2.58 |
 | 2025-12-15 | 16,388 | 11,447.5 | 43 % | +3.76 |
 
-(Computed in M8 with `atlas.quality.same_weekday_scores` on `legacy-v0`.) Analyses that
+(Computed in M8 with `atlas.quality.same_weekday_scores` on `legacy-v0`;
+[`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py) reproduces every
+figure of this note and of the HPD correction below, with its output recorded beside it.)
+Analyses that
 leave out flagged days therefore leave out the flagged days only, not every anomalous day;
 see [BACKTESTING.md](BACKTESTING.md), section 10.
 
