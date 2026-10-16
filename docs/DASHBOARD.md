@@ -267,7 +267,9 @@ describes the M3 outcome in its own words (the Uncertainty page's header and sta
 band chart's name and summary, the coverage panel's title, the intervals behind the M4 stress
 paths on Decisions and the Simulator, the M3 result on Methods & provenance), the words are
 chosen from the status the API serves: the intervals are said to have failed only when the
-status is FAILED_CALIBRATION, and called calibrated only when it is DECISION_GRADE. The
+status is FAILED_CALIBRATION, called calibrated only when it is DECISION_GRADE and
+uncalibrated only when it is FAILED_CALIBRATION or INSUFFICIENT_EVIDENCE. When the status is
+UNAVAILABLE, or cannot be loaded, the page says so and names no outcome. The
 dashboard's own wording keeps to the M4 wording rules on recommendations and promises, as the
 API applies them ([API.md](API.md) section 10, `test_m5_contract.py`): "recommend" only in a
 not-a-recommendation phrase or for the M2 model recommendation ("Recommended model"), and no
@@ -408,13 +410,13 @@ notices):
 | initial HTML, CSS and JavaScript (gzip) | 125 KB | 91.3 KB |
 | largest lazy chunk (gzip) | 30 KB | 20.7 KB |
 | font (woff2) | 50 KB | 48.3 KB |
-| the whole build (raw) | 1 MB | 524.1 KB |
+| the whole build (raw) | 1 MB | 524.4 KB |
 
 Page loads, measured for M7 (before those corrections) in Chromium against `atlas api serve`
 on the development container (median of three cold loads, cache disabled; "throttled" is a
 slow 4G connection, 150 ms round trip and 1.6 Mbit/s, with the CPU slowed four times;
-"settled" means every panel has its data). The API itself sends JSON uncompressed; behind nginx it is gzipped, so the
-transferred sizes below are upper bounds.
+"settled" means every panel has its data). The API itself sends JSON uncompressed; behind
+nginx it is gzipped, so the transferred sizes below are upper bounds.
 
 | Page | First paint | Heading | Settled | Throttled: first paint | Heading | Settled | Transferred |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -428,9 +430,10 @@ transferred sizes below are upper bounds.
 A real simulation (7 days, one changed budget) answered in 0.2-0.7 s. Views download only
 what they show: the history is the last 180 days by default (20 KB); the whole snapshot
 (1,277 days, 136 KB) only when "All" is chosen. Moving the pointer over a chart re-renders
-only its crosshair. Each page's code loads when it is first opened. Hashed assets are cached for a year
-(`immutable`); `index.html` is revalidated (`no-cache`, with an ETag) and the descriptor is
-never cached, so a new release is picked up on the next load. Text is compressed (gzip) by both servers.
+only its crosshair. Each page's code loads when it is first opened. Hashed assets are cached
+for a year (`immutable`); `index.html` is revalidated (`no-cache`, with an ETag) and the
+descriptor is never cached, so a new release is picked up on the next load. Text is
+compressed (gzip) by both servers.
 
 ## 11. Development, build and checks
 
@@ -508,7 +511,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) section 19 for how this fits the M6 package.
 
 | Suite | What it checks |
 |---|---|
-| Vitest (`web/src/**/*.test.ts(x)` and `web/build`, 188 tests, run in the America/Los_Angeles time zone; queries wait up to 5 s; coverage gates 85 % statements, functions and lines, 75 % branches) | the client: validation, integrity refusal, every error kind, timeouts, aborts, `Retry-After`; formatting (dates in UTC, also with the module loaded in UTC−11, UTC−7 and UTC+14; units, signs); the simulator form (ranges, integers, the money rule, minimal requests, API errors mapped onto fields); the cache; every view rendered from the real fixtures (warnings present next to their numbers, DIAGNOSTIC handling, disabled simulations in each profile, error states without numbers); charts (keyboard, readings, tables, markers, ticks, labels, halos, no line rebuilt when the reading moves); the colour tokens (contrast in both themes, colour-vision deficiency); the shell (menu, Escape, deployment badge); the source free of storage, cookies, `eval` and HTML injection; the build plugin and the licence notices of the committed build; the reviews' findings (`review.test.tsx`, the `round2-*.test.ts(x)` files and `m8-audit.test.tsx`) |
+| Vitest (`web/src/**/*.test.ts(x)` and `web/build`, 191 tests, run in the America/Los_Angeles time zone; queries wait up to 5 s; coverage gates 85 % statements, functions and lines, 75 % branches) | the client: validation, integrity refusal, every error kind, timeouts, aborts, `Retry-After`; formatting (dates in UTC, also with the module loaded in UTC−11, UTC−7 and UTC+14; units, signs); the simulator form (ranges, integers, the money rule, minimal requests, API errors mapped onto fields); the cache; every view rendered from the real fixtures (warnings present next to their numbers, DIAGNOSTIC handling, disabled simulations in each profile, error states without numbers); charts (keyboard, readings, tables, markers, ticks, labels, halos, no line rebuilt when the reading moves); the colour tokens (contrast in both themes, colour-vision deficiency); the shell (menu, Escape, deployment badge); the source free of storage, cookies, `eval` and HTML injection; the build plugin and the licence notices of the committed build; the reviews' findings (`review.test.tsx`, the `round2-*.test.ts(x)` files and `m8-audit.test.tsx`) |
 | `tests/test_m7_fixtures.py` (15) | each fixture is byte for byte the API's answer |
 | `tests/test_m7_dashboard.py` (94) | the build manifest, verification and tamper detection; the licence notices listed and served; the API mount: exact paths (also as raw request paths, which the test client would normalise), methods, HEAD, ETag/304, gzip, cache policies, the CSP once, the descriptor by key setting, a damaged build not served, the API unchanged |
 | `tests/test_m7_deploy.py` (44) | the static route class (exact names, no shadowing of the API), both exposed profiles, `nginx -t` without a warning; the static rate (at most twice the API's read rate); compression and types (nothing typed by the requested extension); publication (modes, verification, altered copies replaced, planted files removed); the release manifest; activation order, tunnel, rollback, explicit rollback, prune, status, upgrade plans; verification of the served and published dashboard (links refused); `render --apply` (only an installed release, as recorded, also through `current`); a malformed build manifest an error, not a crash |
@@ -688,15 +691,15 @@ dashboard's sentence; this document's status has none); most are in
 
 | Finding | Severity | Correction | Test |
 |---|---|---|---|
-| M8-05: the build shipped minified MIT and ISC code and the OFL font without their copyright and licence texts | MEDIUM | every build ships `third-party-licences.txt` (Vite's `build.license`) and `inter-licence.txt` (the font package's licence), listed in the manifest, served as text by the API and nginx, linked from the footer; inventory in section 2 | `web/build/notices.test.ts`, `test_m7_dashboard.py`, Vitest (footer), e2e (the links open the notices) |
+| M8-05: the build shipped minified MIT and ISC code and the OFL font without their copyright and licence texts | MEDIUM | every build ships `third-party-licences.txt` (Vite's `build.license`) and `inter-licence.txt` (the font package's licence), listed in the manifest, served as text by the API and nginx, linked from the footer; inventory in section 2 | `web/build/notices.test.ts`, `test_m7_dashboard.py`, `test_m7_deploy.py` (one nginx location for each notice), Vitest (footer), e2e (the links open the notices) |
 | M8-27: with two or more client-side field errors, the error summary's links were 16 px targets on a 20 px pitch (WCAG 2.2, 2.5.8) | LOW | the links are at least 24 px high | e2e: axe on the summary of two invalid fields, and each link's height |
 | M8-28: the Reproducibility table gave the legacy window's target days to Jul 29, 2026 (the last origin + 30, past the data), and the model ranking showed legacy-window MAE without its caveat | LOW | the scored range, cut at the snapshot's last day from the API, with a caption that says so; the "descriptive only" callout in the ranking panel too | Vitest |
 | M8-29: the "whatever the time zone" date test ran only in CI's UTC, where removing the UTC formatting passed | LOW | Vitest runs in America/Los_Angeles; the date module is also loaded and checked in UTC−11, UTC−7 and UTC+14; the browser tests read the Forecasting page in Pacific/Kiritimati and America/Los_Angeles | Vitest (fails on both mutations: no UTC formatting, local-time parsing); e2e |
 | M8-30: most asynchronous queries of the view tests waited Testing Library's default 1 s, too short for a first page render on a loaded machine | LOW | 5 s for every query (`src/test/setup.ts`) | Vitest (the setting) |
 | M8-31: the Methods links pointed at the moving `main` branch while the page shows one release's fingerprints | LOW | the links say that they open the current documentation on `main`, and the page says where the release's own copy is (its `docs/` directory). A link pinned to the release is not possible yet: a build cannot name the commit it is committed in, and a release tag exists only after the owner approves a release | Vitest |
 | M8-34: the Overview heading used "decision-intelligence" marketing language | LOW | "NYC 311 demand: forecasts, uncertainty and hypothetical scenarios" | Vitest, e2e |
-| M8-18 (dashboard part): "failed" and "uncalibrated" were written into the Uncertainty page whatever status the API served | LOW | the words are chosen from the served status (section 6); the navigation reads "M3 intervals and their calibration"; an unused callout with fixed wording was removed | Vitest (each status) |
-| M8-19 (dashboard part): a certificate ratio was shown as "gap 6.1e-9", and each plan was called "the exact optimum" with "a zero duality gap" | LOW | "largest violation 6.1e-9 of its tolerance" (the largest of the certificate's four ratios); "an optimum of an assumed problem within those tolerances, and one of several when the optimum is not unique" | Vitest |
+| M8-18 (dashboard part): "failed" and "uncalibrated" were written into the Uncertainty page whatever status the API served | LOW | the words are chosen from the served status (section 6); the navigation reads "M3 intervals and their calibration"; an unused callout with fixed wording was removed | Vitest (each status, and a status that cannot be loaded) |
+| M8-19 (dashboard part): a certificate ratio was shown as "gap 6.1e-9", and each plan was called "the exact optimum" with "a zero duality gap" | LOW | "largest violation 6.1e-9 of its tolerance" (the largest of the certificate's four ratios); the tolerances as `optimizer.certify` applies them ([OPTIMIZATION.md](OPTIMIZATION.md) section 4): primal feasibility within 1e-7 + 1e-9 × magnitude, dual feasibility and the duality gap within 1e-9 × magnitude; "an optimum of an assumed problem within those tolerances, and one of several when the optimum is not unique" | Vitest (also a scenario whose largest ratio is stationarity, not the gap) |
 | M8-11 (dashboard part): this document still said M7 awaited review; the Methods page claimed "reproduction of every legacy figure" | LOW | the status above; "within its published precision (one RMSE rounding is a declared exception)" | Vitest (the Methods text) |
 | Observation: the calibration chart's "Perfect calibration" key was declared dashed, and never drawn (a one-series chart had no legend) | — | the legend is drawn whenever it has two entries; the key is dotted, like the diagonal | Vitest |
 

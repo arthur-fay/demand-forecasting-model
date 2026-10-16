@@ -1,5 +1,6 @@
 /**
- * The licence notices every build ships next to the code (docs/DASHBOARD.md section 11).
+ * The licence notices every build ships next to the code (docs/DASHBOARD.md section 2, the
+ * inventory; section 7, how they are served).
  *
  * The bundle contains minified copies of MIT and ISC packages and the Inter font
  * (SIL Open Font License 1.1), whose licences require the copyright and licence text with

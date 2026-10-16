@@ -456,14 +456,15 @@ function TradeoffsPanel() {
           explains which limit blocks it.
         </p>
         <p>
-          Every result is <strong>certified</strong>: the solver's answer is checked for primal and
-          dual feasibility and for its duality gap, each within small tolerances (1e-7 absolute and
-          1e-9 relative), and every constraint of the plan is re-checked independently (a DIAGNOSTIC
-          plan against every constraint but the terminal target it misses). That makes each plan an
-          optimum of an <em>assumed</em> problem within those tolerances, and one of several when
-          the optimum is not unique (such plans are labelled). It does not make the assumptions
-          true: the demand (the unvalidated point forecast, or a labelled stress path) is treated as
-          known, and staffing, productivity, costs and budget are illustrative.
+          Every result is <strong>certified</strong>: the solver's answer is checked for primal
+          feasibility (each row and bound within 1e-7 + 1e-9 × its magnitude), for dual feasibility
+          and for its duality gap (each within 1e-9 × its magnitude), and every constraint of the
+          plan is re-checked independently (a DIAGNOSTIC plan against every constraint but the
+          terminal target it misses). That makes each plan an optimum of an <em>assumed</em> problem
+          within those tolerances, and one of several when the optimum is not unique (such plans are
+          labelled). It does not make the assumptions true: the demand (the unvalidated point
+          forecast, or a labelled stress path) is treated as known, and staffing, productivity,
+          costs and budget are illustrative.
         </p>
       </div>
     </Panel>

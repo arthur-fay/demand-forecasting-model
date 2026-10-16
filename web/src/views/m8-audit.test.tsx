@@ -10,7 +10,7 @@ import { ScenarioDetailResponse } from '../api/schemas';
 import { z } from '../api/zod';
 import { App } from '../App';
 import { FONT_LICENCE, THIRD_PARTY_NOTICES } from '../notices';
-import { FIXTURES, json, mockApi } from '../test/api';
+import { apiError, FIXTURES, json, mockApi } from '../test/api';
 import { PlanOutcome } from './plan';
 
 function at(path: string) {
@@ -73,6 +73,14 @@ describe('M8-28: the legacy window on the Forecasting page', () => {
 describe('M8-18: the calibration wording follows the served M3 status', () => {
   type Status = 'decision_grade' | 'failed_calibration' | 'insufficient_evidence' | 'unavailable';
 
+  /** What the bands are called with each status. */
+  const BANDS_WORD: Record<Status, string | null> = {
+    decision_grade: 'calibrated',
+    failed_calibration: 'uncalibrated',
+    insufficient_evidence: 'uncalibrated',
+    unavailable: null,
+  };
+
   /** The API's answers with another M3 status (and neutral API wording). */
   function serve(status: Status) {
     const answer = copy(FIXTURES.uncertaintyStatus);
@@ -110,9 +118,14 @@ describe('M8-18: the calibration wording follows the served M3 status', () => {
       const { header, prose, chart } = await words();
       for (const element of [header, prose]) expect(element).not.toHaveTextContent(/fail/i);
       expect(chart).not.toHaveAccessibleDescription(/fail/i);
+      // An unavailable status says nothing about the outcome: plain quantile bands.
+      const word = BANDS_WORD[status];
       expect(chart).toHaveAccessibleName(
-        status === 'decision_grade' ? /with calibrated/ : /with uncalibrated/,
+        new RegExp(`^Archived projection with ${word === null ? '' : `${word} `}marginal quantile`),
       );
+      expect(
+        screen.getByRole('region', { name: `The projection with its ${word ?? 'quantile'} bands` }),
+      ).toBeInTheDocument();
       expect(
         screen.queryByRole('region', { name: 'Why the intervals are not decision-grade' }) === null,
       ).toBe(status === 'decision_grade');
@@ -142,9 +155,24 @@ describe('M8-18: the calibration wording follows the served M3 status', () => {
     expect(header).toHaveTextContent(/They failed that test/);
     expect(prose).toHaveTextContent(/they failed that test, so they are not decision-grade/);
     expect(chart).toHaveAccessibleDescription(/Their calibration failed/);
+    expect(chart).toHaveAccessibleName(
+      /^Archived projection with uncalibrated marginal quantile bands\./,
+    );
     expect(
       screen.getByRole('region', { name: 'Why the intervals are not decision-grade' }),
     ).toBeInTheDocument();
+  });
+
+  it('says the result could not be loaded when the status does not load', async () => {
+    mockApi({
+      '/api/v1/uncertainty/status': () => apiError(503, 'artifact_unavailable', 'not ready'),
+    });
+    at('/uncertainty');
+    const panel = await screen.findByRole('region', { name: 'Interval coverage' });
+    expect(await within(panel).findByRole('alert')).toBeInTheDocument();
+    const header = screen.getByRole('heading', { level: 1 }).closest('header') as HTMLElement;
+    expect(header).toHaveTextContent(/Its result could not be loaded here\./);
+    expect(header).not.toHaveTextContent(/The status below says how they did/);
   });
 });
 
@@ -180,6 +208,19 @@ describe('M8-19: the optimality certificate', () => {
     expect(text).not.toHaveTextContent(/gap 6/);
   });
 
+  it('shows the largest of its four checks, whichever it is', () => {
+    // In the reduced-budget scenario stationarity (6.58e-8) exceeds the duality gap (5.47e-9).
+    const reduced = z.parse(ScenarioDetailResponse, copy(FIXTURES.scenarioReduced)).data;
+    const certificate = reduced.outcome.reported_plan?.certificate;
+    expect(certificate?.stationarity).toBeGreaterThan(certificate?.duality_gap ?? Infinity);
+    render(
+      <PlanOutcome outcome={reduced.outcome} plans={reduced.plans} daily={reduced.daily_plans} />,
+    );
+    const text = screen.getByText(/Certified:/).closest('p') as HTMLElement;
+    expect(text).toHaveTextContent(/largest violation 6\.6e-8 of its tolerance/);
+    expect(text).not.toHaveTextContent(/5\.5e-9/);
+  });
+
   it('calls each plan an optimum within the solver tolerance, not the exact optimum', async () => {
     mockApi();
     at('/decisions');
@@ -187,6 +228,21 @@ describe('M8-19: the optimality certificate', () => {
     expect(panel).not.toHaveTextContent(/exact optimum|zero duality gap/);
     expect(panel).toHaveTextContent(/an optimum of an assumed problem within those tolerances/);
     expect(panel).toHaveTextContent(/one of several when the optimum is not unique/);
+  });
+
+  it('states the tolerances of each check as the optimiser applies them', async () => {
+    // optimizer.certify (docs/OPTIMIZATION.md section 4): only the primal rows and bounds
+    // have an absolute part; the dual signs, stationarity and the gap are relative only.
+    mockApi();
+    at('/decisions');
+    const panel = await screen.findByRole('region', { name: 'Reading the optimisation' });
+    expect(panel).toHaveTextContent(
+      /primal feasibility \(each row and bound within 1e-7 \+ 1e-9 × its magnitude\)/,
+    );
+    expect(panel).toHaveTextContent(
+      /for dual feasibility and for its duality gap \(each within 1e-9 × its magnitude\)/,
+    );
+    expect(panel).not.toHaveTextContent(/1e-7 absolute and 1e-9 relative/);
   });
 });
 

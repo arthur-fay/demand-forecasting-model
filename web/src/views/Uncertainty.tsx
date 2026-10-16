@@ -129,19 +129,31 @@ function StatusPanel() {
   );
 }
 
-/** The bands are called calibrated only when M3 says they are decision-grade. */
-function bandsWord(status: UncertaintyStatusData['interval_status']): string {
-  return status === 'decision_grade' ? 'calibrated' : 'uncalibrated';
+/**
+ * What the bands are called: calibrated only when M3 says they are decision-grade,
+ * uncalibrated when it says they failed or lack the evidence, and nothing more than quantile
+ * bands when the status is not known (not loaded, or not available).
+ */
+function bandsWord(status: UncertaintyStatusData['interval_status'] | undefined): string | null {
+  switch (status) {
+    case 'decision_grade':
+      return 'calibrated';
+    case 'failed_calibration':
+    case 'insufficient_evidence':
+      return 'uncalibrated';
+    default:
+      return null;
+  }
 }
 
 function BandChartPanel() {
   const intervals = useIntervals();
   const history = useHistory(null);
   const forecast = useForecast();
-  const status = intervals.data?.data.interval_status;
+  const word = bandsWord(intervals.data?.data.interval_status);
   return (
     <Panel
-      title={`The projection with its ${status === undefined ? 'quantile' : bandsWord(status)} bands`}
+      title={`The projection with its ${word ?? 'quantile'} bands`}
       subtitle="Recent observed days, then the archived projection and the marginal quantiles of each projected day (requests/day)"
       tags={
         <span className="tag-row">
@@ -234,11 +246,15 @@ function BandChart({
         <span className="small secondary">
           Origin {formatDate(intervals.origin)} · method {intervals.pair_id}
         </span>
-        <ViewToggle value={view} onChange={setView} label={`Projection with ${word} bands`} />
+        <ViewToggle
+          value={view}
+          onChange={setView}
+          label={`Projection with ${word ?? 'quantile'} bands`}
+        />
       </div>
       {view === 'chart' ? (
         <LineChart
-          label={`Archived projection with ${word} marginal quantile bands`}
+          label={`Archived projection with ${word === null ? '' : `${word} `}marginal quantile bands`}
           summary={`The last ${recent.length} observed days, then the archived projection from ${formatDate(intervals.origin)} with two shaded bands of marginal quantiles. ${OUTCOME[intervals.interval_status].chart}`}
           series={[
             {
@@ -287,7 +303,7 @@ function BandChart({
         />
       ) : (
         <DataTable
-          caption={`Marginal quantiles of each projected day (requests/day). Interval status ${status}${calibrated ? '' : ': not calibrated quantiles, no probability to rely on'}. The observed days the chart also draws are in the history table on the Forecasting page.`}
+          caption={`Marginal quantiles of each projected day (requests/day). Interval status ${status}${calibrated ? '' : word === null ? ': quantiles of unknown calibration, no probability to rely on' : ': not calibrated quantiles, no probability to rely on'}. The observed days the chart also draws are in the history table on the Forecasting page.`}
           rows={intervals.points}
           rowKey={(p) => p.target_date}
           columns={[
@@ -585,8 +601,17 @@ function ExceedancePanel() {
   );
 }
 
+/** The header's account of the test: the served outcome, or why there is none yet. */
+function outcomeHeader(resource: ReturnType<typeof useUncertaintyStatus>): string {
+  const status = resource.data?.data.interval_status;
+  if (status !== undefined) return OUTCOME[status].header;
+  return resource.snapshot.status === 'error'
+    ? 'Its result could not be loaded here.'
+    : 'The status below says how they did.';
+}
+
 export default function Uncertainty() {
-  const status = useUncertaintyStatus().data?.data.interval_status;
+  const status = useUncertaintyStatus();
   return (
     <>
       <PageHeader
@@ -596,7 +621,7 @@ export default function Uncertainty() {
         <p>
           How uncertain is the projection? ATLAS built horizon-specific intervals from past forecast
           errors and tested their calibration with a pre-registered, dependence-aware protocol.{' '}
-          {status === undefined ? 'The status below says how they did.' : OUTCOME[status].header}
+          {outcomeHeader(status)}
         </p>
       </PageHeader>
       <StatusPanel />
