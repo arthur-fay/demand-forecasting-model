@@ -1,0 +1,133 @@
+name: Reproduce research results
+
+# Manual only (Actions > Reproduce research results > Run workflow). Regenerates every
+# committed reference run in docs/results with the locked environment and requires identical
+# files: `verify` recomputes a run and compares each regenerated file with the SHA-256 in its
+# manifest; the projections and the legacy holdout, which have no verify command, are
+# regenerated and compared through their manifests. Every run is regenerated with the code
+# of the chosen ref, except the sealed M2 development run, which verifies only with the code
+# and lock of commit a16672f (docs/BACKTESTING.md, section 8).
+# CI (ci.yml) only verifies smoke runs and the M4 reference run.
+#
+# The committed runs were last verified with OpenBLAS's SkylakeX (AVX-512) kernels. With
+# other kernels the regression outputs differ slightly, so a failure on a runner that does
+# not use SkylakeX is inconclusive and is not a reproduction record (except in the M4 job,
+# which does not depend on the kernels); see docs/DEVELOPMENT.md, "Reproducing the
+# committed reference results". The first step records the CPU and the OpenBLAS kernels in
+# the log and in the job summary.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - run: m2-full
+            name: M2 reference run (development, confirmation, legacy window)
+          - run: m2-delay1
+            name: M2 delay-sensitivity run
+          - run: m2-development
+            name: M2 sealed development run, with its own code (a16672f)
+          - run: m2-projection
+            name: M2 projection of the recommended model
+          - run: legacy-holdout
+            name: Legacy one-step holdout
+          - run: m3-selection
+            name: M3 selection run
+          - run: m3-full
+            name: M3 reference run (selection and evaluation)
+          - run: m3-projection
+            name: M3 projection intervals
+          - run: m4
+            name: M4 reference decision simulation
+    env:
+      UV_PYTHON: "3.12"
+      RUN: ${{ matrix.run }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: the sealed M2 development run is verified with commit a16672f.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-pinned uv and the locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r .github/ci-requirements.txt
+          uv sync --locked
+
+      - name: The CPU and the OpenBLAS kernels of this runner
+        run: |
+          cpu="$(grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
+          if grep -qw avx512f /proc/cpuinfo; then avx512=yes; else avx512=no; fi
+          # OpenBLAS, bundled with numpy, names the kernel family it selected on stderr.
+          core="$(OPENBLAS_VERBOSE=2 uv run python -c 'import numpy' 2>&1 >/dev/null | sed -n 's/^Core: //p')"
+          core="${core:-unknown}"
+          echo "CPU: $cpu; AVX-512: $avx512; OpenBLAS core: $core"
+          {
+            echo "| CPU | AVX-512 | OpenBLAS core |"
+            echo "|---|---|---|"
+            echo "| $cpu | $avx512 | $core |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The M4 run does not depend on the kernels: CI verifies it on every runner.
+          if [ "$core" != "SkylakeX" ] && [ "$RUN" != m4 ]; then
+            echo "::warning::OpenBLAS uses its $core kernels here (AVX-512: $avx512), not the SkylakeX kernels with which the committed runs were last verified. Regression outputs can differ slightly, so a failure of this job is inconclusive and does not count as the release's reproduction record; re-run the job or run the commands on a machine whose OpenBLAS core is SkylakeX (docs/DEVELOPMENT.md)."
+          fi
+
+      - name: Regenerate and compare with the committed run
+        shell: bash # -e and -o pipefail
+        run: |
+          case "$RUN" in
+            m2-full)
+              uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/full ;;
+            m2-delay1)
+              uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1-delay1/development ;;
+            m2-development)
+              # The reporting code changed after this run was sealed (docs/BACKTESTING.md,
+              # section 8): it verifies byte for byte with the code and lock of a16672f.
+              old="$RUNNER_TEMP/a16672f"
+              mkdir "$old"
+              git archive a16672f | tar -x -C "$old"
+              cp -R docs/results/atlas-m2-rolling-origin-v1/development "$RUNNER_TEMP/m2-development"
+              cd "$old"
+              uv sync --locked
+              uv run atlas backtest verify "$RUNNER_TEMP/m2-development" ;;
+            m2-projection)
+              uv run atlas forecast --output-dir "$RUNNER_TEMP/m2-projection" \
+                --recommendation docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json
+              uv run python .github/scripts/same_outputs.py \
+                docs/results/atlas-m2-rolling-origin-v1/projection "$RUNNER_TEMP/m2-projection" ;;
+            legacy-holdout)
+              uv run atlas backtest legacy --output-dir "$RUNNER_TEMP/legacy-holdout"
+              uv run python .github/scripts/same_outputs.py \
+                docs/results/legacy-one-step-holdout "$RUNNER_TEMP/legacy-holdout" ;;
+            m3-selection)
+              uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/selection ;;
+            m3-full)
+              uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/full ;;
+            m3-projection)
+              uv run atlas uncertainty project --output-dir "$RUNNER_TEMP/m3-projection" \
+                --status docs/results/atlas-m3-intervals-v1/full/calibration_status.json
+              uv run python .github/scripts/same_outputs.py \
+                docs/results/atlas-m3-intervals-v1/projection "$RUNNER_TEMP/m3-projection" ;;
+            m4)
+              uv run atlas optimize verify docs/results/atlas-m4-optimization-v1
+              uv run atlas optimize inspect docs/results/atlas-m4-optimization-v1 ;;
+            *)
+              echo "unknown run $RUN" >&2
+              exit 2 ;;
+          esac

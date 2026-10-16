@@ -1,7 +1,7 @@
 [project]
 name = "atlas"
 version = "0.7.0"
-description = "ATLAS decision-intelligence engine: reproducible data foundation, data quality, forecast features, rolling-origin backtesting, prediction intervals, exceedance probabilities, a hypothetical decision simulation with linear optimisation, an HTTP API, a verified deployment package and an interactive web dashboard for NYC 311 demand analysis (milestones M0-M7)."
+description = "ATLAS: a research demonstration of reproducible NYC 311 daily demand forecasting, uncertainty assessment (its prediction intervals failed calibration) and a HYPOTHETICAL decision simulation, with an HTTP API, a web dashboard and a deployment package."
 readme = "docs/DEVELOPMENT.md"
 requires-python = ">=3.12"
 authors = [{ name = "Arthur Fay" }]
@@ -42,11 +42,16 @@ build-backend = "uv_build"
 
 [tool.uv]
 default-groups = ["dev"]
-# optype is a typing-only dependency of scipy-stubs; 0.19.0 was released less than two weeks
-# before M4 was resolved, so the lock keeps the previous release (dependency cooldown).
-# M5 applies the same two-week cooldown: starlette 1.8.0 (a FastAPI dependency) and
-# truststore 0.10.5 (an httpx2 dependency, tests only) were released less than two weeks
-# before M5 was resolved, so the lock keeps starlette 1.7.0 and truststore 0.10.4.
+# Two-week release-age cooldown. It is a review rule, not something uv enforces (see
+# docs/DEVELOPMENT.md, "Dependency maintenance"). These caps hold back three releases that
+# were less than two weeks old when M4 (optype) and M5 (starlette, truststore) were
+# resolved, so the lock keeps optype 0.18.0, starlette 1.7.0 and truststore 0.10.4. The
+# caps never expire on their own: on its review date (the day the release turns two weeks
+# old, publication dates from PyPI, UTC) the owner removes a cap, runs
+# `uv lock --upgrade-package <name>` and the full checks, or records why it stays.
+# - optype<0.19: typing-only, via scipy-stubs; 0.19.0 published 2026-10-02, review 2026-10-16.
+# - truststore<0.10.5: via httpx2, tests only; 0.10.5 published 2026-10-12, review 2026-10-26.
+# - starlette<1.8: FastAPI's dependency, deployed; 1.8.0 published 2026-10-13, review 2026-10-27.
 constraint-dependencies = ["optype<0.19", "starlette<1.8", "truststore<0.10.5"]
 
 [tool.ruff]

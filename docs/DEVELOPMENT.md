@@ -98,10 +98,12 @@ for its bundled HiGHS linear-programming solver (NumPy and the rest come with th
 request-read deadline builds on. The tests use `httpx2`, the HTTP client Starlette's test
 client asks for.
 Development tools (`pytest`, `pytest-cov`, `hypothesis`, `ruff`, `mypy`, `pandas-stubs`,
-`scipy-stubs`) are in the `dev` dependency group, installed by default. Releases younger
-than two weeks are held back through `tool.uv.constraint-dependencies`: `optype` (a
-typing-only dependency of `scipy-stubs`, since M4), and `starlette` and `truststore` (since
-M5).
+`scipy-stubs`) are in the `dev` dependency group, installed by default. New and upgraded
+packages are held to releases at least two weeks old. That is a review rule, not a setting
+uv enforces (see [Dependency maintenance](#dependency-maintenance)); three caps in
+`tool.uv.constraint-dependencies` hold back releases that were younger than that when the
+lock was resolved: `optype` (a typing-only dependency of `scipy-stubs`, since M4), and
+`starlette` and `truststore` (since M5).
 
 ## Run the checks
 
@@ -312,15 +314,220 @@ nginx and openssl on `PATH` and start the API and two nginx stacks; see
 rebuilds it and fails on any difference. `tests/test_m7_fixtures.py` keeps the fixtures of
 the frontend tests identical to the API's answers.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus `atlas check`,
-`atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
-`atlas backtest verify`, an M3 smoke run followed by `atlas uncertainty verify`, and the M4
-smoke and reference runs followed by `atlas optimize verify` and `inspect`, and an M5 step
-that checks the committed OpenAPI contract and serves the reference data from a real server,
-shellcheck of the deployment scripts, and (job `deploy-e2e`) the M6 end-to-end deployment
-test in a disposable systemd container, and (job `dashboard`) the dashboard's checks, a
-reproducible build and the browser tests, on pushes to `main` and on pull requests. The GitHub Actions are pinned to commit SHAs. It installs uv from a hash-pinned requirements file
-(`.github/ci-requirements.txt`).
+GitHub Actions runs three workflows:
+
+- `.github/workflows/ci.yml`, on pushes to `main` and on pull requests: all of the above
+  plus `atlas check`, `atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
+  `atlas backtest verify`, an M3 smoke run followed by `atlas uncertainty verify`, the M4
+  smoke and reference runs followed by `atlas optimize verify` and `inspect`, an M5 step
+  that checks the committed OpenAPI contract and serves the reference data from a real
+  server, shellcheck of the deployment scripts, (job `deploy-e2e`) the M6 end-to-end
+  deployment test in a disposable systemd container, and (job `dashboard`) the dashboard's
+  checks, a reproducible build and the browser tests.
+- `.github/workflows/dependency-audit.yml`, weekly, on demand and on pull requests that
+  change a lock or a dependency declaration: known vulnerabilities in the locked Python and
+  npm packages (see [Dependency maintenance](#dependency-maintenance)).
+- `.github/workflows/reproduce-research.yml`, on demand only: regenerates every committed
+  reference run and compares it with the committed files (see
+  [Reproducing the committed reference results](#reproducing-the-committed-reference-results)).
+
+Every action is pinned to a full commit SHA with its version in a comment:
+`actions/checkout` v7.0.1, `actions/setup-python` v7.0.0, `actions/setup-node` v7.0.0 and
+`actions/upload-artifact` v7.0.1, all of which run on Node.js 24. uv is installed from a
+hash-pinned requirements file (`.github/ci-requirements.txt`).
+
+## Reproducing the committed reference results
+
+CI re-verifies only the smoke runs and the M4 reference run. It does not re-derive the
+committed M2 and M3 reference runs in `docs/results/`, which take several minutes each. The
+tests recompute the M2 forecasts at six spot-check origins and the point forecasts of the
+M2 projection (within a relative tolerance), and check the documents against
+`metrics.json` and the re-rendered reports; nothing in CI recomputes the M2 and M3 metrics
+or the M3 intervals. A change to the evaluation or interval code could therefore stop
+reproducing a published number without failing CI. Before a release, run the manual
+workflow `reproduce-research.yml` (Actions > Reproduce research results > Run workflow, on
+the branch or tag of the commit to be released). It runs one job per committed run, in
+parallel, and fails on any difference. The same checks by hand:
+
+```bash
+uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/full
+uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1-delay1/development
+uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/selection
+uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/full
+uv run atlas optimize verify docs/results/atlas-m4-optimization-v1
+uv run atlas optimize inspect docs/results/atlas-m4-optimization-v1
+# runs without a verify command: regenerate, then compare through the two manifests
+uv run atlas forecast --output-dir runs/m2-projection \
+    --recommendation docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json
+uv run python .github/scripts/same_outputs.py \
+    docs/results/atlas-m2-rolling-origin-v1/projection runs/m2-projection
+uv run atlas uncertainty project --output-dir runs/m3-projection \
+    --status docs/results/atlas-m3-intervals-v1/full/calibration_status.json
+uv run python .github/scripts/same_outputs.py \
+    docs/results/atlas-m3-intervals-v1/projection runs/m3-projection
+uv run atlas backtest legacy --output-dir runs/legacy-holdout
+uv run python .github/scripts/same_outputs.py \
+    docs/results/legacy-one-step-holdout runs/legacy-holdout
+```
+
+The sealed M2 development record (`docs/results/atlas-m2-rolling-origin-v1/development`)
+does not verify with the current code: the reporting code changed after it was sealed
+([BACKTESTING.md](BACKTESTING.md), section 8). The workflow verifies a copy of it with the
+code and lock of commit `a16672f` (`git archive a16672f`, `uv sync --locked`, `atlas
+backtest verify <copy>`). With the current code, the full reference run recomputes the
+development period and its sealed selection.
+
+On 2026-10-16, at commit `8f077ed`, every check passed on a 4-core Intel Xeon with AVX-512.
+The runs shared the machine with each other and with other work, so the wall times are
+indicative only:
+
+| Run | Check | Wall time | Result |
+|---|---|---|---|
+| M2 reference run (`full`) | `backtest verify` | 10.6 min | identical, fingerprint `d53bc911…5a8a` |
+| M2 delay sensitivity | `backtest verify` | 6.0 min | identical, fingerprint `79d4f796…f22d` |
+| M2 sealed development run, code of `a16672f` | `backtest verify` | 6.3 min (with `uv sync`) | identical, fingerprint `fbb948ec…ea43` |
+| M2 projection | `forecast`, `same_outputs.py` | 4 s | 5 of 5 files identical |
+| Legacy one-step holdout | `backtest legacy`, `same_outputs.py` | 5 s | 2 of 2 files identical |
+| M3 selection run | `uncertainty verify` | 5.1 min | identical, fingerprint `2e673489…7194` |
+| M3 reference run (`full`) | `uncertainty verify` | 6.6 min | identical, fingerprint `c4d2adbf…dfaf` |
+| M3 projection | `uncertainty project`, `same_outputs.py` | 3.6 min | 3 of 3 files identical |
+| M4 reference run | `optimize verify` | 43 s | identical, fingerprint `0dc4eb0f…3c82` |
+
+Byte-identical verification needs the same BLAS kernels as the recorded run (see
+[Reproducibility across machines](#reproducibility-across-machines)). On the machine above
+OpenBLAS selects its SkylakeX (AVX-512) kernels; `OPENBLAS_VERBOSE=2 uv run python -c
+'import numpy'` prints the selected core. With other kernels the regression outputs
+differ slightly: on the same machine with `OPENBLAS_CORETYPE=Haswell` (OpenBLAS's AVX2
+kernels), the regenerated M2 projection differed from the committed one in 3 of its 5
+files (largest relative difference 6.8e-14, in the coefficients) and the legacy holdout in
+both of its files (7.2e-12 in the predictions), while the M4 reference run still
+verified. `verify` and `same_outputs.py` then report only which files' SHA-256 differ, not
+by how much: the committed M2 and M3 runs do not keep `forecasts.csv`, from which
+`backtest verify` would otherwise report the largest prediction difference.
+
+The workflow's first step therefore records the CPU, whether it has AVX-512, and the
+OpenBLAS core, in the log and in the job summary, and warns when the core is not SkylakeX.
+A pass reproduces the committed files on any runner. A failure is conclusive only with the
+SkylakeX core, or in the M4 job, which does not depend on the kernels. On any other runner
+it is inconclusive and does not count as the release's reproduction record: re-run the job
+(GitHub-hosted runners differ in CPU), or run the commands above on a machine whose
+OpenBLAS core is SkylakeX. Record the date, the commit, the CPU, the OpenBLAS core and the
+outcome with the release.
+
+## Dependency maintenance
+
+The repository owner approves every change to `uv.lock`, `web/package-lock.json` and the
+pinned actions, lifts the cooldown caps and decides on exceptions. No Dependabot or
+Renovate configuration exists: upgrades are deliberate commits.
+
+**Release-age cooldown.** A new or upgraded Python package, npm package or GitHub Action
+must have been published at least two weeks earlier: the publication time on PyPI or the
+npm registry; for an action, the publication date of its GitHub release, or the date of
+its release commit when there is no GitHub release (a commit can be tagged long after it
+was made), recording which date was used. Neither uv nor npm enforces this here; it is a
+review rule, checked by whoever changes a lock. uv's `exclude-newer` setting could enforce
+it, but adopting it would re-resolve the lock and downgrade eight packages that entered at
+M0, numpy among them (M8 audit, finding M8-33), so every result would have to be verified
+again.
+
+**Caps.** When a lock is resolved while a wanted release is younger than two weeks, a cap
+in `tool.uv.constraint-dependencies` (`pyproject.toml`) holds it back, with its review date
+in the comment beside it. Caps do not expire on their own: on the review date the owner
+removes the cap, runs `uv lock --upgrade-package <name>` and the full checks and commits
+the lock, or records why the cap stays.
+
+| Cap | Release held back | Published (PyPI, UTC) | Review date |
+|---|---|---|---|
+| `optype<0.19` (typing only, via `scipy-stubs`) | 0.19.0 | 2026-10-02 23:14 | 2026-10-16 |
+| `truststore<0.10.5` (tests only, via `httpx2`) | 0.10.5 | 2026-10-12 22:27 | 2026-10-26 |
+| `starlette<1.8` (runtime, via `fastapi`) | 1.8.0 | 2026-10-13 07:54 | 2026-10-27 |
+
+**Numeric packages.** CI does not re-verify the committed M2 and M3 results, and an upgrade
+of numpy (with the OpenBLAS it bundles), pandas or scipy can change them. A lock change
+that upgrades any of these is merged only after `reproduce-research.yml` has passed on it,
+and every release needs a pass on its own commit (see
+[Reproducing the committed reference results](#reproducing-the-committed-reference-results)).
+
+**Known vulnerabilities.** `.github/workflows/dependency-audit.yml` audits the locks every
+Monday, on demand, and on every pull request that changes `uv.lock`, `pyproject.toml`,
+`web/package.json` or `web/package-lock.json` (or the workflow and the uv bootstrap):
+
+- `pip-audit`, an exact release more than two weeks old run with `uv tool run` (its own
+  dependencies resolved as PyPI listed them on a fixed date), checks the hash-pinned export
+  of the runtime dependencies and, separately, of the development dependencies against the
+  PyPI advisory data, and fails on any known vulnerability;
+- `npm audit --omit=dev --audit-level=moderate` checks what ships in the dashboard bundle,
+  and `npm audit --audit-level=high` checks every locked package (the CI `dashboard` job
+  also runs the latter on pushes to `main` and on pull requests).
+
+In a public repository GitHub disables scheduled workflows after 60 days without repository
+activity, and in a fork by default. Before every release the owner checks that the
+workflow is enabled (re-enabling it under Actions if need be) and runs it by hand. The
+Python part, locally:
+
+```bash
+uv export --frozen --format requirements-txt --no-dev --no-emit-project -o runtime.txt
+uv export --frozen --format requirements-txt --only-dev --no-emit-project -o dev.txt
+uv tool run --exclude-newer 2026-10-02T00:00:00Z --from pip-audit==2.10.1 \
+    pip-audit --strict --require-hashes --disable-pip -r runtime.txt   # then dev.txt
+```
+
+On 2026-10-16 these commands found no known vulnerability in the lock of commit `8f077ed`:
+pip-audit 2.10.1 checked the 18 runtime packages that apply on Linux with CPython 3.12 (of
+19 exported; `tzdata` is installed only on Windows and WebAssembly) and 27 of the 29
+development packages (the other two: `colorama` for Windows, `httpx2-jsfetch` for
+WebAssembly), and both `npm audit` levels reported 0 vulnerabilities. As a control, the
+same pip-audit release reported `h11==0.14.0` (PYSEC-2026-348, fixed in 0.16.0) and
+exited with status 1.
+
+**Handling an advisory.** A fix for a vulnerability that affects ATLAS is taken as soon as
+it is published, inside the cooldown if need be: the owner lifts any cap in the way,
+upgrades only the affected package, reads its changelog, runs the full checks (and the
+reproduction workflow for a numeric package, as above), notes the exception in the commit
+message, and builds and deploys a new release. A deployed release keeps the
+environment it was built with (its `.venv`, from `uv.lock`); the server's
+unattended-upgrades do not update it. An advisory that does not affect ATLAS (for example
+one in a development tool, or in a code path ATLAS never calls) may be ignored with
+`--ignore-vuln <id>` in the workflow, with the reason and a review date beside it.
+
+**GitHub Actions.** To update an action, take its newest release that was published at
+least two weeks earlier (its date on the action's Releases page) and runs on a supported
+Node.js runtime: read the tag's commit with
+`git ls-remote --tags https://github.com/actions/<name>`, fetch that commit and check
+`runs.using` in its `action.yml` and the release's breaking changes against the inputs the
+workflows use, then pin the full SHA with the version in a comment. The current pins were
+checked against the dates of their release commits (2026-04-10 to 2026-07-19, all more
+than ten weeks before the cut-off of 2026-10-02), because the Releases pages were not
+reachable from the environment in which they were pinned; the owner confirms the
+publication dates on the Releases pages.
+
+## Versioning
+
+The code carries the version being released, as MAJOR.MINOR.PATCH: a release candidate of
+version 1.0.0 already carries 1.0.0, and so does the release itself. It is declared in
+`pyproject.toml`, `src/atlas/__init__.py` and `web/package.json`, and copied into
+`uv.lock`, `web/package-lock.json`, the dashboard build (`web/dist/atlas-dashboard.json`)
+and the API contract (`docs/api/openapi.json`). `tests/test_m8_release.py` requires all of
+them to be equal, so a version change is one commit:
+
+1. Edit `version` in `pyproject.toml` and `__version__` in `src/atlas/__init__.py`, then
+   run `uv lock`.
+2. In `web/`, run `npm version <version> --no-git-tag-version`. It sets the version in
+   `web/package.json` and in both places in `web/package-lock.json`. Do not edit
+   `web/package.json` by hand first: npm then stops with "Version not changed" and leaves
+   the lock at the old version.
+3. Run `uv run atlas api openapi > docs/api/openapi.json` and record the dashboard fixtures
+   again (`ATLAS_UPDATE_DASHBOARD_FIXTURES=1 uv run pytest tests/test_m7_fixtures.py --no-cov`).
+4. Rebuild `web/dist` (`npm run build` in `web/`) and commit it, and update the tests and
+   documents that quote the version.
+
+Release-candidate status is not part of the version. The release id
+(`<version>-<12 hex digits of the commit>`), the dashboard manifest and `build-release.sh`
+accept MAJOR.MINOR.PATCH only, and a pre-release would be spelled differently in the two
+ecosystems (`1.0.0rc1` for Python, `1.0.0-rc.1` for npm). A candidate is identified by the
+release-candidate manifest and by a tag `v<version>-rc.<n>` (for example `v1.0.0-rc.1`) on
+the approved commit, which only the owner creates, after approval. The validators keep
+MAJOR.MINOR.PATCH.
 
 ## Repository layout
 
@@ -337,15 +544,33 @@ web/                  M7 dashboard source (src/, e2e/, scripts/) and its committ
 docs/                 this guide, architecture, data, limitations, roadmap, backtesting,
                       uncertainty, optimisation, API, deployment, dashboard
 docs/results/         curated reference results of the M2, M3 and M4 runs
+.github/              CI, dependency-audit and reproduction workflows, the uv bootstrap, scripts
 runs/                 local run directories (git-ignored)
 01 Data/ ... 06 Exports/   original project artifacts, unchanged and hash-verified
 ```
 
 ## Line endings on Windows
 
-`.gitattributes` stops git from converting line endings in every file registered in the
-snapshot manifest: CSVs, the notebook and the SQL script are `-text`, and the Power BI file,
-PDF and images are `binary`. Without this, `core.autocrlf=true` (the Git for Windows default)
-would rewrite these files on checkout and every SHA-256 check would fail. A test asserts that
-every registered path is covered. The committed dashboard build (`web/dist`) and the frontend test fixtures are
-`-text` for the same reason: both are verified byte for byte.
+Every file that ATLAS verifies byte for byte is protected from line-ending conversion in
+`.gitattributes`. Without this, `core.autocrlf=true` (the Git for Windows default) would
+rewrite text files on checkout while `git status` stayed clean, and every SHA-256 check on
+them would fail. The protected files are:
+
+- every file registered in the snapshot manifest: CSVs, the notebook and the SQL script are
+  `-text`, and the Power BI file, PDF and images are `binary`;
+- the research results in `docs/results/` (`-text`): each run manifest records the SHA-256
+  of its outputs, which `verify`, `inspect`, the API's readiness check and the M4 inputs
+  check, and every release fingerprints them;
+- the configurations in `configs/` (`-text`), fingerprinted with the results in every
+  release;
+- the API contract `docs/api/openapi.json` (`-text`), which CI and `build-release.sh`
+  compare byte for byte;
+- the committed dashboard build (`web/dist`) and the frontend test fixtures (`-text`).
+
+Tests in `tests/test_snapshot.py` assert that every snapshot-registered path, every file
+under the release's research paths, every output named in a `docs/results` manifest and the
+contract are covered, and that an export of them with `core.autocrlf=true` (`git archive`
+converts line endings as a checkout does) is identical to the committed files and matches
+every manifest hash. `README.md`, which no rule protects, is exported with them as a
+control: it must come out with CRLF line endings, which shows that the conversion was
+active.
