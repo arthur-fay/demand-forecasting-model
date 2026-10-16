@@ -24,6 +24,10 @@ check passes:
    deployment descriptor (in the format the release records); in an exposed profile, the
    copy published for nginx holds exactly the recorded files. (A release built before
    1.0.0 records no descriptor format: it is held to this tool's, unchanged since M7.)
+   (M8) The recorded policy must meet the floor every tool holds it to
+   (:func:`atlas.dashboard.recorded_policy_problems`), so a release whose code and record
+   agree on a weaker policy is refused; where the release records a policy for its
+   plain-text files, one of them (a licence notice) is served with it.
 
 Verification talks to the API on loopback and reads the published copy: it does not see
 what nginx has loaded. Every activation, rollback and recovery reloads nginx before it
@@ -45,10 +49,18 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Final
 
-from atlas.dashboard import DASHBOARD_CSP, DESCRIPTOR_FORMAT, DESCRIPTOR_PATH, MANIFEST_NAME
+from atlas.dashboard import (
+    CONTENT_TYPES,
+    DASHBOARD_CSP,
+    DESCRIPTOR_FORMAT,
+    DESCRIPTOR_PATH,
+    MANIFEST_NAME,
+    is_text,
+    recorded_policy_problems,
+)
 from atlas.deploy.preflight import parse_listeners
 
 MAX_BODY: Final = 1 << 20
@@ -265,12 +277,14 @@ def verify(
         _proxy_socket(verification, target.api_socket)
     record = _obj((target.manifest or {}).get("dashboard"))
     if record:
+        text = _text_file(record)
         _dashboard(
             verification,
             requester(f"{base}/"),
             requester(f"{base}{DESCRIPTOR_PATH}"),
             record,
             target.dashboard_dir,
+            text=requester(f"{base}/{text}") if text is not None else None,
         )
     for name, answer in (("system", system),):
         if answer is not None:
@@ -522,21 +536,42 @@ def _header(answer: Response, name: str) -> str | None:
     return next((v for k, v in answer.headers.items() if k.lower() == name.lower()), None)
 
 
+def _text_file(record: Mapping[str, Any]) -> str | None:
+    """The first plain-text file of the release's dashboard (a licence notice), when the
+    release records the policy of its text files (from 1.0.0)."""
+    if "text_csp" not in record:
+        return None
+    return next(
+        (
+            path
+            for path in sorted(_obj(record.get("files")))
+            if is_text(CONTENT_TYPES.get(PurePosixPath(path).suffix, ""))
+        ),
+        None,
+    )
+
+
 def _dashboard(
     verification: Verification,
     page: Response | None,
     descriptor: Response | None,
     record: Mapping[str, Any],
     published: Path | None,
+    *,
+    text: Response | None = None,
 ) -> None:
+    """The dashboard check: ``page`` is the answer to ``/``, ``descriptor`` the
+    descriptor's, ``text`` the answer to :func:`_text_file` (when there is one)."""
     files = _obj(record.get("files"))
     expected = files.get("index.html")
     # What the release's own code sends (release.json), not what this tool's would: a later
-    # tool restores and rolls back to older releases.
+    # tool restores and rolls back to older releases. (M8) Never below the floor: a release
+    # whose code and record agree on a weaker policy is not one any tool serves.
     policy = record.get("csp", DASHBOARD_CSP)
     descriptor_format = record.get("descriptor_format", DESCRIPTOR_FORMAT)
     digest = hashlib.sha256(page.body).hexdigest() if page is not None else None
-    problems = []
+    refused = recorded_policy_problems(record)
+    problems = [f"recorded policy refused: {p}" for p in refused]
     if page is None or page.status != 200:
         problems.append("/ did not answer 200")
     else:
@@ -544,6 +579,15 @@ def _dashboard(
             problems.append("/ is not the release's index.html")
         if _header(page, "Content-Security-Policy") != policy:
             problems.append("/ lacks the dashboard's Content-Security-Policy")
+    text_path = _text_file(record)
+    if text_path is not None:
+        if text is None or text.status != 200:
+            problems.append(f"/{text_path} did not answer 200")
+        else:
+            if hashlib.sha256(text.body).hexdigest() != files.get(text_path):
+                problems.append(f"/{text_path} is not the release's {text_path}")
+            if _header(text, "Content-Security-Policy") != record.get("text_csp"):
+                problems.append(f"/{text_path} lacks the policy of the dashboard's text files")
     body = _obj(descriptor.json()) if descriptor is not None else {}
     if descriptor is None or descriptor.status != 200 or body.get("format") != descriptor_format:
         problems.append(f"{DESCRIPTOR_PATH} did not answer the descriptor")
@@ -551,7 +595,9 @@ def _dashboard(
         "dashboard",
         not problems,
         "; ".join(problems) or f"dashboard {record.get('version')} served with its policy",
-        "The API serves web/dist of the release (ATLAS_API_DASHBOARD); rebuild the release.",
+        "Do not serve this release: no tool may send the dashboard policy it records."
+        if refused
+        else "The API serves web/dist of the release (ATLAS_API_DASHBOARD); rebuild the release.",
     )
     if published is None:
         return

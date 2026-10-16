@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 import { expect, test } from '@playwright/test';
 
-import { clean, open, PAGES, watch } from './helpers';
+import { clean, horizontalOverflow, open, PAGES, watch } from './helpers';
 
 const manifest = JSON.parse(
   readFileSync(new URL('../dist/atlas-dashboard.json', import.meta.url), 'utf-8'),
@@ -136,13 +136,22 @@ test('the served files are the build, byte for byte, with the dashboard policy',
 test('the footer opens the licence notices of the bundled code and of the font', async ({
   page,
 }) => {
+  // The notices are plain text in the browser's own viewer, sent with the dashboard's policy
+  // for text (atlas.dashboard.DASHBOARD_TEXT_CSP): no violation or console error, and long
+  // lines wrap on a phone. (Under the HTML policy the viewer's inline style was refused, and
+  // inter-licence.txt ran 995 px off a 375 px screen.)
+  const recorded = await watch(page);
+  await page.setViewportSize({ width: 375, height: 800 });
   await open(page, '/', PAGES[0].heading);
   await page.getByRole('link', { name: 'third-party licences' }).click();
   await expect(page.locator('body')).toContainText('## react - 19.3.0 (MIT)');
   await expect(page.locator('body')).toContainText('## d3-shape - 3.2.0 (ISC)');
+  expect(await horizontalOverflow(page), 'third-party-licences.txt wraps').toBe(0);
   await page.goBack();
   await page.getByRole('link', { name: 'Inter font licence' }).click();
   await expect(page.locator('body')).toContainText('SIL OPEN FONT LICENSE Version 1.1');
+  expect(await horizontalOverflow(page), 'inter-licence.txt wraps').toBe(0);
+  await clean(recorded);
 });
 
 // Calendar dates are formatted in UTC: the same days 14 hours east of UTC and 7 hours west

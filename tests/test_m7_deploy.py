@@ -26,11 +26,15 @@ import pytest
 from atlas.dashboard import (
     DASHBOARD_CSP,
     DASHBOARD_HEADERS,
+    DASHBOARD_TEXT_CSP,
     DESCRIPTOR_FORMAT,
     DESCRIPTOR_PATH,
     DIST,
     MANIFEST_NAME,
+    is_text,
     load_build,
+    policy_problems,
+    recorded_policy_problems,
 )
 from atlas.deploy.layout import Layout
 from atlas.deploy.manifest import check_release, load_manifest
@@ -43,7 +47,14 @@ from atlas.deploy.releases import (
     Deployment,
     compare_manifests,
 )
-from atlas.deploy.render import Renderer, RenderError, descriptor_for
+from atlas.deploy.render import (
+    FIXED_DASHBOARD_HEADERS,
+    DashboardPolicy,
+    Renderer,
+    RenderError,
+    dashboard_headers,
+    descriptor_for,
+)
 from atlas.deploy.routes import (
     DASHBOARD,
     PROFILE_ACCESS,
@@ -54,7 +65,7 @@ from atlas.deploy.routes import (
     load_routes,
 )
 from atlas.deploy.siteconfig import RESOURCE_PROFILES, load_config
-from atlas.deploy.verify import Response, Target, Verification, _dashboard
+from atlas.deploy.verify import Response, Target, Verification, _dashboard, _text_file
 from tests.conftest import REPO_ROOT
 from tests.m6_helpers import DEPLOY_ENV_PRIVATE, Nginx, make_release, need_tools, write
 from tests.m7_helpers import BUILD, make_dashboard_release
@@ -151,9 +162,14 @@ def test_the_private_site_serves_the_dashboard_behind_authentication(tmp_path: P
     assert "try_files /.atlas-descriptor @atlas_descriptor;" in part
     assert part.count(f"root {published};") == 2 + n
     assert part.count("disable_symlinks on;") == 2 + n
-    # The policy of the dashboard on its pages and files, the API's on the API and on the
-    # descriptor (JSON).
-    assert part.count(f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;') == 2 + n
+    # The policy of the dashboard on its pages and files (the one for text on the licence
+    # notices, M8), the API's on the API and on the descriptor (JSON).
+    texts = len([path for path in files if path.endswith(".txt")])
+    assert texts == 2
+    html_policy = f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;'
+    text_policy = f'add_header Content-Security-Policy "{DASHBOARD_TEXT_CSP}" always;'
+    assert part.count(html_policy) == 2 + n - texts
+    assert part.count(text_policy) == texts
     descriptor = part.split("location @atlas_descriptor {")[1].split("    }")[0]
     assert "default-src 'none'; frame-ancestors 'none'" in descriptor
     assert DASHBOARD_CSP not in descriptor
@@ -171,6 +187,55 @@ def test_the_private_site_serves_the_dashboard_behind_authentication(tmp_path: P
     assert '"profile":"private","simulations":"enabled"' in part
     assert "X-API-Key" not in part
     assert "simulation-key.conf" not in part
+
+
+def location(part: str, url: str) -> str:
+    """The body of the exact location of ``url`` in a dashboard part."""
+    return part.split(f"    location = {url} {{\n")[1].split("\n    }")[0]
+
+
+def test_the_licence_notices_get_the_policy_for_text() -> None:
+    """A browser shows text/plain in its own viewer, whose inline style the HTML policy
+    refuses (a violation on every visit, lines that do not wrap: M8 final review). The
+    notices' locations send the policy for text, with every other header of the dashboard;
+    the favicon keeps the HTML policy."""
+    part = dashboard_part(renderer().nginx())
+    others = {k: v for k, v in DASHBOARD_HEADERS.items() if k != "Content-Security-Policy"}
+    for url in ("/third-party-licences.txt", "/inter-licence.txt"):
+        body = location(part, url)
+        assert "default_type text/plain;" in body
+        assert "charset utf-8;" in body
+        assert body.count("add_header Content-Security-Policy") == 1
+        assert f'add_header Content-Security-Policy "{DASHBOARD_TEXT_CSP}" always;' in body
+        for header, value in others.items():
+            assert f'add_header {header} "{value}" always;' in body, header
+        for line in ('X-Content-Type-Options "nosniff"', 'X-Frame-Options "DENY"'):
+            assert f"add_header {line} always;" in body
+    favicon = location(part, "/favicon.svg")
+    assert f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;' in favicon
+
+
+def test_a_text_asset_gets_its_own_location_with_the_policy_for_text() -> None:
+    """The policy follows the type, as in the API: a plain-text asset would be served from a
+    location of its own (the committed build has none)."""
+    import dataclasses
+
+    from atlas.dashboard import parse_manifest
+
+    document = json.loads((BUILD / MANIFEST_NAME).read_text("utf-8"))
+    document["files"]["assets/notes-0123456789.txt"] = {"sha256": "0" * 64, "bytes": 1}
+    build = parse_manifest(json.dumps(document).encode())
+    part = dashboard_part(dataclasses.replace(renderer(), dashboard=build).nginx())
+    assets = re.findall(r'    location ~ "\^/assets/.*?\n    \}', part, re.DOTALL)
+    assert len(assets) == 2
+    text = next(block for block in assets if "notes-0123456789" in block)
+    assert 'location ~ "^/assets/(?:notes-0123456789\\.txt)$" {' in text
+    assert "            text/plain txt;" in text
+    assert "        charset_types text/javascript text/css text/plain;" in text
+    assert f'add_header Content-Security-Policy "{DASHBOARD_TEXT_CSP}" always;' in text
+    code = next(block for block in assets if block is not text)
+    assert f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;' in code
+    assert "notes-0123456789" not in code
 
 
 def test_every_asset_is_listed_by_name_and_immutable() -> None:
@@ -342,6 +407,7 @@ def test_the_manifest_identifies_the_dashboard(tmp_path: Path) -> None:
     assert record["files"] == {f.path: f.sha256 for f in build.files}
     assert record["csp"] == DASHBOARD_CSP
     # (M8) What a later tool needs to serve this dashboard as this release's code does.
+    assert record["text_csp"] == DASHBOARD_TEXT_CSP
     assert record["headers"] == DASHBOARD_HEADERS
     assert record["descriptor_format"] == DESCRIPTOR_FORMAT
     assert record["descriptors"] == {
@@ -349,6 +415,12 @@ def test_the_manifest_identifies_the_dashboard(tmp_path: Path) -> None:
         "public-demo": descriptor_for("public-demo"),
     }
     assert check_release(release) == []
+    # Read back, it gives what this release's code sends with each type of file.
+    policy = DashboardPolicy.of(record)
+    for content_type in ("text/html; charset=utf-8", "text/javascript; charset=utf-8"):
+        assert dict(policy.headers_for(content_type)) == DASHBOARD_HEADERS
+    text = dict(policy.headers_for("text/plain; charset=utf-8"))
+    assert text == {**DASHBOARD_HEADERS, "Content-Security-Policy": DASHBOARD_TEXT_CSP}
 
 
 def test_an_altered_or_removed_dashboard_is_refused(tmp_path: Path) -> None:
@@ -502,14 +574,16 @@ def test_recover_completes_an_interrupted_activation(tmp_path: Path, at: str) ->
 
 #: A later atlas-deploy whose dashboard has another policy than the releases built before it.
 NEWER_CSP = DASHBOARD_CSP + "; upgrade-insecure-requests"
+NEWER_TEXT_CSP = DASHBOARD_TEXT_CSP + "; upgrade-insecure-requests"
 PERMISSIONS = DASHBOARD_HEADERS["Permissions-Policy"]
 NEWER_PERMISSIONS = PERMISSIONS + ", fullscreen=()"
 NEWER_FORMAT = "atlas-deployment/2"
 
 
 def newer_tool(monkeypatch: pytest.MonkeyPatch, *, new_format: bool = True) -> None:
-    """Make this process stand for a later atlas-deploy: another Content-Security-Policy and
-    Permissions-Policy (and descriptor format), wherever the tool's modules hold them."""
+    """Make this process stand for a later atlas-deploy: other Content-Security-Policies
+    (for HTML and for text) and Permissions-Policy (and descriptor format), wherever the
+    tool's modules hold them."""
     import atlas.dashboard
     from atlas.deploy import manifest, render, verify
 
@@ -521,22 +595,29 @@ def newer_tool(monkeypatch: pytest.MonkeyPatch, *, new_format: bool = True) -> N
     for module in (atlas.dashboard, manifest, render, verify):
         monkeypatch.setattr(module, "DASHBOARD_CSP", NEWER_CSP, raising=False)
         monkeypatch.setattr(module, "DASHBOARD_HEADERS", headers, raising=False)
+        monkeypatch.setattr(module, "DASHBOARD_TEXT_CSP", NEWER_TEXT_CSP, raising=False)
         if new_format:
             monkeypatch.setattr(module, "DESCRIPTOR_FORMAT", NEWER_FORMAT, raising=False)
 
 
 def as_each_release_serves(broken: set[str] | None = None) -> Callable[[Target], Verification]:
     """The fake verifier, and the real dashboard check against what each release's own API
-    sends: its index.html with the policy of its code (which its manifest records) and a
-    descriptor in its own format."""
+    sends: its index.html with the policy of its code (which its manifest records), a
+    licence notice with its policy for text, and a descriptor in its own format."""
 
     def check(target: Target) -> Verification:
         result = verifier(broken or set())(target)
         record = (target.manifest or {})["dashboard"]
         headers = {"content-security-policy": record["csp"]}
         page = answer(200, (BUILD / "index.html").read_bytes(), headers)
+        path = _text_file(record)
+        assert path is not None
+        text = answer(
+            200, (BUILD / path).read_bytes(), {"content-security-policy": record["text_csp"]}
+        )
         own = json.dumps({"format": record.get("descriptor_format", DESCRIPTOR_FORMAT)})
-        _dashboard(result, page, answer(200, own.encode()), record, target.dashboard_dir)
+        descriptor = answer(200, own.encode())
+        _dashboard(result, page, descriptor, record, target.dashboard_dir, text=text)
         return result
 
     return check
@@ -549,14 +630,25 @@ def static_locations(dist: Path = BUILD) -> int:
     return 2 + len(files)
 
 
+def text_locations(dist: Path = BUILD) -> int:
+    """Those of them with the policy for text: one per licence notice."""
+    return len([f for f in load_build(dist).files if is_text(f.content_type)])
+
+
 def assert_site_serves(
-    tmp_path: Path, release: str, csp: str, permissions: str, descriptor_format: str
+    tmp_path: Path,
+    release: str,
+    csp: str,
+    permissions: str,
+    descriptor_format: str,
+    text_csp: str = DASHBOARD_TEXT_CSP,
 ) -> None:
     site = (tmp_path / "etc/nginx/sites-available/atlas.conf").read_text("utf-8")
     assert dashboard_root(site).endswith(f"/opt/atlas/dashboard/{release}")
     part = dashboard_part(site)
-    locations = static_locations()
-    assert part.count(f'add_header Content-Security-Policy "{csp}" always;') == locations
+    locations, texts = static_locations(), text_locations()
+    assert part.count(f'add_header Content-Security-Policy "{csp}" always;') == locations - texts
+    assert part.count(f'add_header Content-Security-Policy "{text_csp}" always;') == texts
     assert part.count("add_header Content-Security-Policy") == locations + 1  # + the descriptor's
     assert part.count(f'add_header Permissions-Policy "{permissions}" always;') == locations
     assert part.count("add_header Permissions-Policy") == locations
@@ -592,7 +684,9 @@ def test_an_explicit_rollback_by_a_newer_tool_serves_the_older_policy(
     newer_tool(monkeypatch)
     make_dashboard_release(tmp_path, commit=B)
     assert deploy.activate(name(B))["outcome"] == ACTIVATED
-    assert_site_serves(tmp_path, name(B), NEWER_CSP, NEWER_PERMISSIONS, NEWER_FORMAT)
+    assert_site_serves(
+        tmp_path, name(B), NEWER_CSP, NEWER_PERMISSIONS, NEWER_FORMAT, NEWER_TEXT_CSP
+    )
     record = deploy.rollback()
     assert record["outcome"] == ACTIVATED, record
     assert deploy.current() == name(A)
@@ -618,16 +712,19 @@ def test_a_release_that_records_only_its_csp_keeps_it(
 ) -> None:
     """Releases built before 1.0.0 (M7) record only their Content-Security-Policy: a later
     tool serves and verifies them with it (their other headers and descriptors are the
-    tool's, unchanged since M7)."""
+    tool's, unchanged since M7). Their code sent it with every file, so a text file would
+    get it too (they have none): never the later tool's policy for text."""
     release = make_dashboard_release(tmp_path)
     record = rewrite_dashboard_record(
-        release, headers=None, descriptor_format=None, descriptors=None
+        release, headers=None, descriptor_format=None, descriptors=None, text_csp=None
     )
     newer_tool(monkeypatch, new_format=False)
     site = Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
     policy = f'Content-Security-Policy "{DASHBOARD_CSP}" always;'
     assert dashboard_part(site).count(policy) == static_locations(release / DIST)
+    assert policy in location(dashboard_part(site), "/inter-licence.txt")
     assert "upgrade-insecure-requests" not in site
+    assert "'unsafe-inline'" not in site  # the policy for text is not this release's
     assert "fullscreen" in site  # its other headers are the tool's
     verification = Verification()
     _dashboard(verification, good_page(), good_descriptor(), record, None)
@@ -654,6 +751,156 @@ def test_a_recorded_policy_that_could_alter_the_site_is_refused(
     rewrite_dashboard_record(release, **{key: value})
     with pytest.raises(RenderError, match="dashboard"):
         Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
+
+
+def _script(source: str) -> Any:
+    return pytest.param(
+        "csp",
+        DASHBOARD_CSP.replace("script-src 'self'", f"script-src 'self' {source}"),
+        id=f"script-src {source}",
+    )
+
+
+#: Records a later tool must not send, though every character is one nginx embeds safely
+#: (M8 final review): headers the dashboard does not send, or that a dashboard location
+#: sets itself, and policies below the floor.
+BELOW_THE_FLOOR = [
+    pytest.param("headers", {**DASHBOARD_HEADERS, "Set-Cookie": "id=1; Path=/"}, id="cookie"),
+    pytest.param("headers", {**DASHBOARD_HEADERS, "Access-Control-Allow-Origin": "*"}, id="cors"),
+    pytest.param(
+        "headers", {**DASHBOARD_HEADERS, "Strict-Transport-Security": "max-age=0"}, id="hsts"
+    ),
+    pytest.param("headers", {**DASHBOARD_HEADERS, "Cache-Control": "public"}, id="cache"),
+    pytest.param(
+        "headers",
+        {**DASHBOARD_HEADERS, "content-security-policy": "default-src *"},
+        id="a second policy",
+    ),
+    pytest.param(
+        "headers", {**DASHBOARD_HEADERS, "PERMISSIONS-POLICY": "camera=*"}, id="named twice"
+    ),
+    pytest.param(
+        "csp", DASHBOARD_CSP.replace("default-src 'none'", "default-src *"), id="default-src"
+    ),
+    pytest.param(
+        "csp",
+        DASHBOARD_CSP.replace("default-src 'none'", "default-src 'none' https:"),
+        id="default-src 'none' and more",
+    ),
+    pytest.param(
+        "csp",
+        DASHBOARD_CSP.replace("frame-ancestors 'none'", "frame-ancestors *"),
+        id="frame-ancestors",
+    ),
+    pytest.param("csp", DASHBOARD_CSP.replace("script-src 'self'; ", ""), id="no script-src"),
+    *(
+        _script(source)
+        for source in (
+            "'unsafe-inline'",
+            "'unsafe-eval'",
+            "'UNSAFE-INLINE'",
+            "*",
+            "https:",
+            "data:",
+            "cdn.example.org",
+            "https://cdn.example.org",
+            "'nonce-abcdef'",
+            "'strict-dynamic'",
+        )
+    ),
+    pytest.param("csp", DASHBOARD_CSP + "; script-src-elem https:", id="script-src-elem"),
+    pytest.param("csp", DASHBOARD_CSP + "; worker-src *", id="worker-src"),
+    pytest.param(
+        "csp",
+        DASHBOARD_CSP.replace("require-trusted-types-for 'script'; ", ""),
+        id="no trusted types",
+    ),
+    pytest.param("csp", "script-src *; " + DASHBOARD_CSP, id="script-src twice"),
+    pytest.param("csp", DASHBOARD_CSP + ", script-src *", id="two policies"),
+    pytest.param("text_csp", DASHBOARD_TEXT_CSP + "; script-src 'self'", id="text script-src"),
+    pytest.param(
+        "text_csp",
+        DASHBOARD_TEXT_CSP.replace("default-src 'none'", "default-src 'self'"),
+        id="text default-src",
+    ),
+    pytest.param(
+        "text_csp",
+        DASHBOARD_TEXT_CSP.replace("frame-ancestors 'none'", "frame-ancestors *"),
+        id="text frame-ancestors",
+    ),
+]
+
+
+@pytest.mark.parametrize(("key", "value"), BELOW_THE_FLOOR)
+def test_a_recorded_policy_below_the_floor_is_refused(
+    tmp_path: Path, key: str, value: object
+) -> None:
+    """Since M8-03 a later tool sends and verifies the policy a release records, not its
+    own: the record must meet the floor M7 enforced. Refused by the release check (before
+    anything changes, in every profile), by rendering, and by verification even when the
+    API sends what the record says."""
+    release = make_dashboard_release(tmp_path)
+    record = rewrite_dashboard_record(release, **{key: value})
+    assert any("recorded dashboard policy refused" in p for p in check_release(release))
+    with pytest.raises(RenderError, match="dashboard policy is refused"):
+        Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
+    page = answer(
+        200, (BUILD / "index.html").read_bytes(), {"content-security-policy": record["csp"]}
+    )
+    notice = "inter-licence.txt"
+    text = answer(
+        200, (BUILD / notice).read_bytes(), {"content-security-policy": record["text_csp"]}
+    )
+    verification = Verification()
+    _dashboard(verification, page, good_descriptor(), record, None, text=text)
+    assert [c.name for c in verification.failures] == ["dashboard"]
+    assert "recorded policy refused" in verification.failures[0].detail
+
+
+@pytest.mark.parametrize("header", ["Content-Security-Policy", "content-security-policy"])
+def test_a_policy_among_the_recorded_headers_is_replaced_by_the_recorded_one(
+    tmp_path: Path, header: str
+) -> None:
+    """Each location sends one Content-Security-Policy, the one the release records (``csp``,
+    or ``text_csp`` for text), whatever the case or value of one among its headers."""
+    release = make_dashboard_release(tmp_path)
+    others = {k: v for k, v in DASHBOARD_HEADERS.items() if k != "Content-Security-Policy"}
+    rewrite_dashboard_record(release, headers={**others, header: "default-src *"})
+    site = Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
+    part = dashboard_part(site)
+    assert "default-src *" not in site
+    assert part.lower().count("add_header content-security-policy") == static_locations() + 1
+    assert part.count(f'"{DASHBOARD_CSP}"') == static_locations() - text_locations()
+    assert part.count(f'"{DASHBOARD_TEXT_CSP}"') == text_locations()
+
+
+#: The Content-Security-Policy 0.7.0 (M7) records, as src/atlas/dashboard.py had it at
+#: 194fa4a (the last commit of M7); 0.7.0 records nothing else of its policy.
+POLICY_0_7_0 = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+    "font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; "
+    "form-action 'none'; frame-ancestors 'none'; object-src 'none'; "
+    "require-trusted-types-for 'script'; trusted-types 'none'"
+)
+
+
+def test_every_release_so_far_meets_the_floor(tmp_path: Path) -> None:
+    """0.7.0's record and 1.0.0's are served as before; this tool's own policies meet the
+    floor, and neither of them meets the other's (scripts are allowed from the origin in
+    HTML only)."""
+    assert recorded_policy_problems({"csp": POLICY_0_7_0}) == []
+    assert DashboardPolicy.of({"csp": POLICY_0_7_0}).text_csp == POLICY_0_7_0
+    record = load_manifest(make_dashboard_release(tmp_path))["dashboard"]  # as 1.0.0 writes it
+    assert recorded_policy_problems(record) == []
+    assert DashboardPolicy.of(record).text_csp == DASHBOARD_TEXT_CSP
+    assert policy_problems(DASHBOARD_CSP) == []
+    assert policy_problems(DASHBOARD_TEXT_CSP, text=True) == []
+    assert policy_problems(DASHBOARD_CSP, text=True) == ["allows scripts (script-src 'self')"]
+    assert "has no script-src" in policy_problems(DASHBOARD_TEXT_CSP)
+    # The headers a release may record never include one a location sets itself.
+    assert not {name.lower() for name in DASHBOARD_HEADERS} & FIXED_DASHBOARD_HEADERS
+    fixed = " ".join(dashboard_headers(0, 1, "no-cache", ())).lower()
+    assert all(f"add_header {name} " in fixed for name in FIXED_DASHBOARD_HEADERS)
 
 
 def test_a_release_with_an_altered_dashboard_is_refused_before_anything_changes(
@@ -757,6 +1004,92 @@ def test_verification_names_what_is_wrong(
     _dashboard(verification, page, descriptor, record(), None)
     assert not verification.ok
     assert problem in verification.failures[0].detail
+
+
+@pytest.mark.parametrize(
+    "permissive",
+    [
+        DASHBOARD_CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline' https:"),
+        DASHBOARD_CSP.replace("default-src 'none'", "default-src *"),
+        DASHBOARD_CSP.replace("frame-ancestors 'none'", "frame-ancestors *"),
+    ],
+)
+def test_verification_refuses_a_permissive_policy_its_record_agrees_with(
+    permissive: str,
+) -> None:
+    """Verification compares the API's policy with the release's record (M8-03): a release
+    whose code and record agree on a weaker policy than the floor (which M7's check held
+    every release to, as this tool's own policy) is refused all the same."""
+    page = answer(200, (BUILD / "index.html").read_bytes(), {"content-security-policy": permissive})
+    verification = Verification()
+    _dashboard(verification, page, good_descriptor(), record() | {"csp": permissive}, None)
+    assert not verification.ok
+    detail = verification.failures[0].detail
+    assert "recorded policy refused: Content-Security-Policy:" in detail
+    assert "lacks the dashboard's Content-Security-Policy" not in detail  # the API agrees
+
+
+def text_record() -> dict[str, Any]:
+    """The dashboard record of a release with a policy for its text files (from 1.0.0)."""
+    return record() | {"text_csp": DASHBOARD_TEXT_CSP}
+
+
+def notice(policy: str | None = DASHBOARD_TEXT_CSP, body: bytes | None = None) -> Response:
+    """The API's answer to the first licence notice, with ``policy``."""
+    content = (BUILD / "inter-licence.txt").read_bytes() if body is None else body
+    return answer(200, content, {} if policy is None else {"content-security-policy": policy})
+
+
+def test_verification_checks_the_policy_of_the_text_files() -> None:
+    assert _text_file(record()) is None  # a release before 1.0.0: nothing to check
+    assert _text_file(text_record()) == "inter-licence.txt"
+    verification = Verification()
+    _dashboard(verification, good_page(), good_descriptor(), text_record(), None, text=notice())
+    assert verification.ok, verification.render()
+
+
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        (None, "/inter-licence.txt did not answer 200"),
+        (answer(404, b"{}"), "/inter-licence.txt did not answer 200"),
+        (notice(DASHBOARD_CSP), "lacks the policy of the dashboard's text files"),
+        (notice(None), "lacks the policy of the dashboard's text files"),
+        (notice(body=b"altered"), "is not the release's inter-licence.txt"),
+    ],
+)
+def test_verification_names_what_is_wrong_with_a_text_file(
+    text: Response | None, problem: str
+) -> None:
+    verification = Verification()
+    _dashboard(verification, good_page(), good_descriptor(), text_record(), None, text=text)
+    assert not verification.ok
+    assert problem in verification.failures[0].detail
+
+
+def test_verify_requests_a_licence_notice_where_the_text_policy_is_recorded() -> None:
+    from atlas.deploy.verify import verify
+
+    seen: list[str] = []
+
+    def requester(url: str, **_: Any) -> Response | None:
+        seen.append(url)
+        if url.endswith("/health/live"):
+            return answer(200, b"{}")
+        if url.endswith("/inter-licence.txt"):
+            return notice()
+        if url.endswith("/"):
+            return good_page()
+        if url.endswith(DESCRIPTOR_PATH):
+            return good_descriptor()
+        return None
+
+    manifest = {"atlas_version": "1.0.0", "dashboard": text_record()}
+    result = verify(
+        Target(manifest=manifest, smoke_simulation=False), requester=requester, timeout=1
+    )
+    assert any(c.name == "dashboard" and c.ok for c in result.checks), result.render()
+    assert "http://127.0.0.1:8000/inter-licence.txt" in seen
 
 
 def test_verification_checks_the_published_copy(tmp_path: Path) -> None:

@@ -34,7 +34,7 @@ from atlas.api.context import (
 from atlas.api.logs import truncated_path
 from atlas.api.problems import ErrorCode, error_payload
 from atlas.api.settings import API_KEY_HEADER, api_key_matches
-from atlas.dashboard import DASHBOARD_HEADERS
+from atlas.dashboard import headers_for
 
 LOGGER: Final = logging.getLogger("atlas.api")
 
@@ -132,7 +132,8 @@ class RequestContextMiddleware:
     ) -> None:
         self.app = app
         #: (M7) The dashboard's exact paths: they get the dashboard's headers (its own
-        #: Content-Security-Policy for HTML) and keep their cache policy.
+        #: Content-Security-Policy for HTML and, since M8, one for plain text) and keep
+        #: their cache policy.
         self.dashboard_paths = dashboard_paths
         self.api_key = api_key
         self.protected = frozenset(protected)
@@ -177,7 +178,9 @@ class RequestContextMiddleware:
                     response_headers
                 )
                 if page:
-                    for name, value in DASHBOARD_HEADERS.items():
+                    # (M8) Plain text (the licence notices) gets the policy for text.
+                    content_type = response_headers.get("content-type", "")
+                    for name, value in headers_for(content_type).items():
                         response_headers[name] = value
                 elif not docs_page:
                     response_headers["Content-Security-Policy"] = API_CSP

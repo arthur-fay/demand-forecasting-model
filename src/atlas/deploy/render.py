@@ -16,14 +16,16 @@ release (``deploy/templates/``) and its committed OpenAPI contract
   deployment descriptor that tells the dashboard what this profile allows. (M8) Those
   headers and that descriptor are the ones the release records in its ``release.json``
   (:class:`DashboardPolicy`): a later tool serves an older release's dashboard as that
-  release's own code does.
+  release's own code does. The plain-text files (the licence notices) get the release's
+  policy for text instead of the one for HTML.
 
 Templates use ``{{name}}`` placeholders. Every value inserted comes from the validated
 configuration or from constants, and is checked against a character set without
 whitespace, quotes, braces, semicolons or ``$``: no value can add a directive (a release's
 recorded dashboard headers and descriptors are checked against character sets of their
-own, narrow enough that no value can leave its quoted string or add a directive). An
-unknown placeholder is an error, never an empty string.
+own, narrow enough that no value can leave its quoted string or add a directive; and its
+headers against an allow-list and its policies against a floor, so that no record can
+loosen the site). An unknown placeholder is an error, never an empty string.
 
 Writing (:func:`write_files`) is atomic per file and idempotent: unchanged files are not
 touched, and the result lists what changed, so the operator knows what to reload.
@@ -39,7 +41,15 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Final
 
-from atlas.dashboard import DASHBOARD_CSP, DASHBOARD_HEADERS, DashboardBuild, DashboardError
+from atlas.dashboard import (
+    DASHBOARD_CSP,
+    DASHBOARD_HEADERS,
+    DASHBOARD_TEXT_CSP,
+    DashboardBuild,
+    DashboardError,
+    is_text,
+    recorded_policy_problems,
+)
 from atlas.deploy.layout import (
     ALERT_SERVICE,
     API_HOST,
@@ -75,8 +85,21 @@ _PLACEHOLDER: Final = re.compile(r"\{\{([a-z0-9_]+)\}\}")
 _SAFE: Final = re.compile(r"[A-Za-z0-9._:/,@+=%\-\[\]]*")
 #: A dashboard header a release records, as nginx embeds it (``add_header Name "value"``):
 #: a plain name, and a value without a double quote, backslash, ``$``, brace or line break.
+#: (The name must also be one the dashboard sends: atlas.dashboard.recorded_policy_problems.)
 _HEADER_NAME: Final = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,63}")
 _HEADER_VALUE: Final = re.compile(r"[A-Za-z0-9 '()*+,./:;=_-]{1,2048}")
+#: The headers every dashboard location sets itself (:func:`dashboard_headers`), in lower
+#: case: a release's record may neither repeat nor replace them.
+FIXED_DASHBOARD_HEADERS: Final = frozenset(
+    {
+        "strict-transport-security",
+        "x-content-type-options",
+        "x-frame-options",
+        "referrer-policy",
+        "x-robots-tag",
+        "cache-control",
+    }
+)
 #: A deployment descriptor a release records, as nginx embeds it (``return 200 '...'``):
 #: compact JSON of names and values, without a single quote, backslash or ``$``.
 _DESCRIPTOR: Final = re.compile(r'\{[A-Za-z0-9":,_./-]{0,1024}\}')
@@ -193,11 +216,14 @@ class DashboardPolicy:
     A release records both in its ``release.json``
     (:func:`atlas.deploy.manifest.dashboard_record`), so a tool of another release
     (restoring or rolling back to it) sends exactly what the release's own code sends, and
-    the dashboard is never served with a policy or descriptor it was not built for.
+    the dashboard is never served with a policy or descriptor it was not built for. Its
+    plain-text files get :attr:`text_csp` in place of the HTML policy (:meth:`headers_for`).
     """
 
     headers: tuple[tuple[str, str], ...]
     descriptors: tuple[tuple[str, str], ...]
+    #: (M8) The Content-Security-Policy of the plain-text files (the licence notices).
+    text_csp: str = DASHBOARD_TEXT_CSP
 
     @classmethod
     def of(cls, record: Mapping[str, Any] | None) -> DashboardPolicy:
@@ -205,7 +231,13 @@ class DashboardPolicy:
 
         Releases built before 1.0.0 (M7) record only their Content-Security-Policy
         (``csp``): their other headers and their descriptors are this tool's, the same as
-        in M7 until a release changes them. Without a record (a checkout), this tool's own.
+        in M7 until a release changes them, and their code sent ``csp`` with every file
+        (they have no text file). Without a record (a checkout), this tool's own.
+
+        Refused (M8): a policy below the floor, a header the dashboard does not send or
+        one recorded twice in any case (:func:`atlas.dashboard.recorded_policy_problems`),
+        one of :data:`FIXED_DASHBOARD_HEADERS`, and any name, value or descriptor outside
+        the character sets nginx embeds safely.
         """
         record = record or {}
         headers = record.get("headers", DASHBOARD_HEADERS)
@@ -214,12 +246,22 @@ class DashboardPolicy:
         )
         if not isinstance(headers, Mapping) or not isinstance(descriptors, Mapping):
             raise RenderError("the release's dashboard record is malformed")
+        problems = recorded_policy_problems(record)
+        if problems:
+            raise RenderError("the release's dashboard policy is refused: " + "; ".join(problems))
+        csp = record.get("csp", DASHBOARD_CSP)
+        text_csp = record.get("text_csp", csp if record else DASHBOARD_TEXT_CSP)
         # One Content-Security-Policy, the one verification expects (atlas.deploy.verify).
-        headers = {**headers, "Content-Security-Policy": record.get("csp", DASHBOARD_CSP)}
-        for name, value in headers.items():
+        csp_named = {name for name in headers if name.lower() == "content-security-policy"}
+        headers = {
+            **{name: value for name, value in headers.items() if name not in csp_named},
+            "Content-Security-Policy": csp,
+        }
+        for name, value in [*headers.items(), ("Content-Security-Policy", text_csp)]:
             if not (
                 isinstance(name, str)
                 and _HEADER_NAME.fullmatch(name)
+                and name.lower() not in FIXED_DASHBOARD_HEADERS
                 and isinstance(value, str)
                 and _HEADER_VALUE.fullmatch(value)
             ):
@@ -227,7 +269,16 @@ class DashboardPolicy:
         for profile, text in descriptors.items():
             if not (isinstance(text, str) and _DESCRIPTOR.fullmatch(text)):
                 raise RenderError(f"the dashboard descriptor of {profile!r} cannot be rendered")
-        return cls(tuple(headers.items()), tuple(descriptors.items()))
+        return cls(tuple(headers.items()), tuple(descriptors.items()), text_csp)
+
+    def headers_for(self, content_type: str) -> tuple[tuple[str, str], ...]:
+        """The headers of a file of ``content_type``: plain text gets :attr:`text_csp`."""
+        if not is_text(content_type):
+            return self.headers
+        return tuple(
+            (name, self.text_csp if name == "Content-Security-Policy" else value)
+            for name, value in self.headers
+        )
 
     def descriptor(self, profile: str) -> str:
         found = dict(self.descriptors).get(profile)
@@ -480,19 +531,26 @@ class Renderer:
                         *serve,
                         *file_type(8, entry.content_type),
                         f"        try_files /{safe('dashboard_file', entry.file or '')} =404;",
-                        *dashboard_headers(8, hsts, entry.cache_control, policy.headers),
+                        *dashboard_headers(
+                            8, hsts, entry.cache_control, policy.headers_for(entry.content_type)
+                        ),
                         "    }",
                     ]
                 )
             )
-        if assets:
+        # One location for the assets of each policy (a plain-text asset would get the
+        # policy for text; the committed build has none).
+        groups: dict[tuple[tuple[str, str], ...], list[StaticRoute]] = {}
+        for route in assets:
+            groups.setdefault(policy.headers_for(route.content_type), []).append(route)
+        for headers, group in groups.items():
             # Names are [A-Za-z0-9_.-] only (atlas.dashboard): '.' is the one regex character.
             names = "|".join(
                 safe("dashboard_asset", r.url.removeprefix("/assets/")).replace(".", r"\.")
-                for r in assets
+                for r in group
             )
             types = sorted(
-                {r.content_type.split(";")[0]: r.url.rsplit(".", 1)[-1] for r in assets}.items()
+                {r.content_type.split(";")[0]: r.url.rsplit(".", 1)[-1] for r in group}.items()
             )
             blocks.append(
                 "\n".join(
@@ -506,8 +564,8 @@ class Renderer:
                         "        }",
                         "        default_type application/octet-stream;",
                         "        charset utf-8;",
-                        "        charset_types text/javascript text/css;",
-                        *dashboard_headers(8, hsts, assets[0].cache_control, policy.headers),
+                        "        charset_types text/javascript text/css text/plain;",
+                        *dashboard_headers(8, hsts, group[0].cache_control, headers),
                         "    }",
                     ]
                 )
@@ -520,7 +578,9 @@ class Renderer:
                         method,
                         *serve,
                         *file_type(8, route.content_type),
-                        *dashboard_headers(8, hsts, route.cache_control, policy.headers),
+                        *dashboard_headers(
+                            8, hsts, route.cache_control, policy.headers_for(route.content_type)
+                        ),
                         "    }",
                     ]
                 )
