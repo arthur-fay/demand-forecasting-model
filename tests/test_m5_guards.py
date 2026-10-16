@@ -14,15 +14,19 @@ import dataclasses
 import hashlib
 import json
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from atlas.api import reference
 from atlas.api import worker as worker_module
 from atlas.api.problems import ApiError
 from atlas.api.reference import (
+    FORECAST,
     M3_INTERVALS,
+    SNAPSHOT,
     ArtifactError,
     ReferenceStore,
     _load_m2,
@@ -200,6 +204,56 @@ def test_cross_references_are_checked(api_store: ReferenceStore) -> None:
     )
     with pytest.raises(ArtifactError, match="different M3 status"):
         _load_m4(REPO_ROOT, config, other_status)
+    # The projection manifests whose run ids the API serves must be the ones the M4 run
+    # recorded: their SHA-256 and their run id are each compared.
+    ((level, path),) = inputs.quantiles.items()  # the reference run's one stress path
+    for key in ("manifest_sha256", "run_id"):
+        forged_projection = dataclasses.replace(
+            inputs,
+            projection=dataclasses.replace(
+                projection, provenance={**projection.provenance, key: "FORGED"}
+            ),
+        )
+        with pytest.raises(ArtifactError, match="M2 projection manifest"):
+            _load_m4(REPO_ROOT, config, forged_projection)
+        forged_path = dataclasses.replace(path, provenance={**path.provenance, key: "FORGED"})
+        with pytest.raises(ArtifactError, match="M3 projection manifest"):
+            _load_m4(REPO_ROOT, config, dataclasses.replace(inputs, quantiles={level: forged_path}))
+    with pytest.raises(ArtifactError, match="M3 projection manifest"):
+        _load_m4(REPO_ROOT, config, dataclasses.replace(inputs, quantiles={}))
+
+
+# --- Fixed wording that must be true of the data -------------------------------------------
+
+
+def test_a_status_the_fixed_wording_does_not_state_is_not_served(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INTERVALS_LABEL, the quantile descriptions of the contract and M4's stress-path notice
+    # say the intervals FAILED their calibration. A run whose status is anything else must
+    # not be served next to that wording: the whole chain fails closed until it is reviewed.
+    monkeypatch.setattr(reference, "WORDED_INTERVAL_STATUS", "decision_grade")
+    store = load_reference_store(ApiSettings(repo_root=REPO_ROOT))
+    state = store.status[FORECAST]
+    assert state.ready is False
+    assert "failed_calibration" in str(state.detail)
+    assert "wording" in str(state.detail)
+    assert [c.component for c in store.components() if c.ready] == [SNAPSHOT]
+
+
+def test_the_archived_notice_holds_only_for_a_projection_from_the_last_observed_day(
+    api_store: ReferenceStore,
+) -> None:
+    inputs = api_store.inputs
+    assert inputs is not None
+    reference.check_fixed_wording(inputs)  # the committed runs
+    projection = inputs.projection
+    earlier = dataclasses.replace(
+        inputs,
+        projection=dataclasses.replace(projection, origin=projection.origin - timedelta(days=1)),
+    )
+    with pytest.raises(ArtifactError, match="last observed day"):
+        reference.check_fixed_wording(earlier)
 
 
 def test_require_honours_readiness_not_presence(api_store: ReferenceStore) -> None:

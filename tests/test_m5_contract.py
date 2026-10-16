@@ -25,7 +25,7 @@ from atlas.api.server import openapi_document
 from atlas.api.simulation import PARAMETER_UNITS, SimulationService
 from atlas.optimization_config import ServiceUnitConfig
 from tests.conftest import REPO_ROOT
-from tests.m5_helpers import client, settings
+from tests.m5_helpers import M2_PROJECTION, client, read_csv, read_json, settings
 
 pytestmark = pytest.mark.integration
 
@@ -376,6 +376,67 @@ def test_every_data_response_carries_the_status_guidance(api_store: ReferenceSto
         ):
             notices = " ".join(api.get(path).json()["integrity"]["notices"])
             assert "not decision-grade" in notices, path
+
+
+def _archived_projection_notice() -> str:
+    """The archived-projection notice, from the committed M2 projection files."""
+    manifest = read_json(M2_PROJECTION / "manifest.json")
+    last = manifest["data"]["last_date"]
+    targets = sorted({r["target_date"] for r in read_csv(M2_PROJECTION / "projections.csv")})
+    return (
+        f"ARCHIVED PROJECTION: issued from the frozen snapshot, whose last observed day is "
+        f"{last}, for the target days {targets[0]} to {targets[-1]}. It is not a live "
+        f"forecast, and it has never been scored: no outcome after {last} is in the snapshot."
+    )
+
+
+def test_every_projected_response_says_the_projection_is_archived(
+    api_store: ReferenceStore, api_simulator: SimulationService
+) -> None:
+    notice = _archived_projection_notice()
+    assert notice == (
+        "ARCHIVED PROJECTION: issued from the frozen snapshot, whose last observed day is "
+        "2026-06-30, for the target days 2026-07-01 to 2026-07-30. It is not a live forecast, "
+        "and it has never been scored: no outcome after 2026-06-30 is in the snapshot."
+    )
+    with client(api_store, api_simulator) as api:
+        scenarios = api.get("/api/v1/scenarios").json()["data"]["scenarios"]
+        paths = [
+            "/api/v1/forecasts",
+            "/api/v1/forecasts?horizon_days=1",
+            "/api/v1/uncertainty/intervals",
+            "/api/v1/scenarios",
+            "/api/v1/scenarios/comparison",
+            "/api/v1/simulations/parameters",
+            *(f"/api/v1/scenarios/{s['scenario_id']}" for s in scenarios),
+        ]
+        responses = {path: api.get(path) for path in paths}
+        stress = {"basis": "m3_marginal_quantile", "quantile": 0.9}
+        for body in ({}, {"horizon_days": 5, "demand": stress}):
+            responses[f"POST {body}"] = api.post("/api/v1/simulations", json=body)
+        system = api.get("/api/v1/system").json()
+        history = api.get("/api/v1/forecasts/history").json()
+    for name, response in responses.items():
+        assert response.status_code == 200, (name, response.text)
+        assert notice in response.json()["integrity"]["notices"], name
+    assert notice in system["data"]["scientific_status"]["limitations"]
+    # Observed history is not a projection.
+    assert not any("ARCHIVED" in n for n in history["integrity"]["notices"])
+
+
+def test_certificate_fields_say_they_are_tolerance_ratios(document: dict[str, Any]) -> None:
+    schema = document["components"]["schemas"]["Certificate"]
+    fields = schema["properties"]
+    for name in ("primal", "dual_sign", "stationarity", "duality_gap"):
+        description = fields[name]["description"]
+        assert "in units of its tolerance" in description, name
+        assert "at most 1 passes" in description, name
+    assert "not the absolute gap" in fields["duality_gap"]["description"]
+    assert "1e-7" in fields["primal"]["description"]
+    assert "1e-9" in fields["duality_gap"]["description"]
+    for name in ("holds", "primal_objective", "dual_objective"):
+        assert fields[name]["description"], name
+    assert "certificate" in schema["description"].lower()
 
 
 def test_live_docs_render(api_store: ReferenceStore) -> None:

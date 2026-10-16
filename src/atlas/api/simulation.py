@@ -546,10 +546,14 @@ class SimulationPool:
         self.size = size
 
     def acquire(self) -> _Worker:
+        """An idle worker, a warm one first: a worker replaced after a timeout or a crash is a
+        fresh process that may still be importing ATLAS, and a request given it would wait
+        for that import (outside its deadline) while a warm worker sits idle."""
         with self._lock:
             if self._closed or not self._idle:
                 raise Busy
-            return self._idle.pop()
+            warm = [i for i, worker in enumerate(self._idle) if worker.ready]
+            return self._idle.pop(warm[-1] if warm else -1)
 
     def release(self, worker: _Worker) -> None:
         with self._lock:

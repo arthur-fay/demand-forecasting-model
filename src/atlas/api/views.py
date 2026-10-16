@@ -22,6 +22,7 @@ from atlas.api.reference import (
     M2_BACKTEST,
     M4_REFERENCE,
     SNAPSHOT,
+    WORDED_INTERVAL_STATUS,
     ReferenceStore,
     holiday_names,
     holiday_related,
@@ -97,11 +98,24 @@ RELAXED_NOTICE: Final = (
 )
 #: The label of the projection intervals as this API serves them. M3's own label describes
 #: its method in general ("calibrated on past errors"); these intervals failed that check.
+#: Served only with that status (``reference.check_fixed_wording``, at startup).
 INTERVALS_LABEL: Final = (
     "FUTURE PROJECTION WITH INTERVALS: marginal quantiles of each projected day from the "
     "sealed M3 interval method (built from past forecast errors), which FAILED its "
-    "pre-registered calibration criteria (failed_calibration): they are not calibrated "
+    f"pre-registered calibration criteria ({WORDED_INTERVAL_STATUS}): they are not calibrated "
     "quantiles and carry no probability to rely on."
+)
+#: The size caveat of the M2 development selection test, served next to the selection it
+#: qualifies. The p-value and origin counts are those of the committed M2 run
+#: (tests/test_m5_endpoints.py ties them to it); the size figures are the M8 audit's rounded
+#: Monte Carlo results (docs/audit/M8_FINDINGS_REGISTER.md, finding M8-04).
+SELECTION_EVIDENCE_NOTICE: Final = (
+    "M2 SELECTION EVIDENCE: the pre-registered development selection test (HLN-DM, "
+    "conservative p 0.044) passed its 5 % gate, but at a 30-day horizon with 336-486 "
+    "overlapping origins this test over-rejects under its own assumptions (roughly 7-10 % "
+    "false rejections at a nominal 5 %); after a size correction the selection evidence is "
+    "borderline (p roughly 0.06-0.09). The pre-registered choice stands, but its statistical "
+    "support is weak."
 )
 COMPARISON_UNITS: Final = {
     "discretionary_cost": "usd",
@@ -136,6 +150,21 @@ def point_forecast_notice(store: ReferenceStore) -> str:
         f"{text}: on M2's {accuracy.period} period its MAE over horizons 1-30 was "
         f"{accuracy.mae:,.0f} requests/day and its bias {accuracy.bias:+,.0f} requests/day "
         "(prediction - actual)."
+    )
+
+
+def archived_projection_notice(store: ReferenceStore) -> str:
+    """What the projected numbers are today: an archive of the frozen snapshot, not a live
+    forecast (dates from the loaded projection and snapshot; ``check_fixed_wording``
+    ensures the projection was issued from the snapshot's last observed day)."""
+    inputs = store.require_inputs()
+    last = inputs.data.series.end.isoformat()
+    dates = inputs.projection.target_dates
+    return (
+        f"ARCHIVED PROJECTION: issued from the frozen snapshot, whose last observed day is "
+        f"{last}, for the target days {dates[0].isoformat()} to {dates[-1].isoformat()}. It is "
+        f"not a live forecast, and it has never been scored: no outcome after {last} is in "
+        "the snapshot."
     )
 
 
@@ -256,6 +285,7 @@ def system(
             uncertainty_statement=inputs.status.statement,
             decision_simulation_label=M4_LABEL,
             limitations=[
+                archived_projection_notice(store),
                 point_forecast_notice(store),
                 selection_test_notice(store),
                 STATUS_GUIDANCE.get(inputs.status.interval_status, inputs.status.statement),
@@ -300,7 +330,9 @@ def system(
 # --- M2 ---------------------------------------------------------------------------------
 
 
-def _m2_integrity(store: ReferenceStore) -> Integrity:
+def _m2_integrity(store: ReferenceStore, *, selection: bool = False) -> Integrity:
+    """The notices of the M2 backtest responses (``selection``: the response serves the
+    development selection, so its size caveat goes with it)."""
     m2 = store.require_m2()
     notes = [RECORD_TYPE_LABELS["historical_backtest"]]
     legacy = m2.payload.get("legacy_headline_note")
@@ -311,6 +343,8 @@ def _m2_integrity(store: ReferenceStore) -> Integrity:
         "historical, not prospective."
     )
     notes.append(selection_test_notice(store))
+    if selection:
+        notes.append(SELECTION_EVIDENCE_NOTICE)
     return integrity(
         store, record_type="historical_backtest", data_status="historical_evaluation", notices=notes
     )
@@ -407,7 +441,9 @@ def models(store: ReferenceStore) -> ModelsResponse:
         multiplicity=_str_or_none(recommendation.get("multiplicity")),
         models=infos,
     )
-    return envelope(ModelsResponse, store, data, _m2_integrity(store), _m2_sources(store))
+    return envelope(
+        ModelsResponse, store, data, _m2_integrity(store, selection=True), _m2_sources(store)
+    )
 
 
 def _str_or_none(value: object) -> str | None:
@@ -526,7 +562,12 @@ def forecast(store: ReferenceStore, horizon_days: int) -> ForecastResponse:
         store,
         record_type="future_projection",
         data_status="projected",
-        notices=[projection.label, point_forecast_notice(store), selection_test_notice(store)],
+        notices=[
+            projection.label,
+            archived_projection_notice(store),
+            point_forecast_notice(store),
+            selection_test_notice(store),
+        ],
     )
     return envelope(
         ForecastResponse,
@@ -631,7 +672,12 @@ def intervals(store: ReferenceStore, horizon_days: int) -> IntervalsResponse:
         store,
         record_type="future_projection_intervals",
         data_status="projected",
-        notices=[INTERVALS_LABEL, point_forecast_notice(store), selection_test_notice(store)],
+        notices=[
+            INTERVALS_LABEL,
+            archived_projection_notice(store),
+            point_forecast_notice(store),
+            selection_test_notice(store),
+        ],
         status_first=True,
     )
     return envelope(
@@ -647,7 +693,7 @@ def intervals(store: ReferenceStore, horizon_days: int) -> IntervalsResponse:
 
 
 def _m4_integrity(store: ReferenceStore, outcomes: Sequence[ScenarioOutcome]) -> Integrity:
-    notices = [M4_LABEL, RELAXED_NOTICE]
+    notices = [M4_LABEL, archived_projection_notice(store), RELAXED_NOTICE]
     if any(o.quantile is not None for o in outcomes):
         notices.append(MARGINAL_QUANTILE_NOTICE)
     return integrity(
@@ -851,7 +897,12 @@ def comparison(
 
 
 def _simulation_integrity(store: ReferenceStore, quantile: bool) -> Integrity:
-    notices = [M4_LABEL, RELAXED_NOTICE, point_forecast_notice(store)]
+    notices = [
+        M4_LABEL,
+        archived_projection_notice(store),
+        RELAXED_NOTICE,
+        point_forecast_notice(store),
+    ]
     if quantile:
         notices.append(MARGINAL_QUANTILE_NOTICE)
     return integrity(
@@ -900,6 +951,7 @@ def simulation(store: ReferenceStore, data: SimulationData) -> SimulationRespons
 
 __all__ = [
     "MAX_HISTORY_DAYS",
+    "archived_projection_notice",
     "comparison",
     "envelope",
     "forecast",

@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from atlas import __version__
 from atlas.api.dashboard import DashboardMiddleware, try_load_dashboard
+from atlas.api.docs import install_docs
 from atlas.api.errors import install_error_handlers
 from atlas.api.middleware import (
     DOCS_PATHS,
@@ -50,6 +51,9 @@ linear-programming engine.
 
 * Every response states what its numbers are (`integrity.data_status`): observed history,
   a projection, a historical evaluation, or a HYPOTHETICAL simulation.
+* The projection is an archived projection issued from the frozen snapshot, not a live
+  forecast: no outcome after the snapshot's last observed day is in it, and it has never
+  been scored.
 * The point forecast is not prospectively validated (`point_forecast_validated: false`).
 * The M3 prediction intervals have the status **failed_calibration**: no interval or
   probability is decision-grade, and none is presented as one.
@@ -112,12 +116,15 @@ def create_app(
         description=DESCRIPTION,
         openapi_tags=TAGS,
         lifespan=lifespan,
-        docs_url="/docs" if docs else None,
-        redoc_url="/redoc" if docs else None,
+        # The documentation pages are this package's own (pinned files, SRI and a policy).
+        docs_url=None,
+        redoc_url=None,
         openapi_url="/openapi.json" if docs else None,
         # Stable operation ids (the route names) for generated clients.
         generate_unique_id_function=lambda route: route.name,
     )
+    if docs:
+        install_docs(app, "/openapi.json")
     app.state.settings = resolved
     app.state.store = store
     app.state.simulator = simulator

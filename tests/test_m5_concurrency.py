@@ -23,6 +23,7 @@ import pytest
 from atlas.api.reference import ReferenceStore
 from atlas.api.schemas import SimulationRequest
 from atlas.api.simulation import (
+    Busy,
     SimulationPool,
     SimulationService,
     Timeout,
@@ -218,6 +219,28 @@ def test_pool_exchange_and_close(api_store: ReferenceStore) -> None:
         pool.close()
     assert pool.idle == 0
     assert all(pid is None or pid > 0 for pid in pool.pids())
+
+
+def test_a_replaced_worker_waits_while_a_warm_one_is_idle(api_store: ReferenceStore) -> None:
+    # M8-22: a worker replaced after a timeout is a fresh process that still has to import
+    # ATLAS; the next simulation goes to the warm idle worker instead of waiting for it.
+    pool = SimulationPool(worker_context(api_store), 2, slow_worker)
+    try:
+        for worker in (pool.acquire(), pool.acquire()):
+            assert pool.exchange(worker, None, 60) == ("ok", "pong")  # both warm
+        replaced = pool.acquire()
+        with pytest.raises(Timeout):
+            pool.exchange(replaced, "{}", 0.2)
+        assert replaced.ready is False
+        chosen = pool.acquire()
+        assert chosen is not replaced
+        assert chosen.ready is True
+        # With the warm worker busy, the replaced one is still used (no queue, no refusal).
+        assert pool.acquire() is replaced
+        with pytest.raises(Busy):
+            pool.acquire()
+    finally:
+        pool.close()
 
 
 def test_closed_service_refuses(api_store: ReferenceStore) -> None:

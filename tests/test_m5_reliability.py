@@ -102,6 +102,24 @@ CASES = {
         CHAIN,
     ),
     "m2_metrics_edited": (append(f"{M2_FULL}/metrics.json", b" "), CHAIN),
+    # The projection manifests are pinned by no configuration: the M4 reference run's record
+    # of each one (SHA-256 and run id) is what their served run ids are checked against.
+    "m2_projection_manifest_run_id_edited": (
+        replace_text(
+            f"{M2_PROJECTION}/manifest.json",
+            '"run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5"',
+            '"run_id": "FORGED-RUN-ID"',
+        ),
+        M4_CHAIN,
+    ),
+    "m3_projection_manifest_run_id_edited": (
+        replace_text(
+            f"{M3_PROJECTION}/manifest.json",
+            '"run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5"',
+            '"run_id": "FORGED-RUN-ID"',
+        ),
+        M4_CHAIN,
+    ),
     "m3_status_edited": (
         replace_text(f"{M3_FULL}/calibration_status.json", "failed_calibration", "decision_grade"),
         CHAIN,
@@ -129,6 +147,21 @@ def test_damaged_artifacts_make_components_unavailable(api_repo: Path, case: str
             assert str(api_repo) not in component.detail
             assert "Traceback" not in component.detail
             assert len(component.detail) <= 300
+
+
+def test_a_forged_projection_run_id_makes_readiness_fail(api_repo: Path) -> None:
+    CASES["m2_projection_manifest_run_id_edited"][0](api_repo)
+    store = load(api_repo)
+    with client(store) as api:
+        ready = api.get("/health/ready")
+        assert ready.status_code == 503
+        states = {c["component"]: c for c in ready.json()["components"]}
+        assert "M2 projection manifest" in str(states["m4_reference_run"]["detail"])
+        # The forged identifier never reaches a response that rests on the M4 record.
+        for path in ("/api/v1/scenarios", "/api/v1/simulations/parameters"):
+            response = api.get(path)
+            assert response.status_code == 503
+            assert "FORGED-RUN-ID" not in response.text
 
 
 def test_endpoints_of_unavailable_components_answer_503(api_repo: Path) -> None:
