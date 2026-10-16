@@ -111,6 +111,40 @@ def test_the_client_waits_longer_than_any_server_deadline() -> None:
     assert client_seconds > TIMEOUT_RANGE[1] + nginx_margin  # the deployment's maximum
 
 
+#: The licence notices every build ships (web/src/notices.ts): the bundled packages'
+#: copyright and licence texts (Vite's build.license) and the Inter font's copyright and
+#: SIL Open Font License 1.1 (from its package, through web/public).
+NOTICES = ("third-party-licences.txt", "inter-licence.txt")
+
+
+def test_the_build_ships_and_the_api_serves_the_licence_notices(
+    api_store: ReferenceStore,
+) -> None:
+    """MIT and ISC require the copyright and permission notice in every copy, and OFL-1.1
+    the copyright and licence with every copy of the font (M8-05). The committed build
+    lists both notice files, and the API serves them as plain text under the dashboard's
+    policy. (web/build/notices.test.ts checks that every bundled package is named.)"""
+    build = load_build(BUILD)
+    with client(api_store) as test_client:
+        for name in NOTICES:
+            item = build.file(name)
+            assert item is not None, f"{name} is not in {MANIFEST_NAME}"
+            assert item.content_type == "text/plain; charset=utf-8"
+            answer = test_client.get(item.url)
+            assert answer.status_code == 200, name
+            assert hashlib.sha256(answer.content).hexdigest() == item.sha256
+            assert answer.headers["content-type"] == "text/plain; charset=utf-8"
+            assert answer.headers["content-security-policy"] == DASHBOARD_CSP
+            assert answer.headers["x-content-type-options"] == "nosniff"
+            if name == "inter-licence.txt":
+                assert answer.text.startswith("Copyright 2016 The Inter Project Authors")
+                assert "SIL OPEN FONT LICENSE Version 1.1" in answer.text
+            else:
+                assert "## react - " in answer.text
+                assert "(MIT)" in answer.text
+                assert "(ISC)" in answer.text
+
+
 def test_the_build_sends_no_credential() -> None:
     """The browser never holds or sends a key or token: no credential header is ever set
     by the dashboard (private deployments use the browser's own Basic session, and nginx

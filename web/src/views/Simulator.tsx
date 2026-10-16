@@ -25,7 +25,7 @@ import {
   shortHash,
 } from '../lib/format';
 import { Link } from '../router';
-import { PageHeader } from './common';
+import { intervalsWithStatus, PageHeader } from './common';
 import { useSimulationParameters } from './data';
 import { FeasibilityTag, PlanOutcome } from './plan';
 import {
@@ -354,7 +354,7 @@ function SimulatorForm({
               role="alert"
               title={`${errorEntries.length} ${errorEntries.length === 1 ? 'input needs' : 'inputs need'} attention`}
             >
-              <ul>
+              <ul className="error-summary">
                 {errorEntries.map(([key, message]) => (
                   <li key={key}>
                     {key === '<body>' ? (
@@ -787,9 +787,9 @@ export default function Simulator() {
       <Callout tone="warning" title="Simulations are exploratory, not operational advice">
         <p>
           Every input is HYPOTHETICAL. The demand is an unvalidated point forecast or, if chosen, a
-          per-day M3 quantile stress path from the FAILED_CALIBRATION intervals, which carries no
-          probability. A simulation shows how the model responds to assumptions; it is not a
-          validated staffing, budget or service-capacity recommendation.
+          per-day M3 quantile stress path from {intervalsWithStatus(parameters.data?.integrity)},
+          which carries no probability. A simulation shows how the model responds to assumptions; it
+          is not a validated staffing, budget or service-capacity recommendation.
         </p>
       </Callout>
       <Async resource={parameters} label="the simulation inputs">

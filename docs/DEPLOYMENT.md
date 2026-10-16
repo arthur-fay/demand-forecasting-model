@@ -376,7 +376,7 @@ on a route is a JSON 405):
 | `GET /api/v1/models`, `/forecasts`, `/forecasts/history`, `/forecasts/metrics`, `/uncertainty/status`, `/uncertainty/intervals`, `/scenarios`, `/scenarios/comparison`, `/scenarios/{id}`, `/simulations/parameters` | read (precomputed) | account | open |
 | `POST /api/v1/simulations` | compute | account + compute limit; nginx adds the key | 404 |
 | `/docs`, `/redoc`, `/openapi.json` | documentation | 404 | 404 |
-| `GET`/`HEAD` `/` and the other dashboard pages, `/assets/<exact name>`, `/favicon.svg`, `/atlas-deployment.json` | dashboard (M7, static: the pages, assets and favicon in their own limit `atlas_static`) | account | open (the descriptor says simulations are disabled) |
+| `GET`/`HEAD` `/` and the other dashboard pages, `/assets/<exact name>`, `/favicon.svg`, `/third-party-licences.txt`, `/inter-licence.txt`, `/atlas-deployment.json` | dashboard (M7, static: the pages, assets, favicon and licence notices in their own limit `atlas_static`) | account | open (the descriptor says simulations are disabled) |
 
 Do not assume the M5 simulation key protects the GET endpoints: it does not. In the private
 profile nginx protects them; in the tunnel profile only SSH reaches them.
@@ -813,9 +813,11 @@ M6 was built so the dashboard could be added without changing its model; M7 adds
   stays off and the browser's Basic-auth session also covers the API calls.
 - **A static route class** (`atlas.deploy.routes.dashboard_routes`, rendered into the site
   after the API's locations): the pages (answered with `index.html` through `try_files`),
-  each asset by its exact name, the favicon, and the deployment descriptor
+  each asset by its exact name, every other top-level file of the build by its exact name
+  (the favicon and, since M8, the licence notices `/third-party-licences.txt` and
+  `/inter-licence.txt`, sent as `text/plain; charset=utf-8`), and the deployment descriptor
   `/atlas-deployment.json` (written into the site; served through the same authentication).
-  GET and HEAD only, `disable_symlinks on`; the pages, assets and favicon have their own
+  GET and HEAD only, `disable_symlinks on`; the pages, assets and other files have their own
   rate zone `atlas_static` (the descriptor counts against the API's read limit); a page path
   can never shadow an API route. Anything else is the existing JSON 404, and nginx's own
   answers are JSON whatever extension the path ends with (`types { }` at server level).

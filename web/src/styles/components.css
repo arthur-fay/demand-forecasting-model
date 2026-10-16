@@ -179,6 +179,14 @@
   padding-left: 1.1em;
 }
 
+/* The simulator's error summary: one link per field, stacked, so each is a target of at
+   least 24 CSS px (WCAG 2.2, 2.5.8), not a 16 px line of text. */
+.error-summary a {
+  display: inline-block;
+  min-height: 24px;
+  padding-block: 2px;
+}
+
 /* Stat tiles */
 .stat {
   display: grid;

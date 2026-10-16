@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { MetricRow, ModelsData } from '../api/schemas';
+import type { MetricRow, ModelsData, PeriodInfo } from '../api/schemas';
 import { BarChart } from '../charts/BarChart';
 import { LineChart, type LineSeries } from '../charts/LineChart';
 import { Callout } from '../components/Callout';
@@ -263,6 +263,18 @@ function chosenModels(
   return chosen;
 }
 
+/** The legacy window's caveat, wherever its numbers can be chosen. */
+function LegacyWindowCallout() {
+  return (
+    <Callout tone="info" title="The legacy window is descriptive only">
+      <p>
+        It reproduces the window of the original project; horizons may be incomplete there.
+        Selection and confirmation use the other two periods.
+      </p>
+    </Callout>
+  );
+}
+
 function HorizonPanel() {
   const [period, setPeriod] = useState<Period>('confirmation');
   const [metric, setMetric] = useState<Metric>('mae');
@@ -280,14 +292,7 @@ function HorizonPanel() {
         <Segmented label="Period" value={period} options={PERIODS} onChange={setPeriod} />
         <Segmented label="Metric" value={metric} options={METRICS} onChange={setMetric} />
       </div>
-      {period === 'legacy_window' && (
-        <Callout tone="info" title="The legacy window is descriptive only">
-          <p>
-            It reproduces the window of the original project; horizons may be incomplete there.
-            Selection and confirmation use the other two periods.
-          </p>
-        </Callout>
-      )}
+      {period === 'legacy_window' && <LegacyWindowCallout />}
       <Async resource={models} label="the models">
         {(m) => (
           // Each period is its own answer: another period's rows are never shown in its place.
@@ -396,6 +401,7 @@ function ModelComparisonPanel() {
       tags={<Tag tone="neutral">Historical backtest</Tag>}
     >
       <Segmented label="Period" value={period} options={PERIODS} onChange={setPeriod} />
+      {period === 'legacy_window' && <LegacyWindowCallout />}
       <Async resource={models} label="the models">
         {({ data, integrity, provenance }) => {
           const ranked = [...data.models].sort(
@@ -627,8 +633,26 @@ function TestsPanel() {
   );
 }
 
+/**
+ * The last target day of a period that was scored. The API's last target is nominal (the
+ * last origin + 30 days); no day after the snapshot's last (`end`) exists to be scored.
+ */
+function lastScored(period: PeriodInfo, end: string | undefined): string {
+  return end !== undefined && period.last_target > end ? end : period.last_target;
+}
+
+/** What the table's target days are, and which periods the snapshot's end cuts. */
+function targetsNote(periods: readonly PeriodInfo[], end: string | undefined): string {
+  if (end === undefined) return ' Target days are nominal (the last origin + 30 days).';
+  const cut = periods.filter((p) => p.last_target > end).map((p) => humanise(p.name));
+  return cut.length === 0
+    ? ''
+    : ` Target days are the days scored, up to the snapshot's last day (${formatDate(end)}): the last origins of the ${cut.join(' and ').toLowerCase()} reach past it, so their later horizons are incomplete.`;
+}
+
 function ReproducibilityPanel() {
   const metrics = useBucketMetrics();
+  const end = useHistory(null).data?.data.snapshot_last_date;
   return (
     <Panel
       title="Reproducibility"
@@ -638,7 +662,7 @@ function ReproducibilityPanel() {
         {({ data, provenance }) => (
           <div className="stack-3">
             <DataTable
-              caption="M2 periods. Each origin re-fits every model on data up to that day and forecasts the next 30 days."
+              caption={`M2 periods. Each origin re-fits every model on data up to that day and forecasts the next 30 days.${targetsNote(data.periods, end)}`}
               rows={data.periods}
               rowKey={(p) => p.name}
               columns={[
@@ -652,7 +676,7 @@ function ReproducibilityPanel() {
                 {
                   key: 'targets',
                   header: 'Target days',
-                  cell: (p) => `${formatDate(p.first_target)} – ${formatDate(p.last_target)}`,
+                  cell: (p) => `${formatDate(p.first_target)} – ${formatDate(lastScored(p, end))}`,
                 },
                 {
                   key: 'n',

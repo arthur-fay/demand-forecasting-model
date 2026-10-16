@@ -111,16 +111,24 @@ def test_the_private_site_serves_the_dashboard_behind_authentication(tmp_path: P
     site = renderer(release=release).nginx()
     part = dashboard_part(site)
     published = f"/opt/atlas/dashboard/{release.name}"
+    # One location for the pages, one for the hashed assets, one per other top-level file
+    # (the favicon and the licence notices, M8-05) and one for the descriptor.
+    top = [f.path for f in load_build(release / DIST).files if "/" not in f.path]
+    files = [path for path in top if path != "index.html"]
+    assert {"favicon.svg", "third-party-licences.txt", "inter-licence.txt"} <= set(files)
+    for path in files:
+        assert part.count(f"    location = /{path} {{\n") == 1, path
+    n = len(files)
     # Every location reads the published copy, follows no link and answers GET/HEAD only.
-    assert part.count("location = ") + part.count('location ~ "') == 4
-    assert part.count("return 405; }") == 4
+    assert part.count("location = ") + part.count('location ~ "') == 3 + n
+    assert part.count("return 405; }") == 3 + n
     # The descriptor is answered after authentication (try_files, not a `return`).
     assert "try_files /.atlas-descriptor @atlas_descriptor;" in part
-    assert part.count(f"root {published};") == 3
-    assert part.count("disable_symlinks on;") == 3
-    # The policy of the dashboard on its pages and files (3 locations), the API's on the API
-    # and on the descriptor (JSON).
-    assert part.count(f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;') == 3
+    assert part.count(f"root {published};") == 2 + n
+    assert part.count("disable_symlinks on;") == 2 + n
+    # The policy of the dashboard on its pages and files, the API's on the API and on the
+    # descriptor (JSON).
+    assert part.count(f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;') == 2 + n
     descriptor = part.split("location @atlas_descriptor {")[1].split("    }")[0]
     assert "default-src 'none'; frame-ancestors 'none'" in descriptor
     assert DASHBOARD_CSP not in descriptor

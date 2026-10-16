@@ -7,8 +7,9 @@ HYPOTHETICAL simulations, all through the M5 API. It is a static single-page app
 the API from the same origin: by the API itself on a workstation or through an SSH tunnel,
 and by nginx in the private and public-demo deployments. The server needs no Node.js.
 
-> **Status: implemented on `feature/atlas-m7-dashboard`, awaiting review.** Nothing has been
-> deployed to any server or domain.
+> **Status: merged into `main` (merge commit `194fa4a`) and reviewed in the M8 release audit
+> ([docs/audit](audit/README.md)); section 17 lists the corrections of the dashboard's
+> findings.** Nothing has been deployed to any server or domain.
 >
 > **What the dashboard shows** is research output, labelled as such next to every number:
 > - The forecast is an archived, unvalidated point forecast (M2). The model's lead over the
@@ -36,6 +37,7 @@ Contents:
 14. Limitations
 15. Risks for M8
 16. Independent review
+17. M8 release audit: corrections
 
 ## 1. Architecture
 
@@ -104,6 +106,43 @@ Runtime dependencies (what reaches the browser): `react`, `react-dom`, `zod`, `d
 Vite, Vitest, Testing Library, jsdom, ESLint (typescript-eslint, react-hooks, jsx-a11y),
 Prettier, Playwright with axe-core, openapi-typescript.
 
+**Licences of what ships.** The build contains minified copies of the packages below and the
+Inter font, whose licences require the copyright and licence text with every copy (MIT and
+ISC: the copyright and permission notice; SIL Open Font License 1.1: the copyright and the
+licence). Every build ships them next to the code:
+
+- `third-party-licences.txt`, written by Vite's `build.license` (`vite.config.ts`): the name,
+  version, licence and licence text of every package bundled into the JavaScript;
+- `inter-licence.txt`, the `LICENSE` of `@fontsource-variable/inter` unchanged (the Inter
+  copyright and the OFL-1.1 text), copied into `web/public/` so that it ships with the font,
+  which Vite's notices do not cover (it is a CSS asset).
+
+Both are files of the build, listed in its manifest and served by the API and nginx like
+every other file, as `text/plain; charset=utf-8` (the one type added for them; the policy is
+unchanged), and the footer of every page links to them. `web/build/notices.test.ts` fails if
+a runtime package of the lock is missing from the notices or a development package is in
+them, or if the font's file differs from its package's; `tests/test_m7_dashboard.py` checks
+that the API serves both. This inventory covers the third-party code only: it does not choose
+the project's own licence.
+
+| Package | Version | Licence | Copyright | Shipped as |
+|---|---|---|---|---|
+| react | 19.3.0 | MIT | Meta Platforms, Inc. and affiliates | JavaScript |
+| react-dom | 19.3.0 | MIT | Meta Platforms, Inc. and affiliates | JavaScript |
+| scheduler (of react-dom) | 0.28.0 | MIT | Meta Platforms, Inc. and affiliates | JavaScript |
+| zod | 4.6.5 | MIT | 2025 Colin McDonnell | JavaScript |
+| d3-scale | 4.0.2 | ISC | 2010-2021 Mike Bostock | JavaScript |
+| d3-shape | 3.2.0 | ISC | 2010-2022 Mike Bostock | JavaScript |
+| d3-array (of d3-scale) | 3.2.4 | ISC | 2010-2023 Mike Bostock | JavaScript |
+| d3-color (of d3-interpolate) | 3.1.0 | ISC | 2010-2022 Mike Bostock | JavaScript |
+| d3-format (of d3-scale) | 3.1.2 | ISC | 2010-2026 Mike Bostock | JavaScript |
+| d3-interpolate (of d3-scale) | 3.0.1 | ISC | 2010-2021 Mike Bostock | JavaScript |
+| d3-path (of d3-shape) | 3.1.0 | ISC | 2015-2022 Mike Bostock | JavaScript |
+| d3-time (of d3-scale) | 3.1.0 | ISC | 2010-2022 Mike Bostock | JavaScript |
+| d3-time-format (of d3-scale) | 4.1.0 | ISC | 2010-2021 Mike Bostock | JavaScript |
+| internmap (of d3-array) | 2.0.3 | ISC | 2021 Mike Bostock | JavaScript |
+| @fontsource-variable/inter | 5.3.0 | OFL-1.1 | 2016 The Inter Project Authors | the Inter variable font (one Latin woff2) |
+
 **Versions and supply chain.** `web/package.json` pins exact versions (`.npmrc`:
 `save-exact`) and `package-lock.json` records every package with its integrity hash; CI
 installs with `npm ci` and runs `npm audit --audit-level=high` (0 vulnerabilities at the
@@ -129,7 +168,7 @@ chart's observed days are in the history table of the Forecasting page, as its c
 | Uncertainty & risk | `/uncertainty` | the interval status (FAILED_CALIBRATION) first; the projection with its uncalibrated quantile bands (holiday-related days marked); observed against nominal coverage with confidence intervals and the tolerance; quantile reliability; threshold-exceedance statuses | `uncertainty/status`, `uncertainty/intervals`, `forecasts`, `forecasts/history` |
 | Decision optimisation | `/decisions` | the reference scenarios compared (DIAGNOSTIC plans shown as such, never subtracted from feasible ones); which scenarios are feasible and why not; one scenario in detail (daily resources, backlog, policy comparison) with its HYPOTHETICAL assumptions | `scenarios`, `scenarios/comparison`, `scenarios/{id}` |
 | Simulator | `/simulator` | a form built from the API's parameter ranges; one bounded M4 solve on the server; the result with its plan, the inputs as resolved, the limitations and assumptions | `simulations/parameters`, `simulations` |
-| Methods & provenance | `/provenance` | service versions, components and limits (private deployments only); every committed source with its fingerprints; the dashboard build and deployment; what each milestone did | `system`; for the sources, `models`, `forecasts`, `forecasts/history`, `uncertainty/status`, `uncertainty/intervals`, `scenarios`, `scenarios/comparison`, the first scenario's `scenarios/{id}`, `simulations/parameters` |
+| Methods & provenance | `/provenance` | service versions, components and limits (private deployments only); every committed source with its fingerprints; the dashboard build and deployment; what each milestone did, with links labelled as the current documentation on the `main` branch (the release's own copy is its `docs/` directory) | `system`; for the sources, `models`, `forecasts`, `forecasts/history`, `uncertainty/status`, `uncertainty/intervals`, `scenarios`, `scenarios/comparison`, the first scenario's `scenarios/{id}`, `simulations/parameters` |
 
 The servers answer the six page paths exactly: any other address (a typo, `/forecasting/`,
 `/Forecasting`) gets the API's or nginx's JSON 404 (section 7). The dashboard's own "Page not
@@ -223,9 +262,16 @@ parameters have none: their ranges (up to 0-100,000,000) are too wide for a usef
 | DIAGNOSTIC plans | scenario comparison and plan panels: values of plans that miss the terminal-backlog target are labelled DIAGNOSTIC and never compared as plan differences | `values_status`, `feasibility` |
 | Provenance | a footer under every panel of research results (the Overview's status row shares those of the panels below it); the Methods & provenance page | `provenance` |
 
-The text of every warning is the API's where the API provides one. The dashboard's own
-wording keeps to the M4 wording rules on recommendations and promises, as the API applies
-them ([API.md](API.md) section 10, `test_m5_contract.py`): "recommend" only in a
+The text of every warning is the API's where the API provides one. Where the dashboard
+describes the M3 outcome in its own words (the Uncertainty page's header and status text, the
+band chart's name and summary, the coverage panel's title, the intervals behind the M4 stress
+paths on Decisions and the Simulator, the M3 result on Methods & provenance), the words are
+chosen from the status the API serves: the intervals are said to have failed only when the
+status is FAILED_CALIBRATION, called calibrated only when it is DECISION_GRADE and
+uncalibrated only when it is FAILED_CALIBRATION or INSUFFICIENT_EVIDENCE. When the status is
+UNAVAILABLE, or cannot be loaded, the page says so and names no outcome. The
+dashboard's own wording keeps to the M4 wording rules on recommendations and promises, as the
+API applies them ([API.md](API.md) section 10, `test_m5_contract.py`): "recommend" only in a
 not-a-recommendation phrase or for the M2 model recommendation ("Recommended model"), and no
 promotional term ("optimal staffing", "saves", "cost-effective"). The archived forecast is
 never presented as a live prediction; "confidence interval" is used only in its statistical
@@ -264,11 +310,12 @@ through nginx.
 - The API answers only the exact paths in the verified manifest, from memory.
 - nginx gets one location per class, generated from the manifest:
   - the pages (one exact-match regex) answer `index.html` through `try_files`;
-  - the assets (one regex of their exact names) and the favicon are served from the
-    published copy with `disable_symlinks on`;
+  - the assets (one regex of their exact names) and the other top-level files (the favicon
+    and the licence notices, one exact location each) are served from the published copy
+    with `disable_symlinks on`;
   - the descriptor goes through the same authentication, then a named location.
   - Every one is GET/HEAD only, behind the same accounts and allow-list as the API. The
-    pages, assets and favicon have their own per-client zone (`atlas_static`, 20
+    pages, assets and top-level files have their own per-client zone (`atlas_static`, 20
     requests/s, burst 60) so that a first load or several tabs never use up the API's
     limit; the descriptor, one small request per page load, counts against the API's read
     limit. nginx counts requests before authentication, so a client without an account can
@@ -315,24 +362,25 @@ Target: WCAG 2.2 level AA.
   a line drawn over bands runs on a halo of the surface colour; the three series colours
   pass a colour-vision-deficiency check on every pair (ΔE ≥ 8).
 - Forms: visible labels, units and ranges in the description, errors attached to fields and
-  summarised with links, a failed run shown where the focus goes, the result announced by
-  moving the focus to it. Focused fields never sit under the sticky bars: scroll padding
-  keeps them clear of the top bar and of the simulator's action bar, which is sticky only
-  in a window at least 40rem wide and 32rem high (on phones and at high zoom it stays in
-  place), with the list of changed inputs above it rather than in it.
+  summarised with links (each a target of at least 24 px), a failed run shown where the focus
+  goes, the result announced by moving the focus to it. Focused fields never sit under the
+  sticky bars: scroll padding keeps them clear of the top bar and of the simulator's action
+  bar, which is sticky only in a window at least 40rem wide and 32rem high (on phones and at
+  high zoom it stays in place), with the list of changed inputs above it rather than in it.
 - `prefers-reduced-motion` removes transitions; `forced-colors` keeps lines, focus rings and
   bands visible and marks the current page, the chosen option of each segmented control and
   the line keys of tags; the layout reflows at 320 CSS px and at 200 % zoom without
   horizontal page scrolling (wide tables scroll inside their own region).
 - Tested with axe-core's WCAG 2.0, 2.1 and 2.2 A and AA rules (target size included) on every
   page in light and dark themes, again with every chart's table and every disclosure open,
-  on a simulation result and a failed run, and on the phone layout (no violation);
-  keyboard-only tests (skip link, navigation, charts, every simulator field reached by Tab
-  and by Shift+Tab and never under a sticky bar); the current page in forced colours; reflow
-  at 320 px; unit tests of the colour tokens (contrast in both themes, colour-vision
-  deficiency on every series pair), of the single announcement of a running simulation and
-  of the focus through a run and its cancellation; and the jsx-a11y lint rules. Not tested:
-  real screen-reader sessions (NVDA, JAWS, VoiceOver) and users with disabilities.
+  on a simulation result, a failed run and the error summary of two invalid fields, and on
+  the phone layout (no violation); keyboard-only tests (skip link, navigation, charts, every
+  simulator field reached by Tab and by Shift+Tab and never under a sticky bar); the current
+  page in forced colours; reflow at 320 px; unit tests of the colour tokens (contrast in both
+  themes, colour-vision deficiency on every series pair), of the single announcement of a
+  running simulation and of the focus through a run and its cancellation; and the jsx-a11y
+  lint rules. Not tested: real screen-reader sessions (NVDA, JAWS, VoiceOver) and users with
+  disabilities.
 
 ## 9. Responsive design and mobile
 
@@ -342,30 +390,33 @@ menu, a chosen page or the focus moving on into the page closes it); below 360 p
 bar shows the ATLAS mark without its word, so the deployment tags fit. Panels stack;
 statistic rows wrap; charts keep their aspect and their labels (label room is sized from
 the labels); tables scroll inside their panel. Buttons and text fields are at least 36 CSS px
-high, segmented options 30 px, the menu button and the navigation links 44 px; the 18 px
-"No limit" checkbox (its label also toggles it) and the small disclosure summaries rely on
-the spacing exception of the WCAG 2.2 target size, which axe checks on every page. A tap on
-a chart shows the reading and keeps it until the next tap.
+high, segmented options 30 px, the links of the simulator's error summary 24 px, the menu
+button and the navigation links 44 px; the 18 px "No limit" checkbox (its label also toggles
+it) and the small disclosure summaries rely on the spacing exception of the WCAG 2.2 target
+size, which axe checks on every page. A tap on a chart shows the reading and keeps it until
+the next tap.
 Tested in Chromium on a Pixel 7 profile (412 × 915) and at 320 × 640 (no horizontal
 scrolling on any page).
 
 ## 10. Performance (measured)
 
-Build budgets (`npm run size`, enforced in CI; gzip as the servers send it):
+Build budgets (`npm run size`, enforced in CI; gzip as the servers send it), measured on the
+build after the M8 corrections (section 17; the whole build includes the 16.6 KB of licence
+notices):
 
 | Measure | Budget | Measured |
 |---|---|---|
-| initial JavaScript (gzip) | 110 KB | 84.8 KB |
-| initial HTML, CSS and JavaScript (gzip) | 125 KB | 91.2 KB |
-| largest lazy chunk (gzip) | 30 KB | 20.6 KB |
+| initial JavaScript (gzip) | 110 KB | 85.0 KB |
+| initial HTML, CSS and JavaScript (gzip) | 125 KB | 91.3 KB |
+| largest lazy chunk (gzip) | 30 KB | 20.7 KB |
 | font (woff2) | 50 KB | 48.3 KB |
-| the whole build (raw) | 1 MB | 503.7 KB |
+| the whole build (raw) | 1 MB | 524.4 KB |
 
-Page loads, measured in Chromium against `atlas api serve` on the development container
-(median of three cold loads, cache disabled; "throttled" is a slow 4G connection, 150 ms
-round trip and 1.6 Mbit/s, with the CPU slowed four times; "settled" means every panel has
-its data). The API itself sends JSON uncompressed; behind nginx it is gzipped, so the
-transferred sizes below are upper bounds.
+Page loads, measured for M7 (before those corrections) in Chromium against `atlas api serve`
+on the development container (median of three cold loads, cache disabled; "throttled" is a
+slow 4G connection, 150 ms round trip and 1.6 Mbit/s, with the CPU slowed four times;
+"settled" means every panel has its data). The API itself sends JSON uncompressed; behind
+nginx it is gzipped, so the transferred sizes below are upper bounds.
 
 | Page | First paint | Heading | Settled | Throttled: first paint | Heading | Settled | Transferred |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -379,9 +430,10 @@ transferred sizes below are upper bounds.
 A real simulation (7 days, one changed budget) answered in 0.2-0.7 s. Views download only
 what they show: the history is the last 180 days by default (20 KB); the whole snapshot
 (1,277 days, 136 KB) only when "All" is chosen. Moving the pointer over a chart re-renders
-only its crosshair. Each page's code loads when it is first opened. Hashed assets are cached for a year
-(`immutable`); `index.html` is revalidated (`no-cache`, with an ETag) and the descriptor is
-never cached, so a new release is picked up on the next load. Text is compressed (gzip) by both servers.
+only its crosshair. Each page's code loads when it is first opened. Hashed assets are cached
+for a year (`immutable`); `index.html` is revalidated (`no-cache`, with an ETag) and the
+descriptor is never cached, so a new release is picked up on the next load. Text is
+compressed (gzip) by both servers.
 
 ## 11. Development, build and checks
 
@@ -459,13 +511,13 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) section 19 for how this fits the M6 package.
 
 | Suite | What it checks |
 |---|---|
-| Vitest (`web/src/**/*.test.ts(x)` and `web/build`, 166 tests; coverage gates 85 % statements, functions and lines, 75 % branches) | the client: validation, integrity refusal, every error kind, timeouts, aborts, `Retry-After`; formatting (dates in UTC, units, signs); the simulator form (ranges, integers, the money rule, minimal requests, API errors mapped onto fields); the cache; every view rendered from the real fixtures (warnings present next to their numbers, DIAGNOSTIC handling, disabled simulations in each profile, error states without numbers); charts (keyboard, readings, tables, markers, ticks, labels, halos, no line rebuilt when the reading moves); the colour tokens (contrast in both themes, colour-vision deficiency); the shell (menu, Escape, deployment badge); the source free of storage, cookies, `eval` and HTML injection; the build plugin; the reviews' findings (`review.test.tsx` and the `round2-*.test.ts(x)` files) |
+| Vitest (`web/src/**/*.test.ts(x)` and `web/build`, 191 tests, run in the America/Los_Angeles time zone; queries wait up to 5 s; coverage gates 85 % statements, functions and lines, 75 % branches) | the client: validation, integrity refusal, every error kind, timeouts, aborts, `Retry-After`; formatting (dates in UTC, also with the module loaded in UTC−11, UTC−7 and UTC+14; units, signs); the simulator form (ranges, integers, the money rule, minimal requests, API errors mapped onto fields); the cache; every view rendered from the real fixtures (warnings present next to their numbers, DIAGNOSTIC handling, disabled simulations in each profile, error states without numbers); charts (keyboard, readings, tables, markers, ticks, labels, halos, no line rebuilt when the reading moves); the colour tokens (contrast in both themes, colour-vision deficiency); the shell (menu, Escape, deployment badge); the source free of storage, cookies, `eval` and HTML injection; the build plugin and the licence notices of the committed build; the reviews' findings (`review.test.tsx`, the `round2-*.test.ts(x)` files and `m8-audit.test.tsx`) |
 | `tests/test_m7_fixtures.py` (15) | each fixture is byte for byte the API's answer |
-| `tests/test_m7_dashboard.py` (93) | the build manifest, verification and tamper detection; the API mount: exact paths (also as raw request paths, which the test client would normalise), methods, HEAD, ETag/304, gzip, cache policies, the CSP once, the descriptor by key setting, a damaged build not served, the API unchanged |
+| `tests/test_m7_dashboard.py` (94) | the build manifest, verification and tamper detection; the licence notices listed and served; the API mount: exact paths (also as raw request paths, which the test client would normalise), methods, HEAD, ETag/304, gzip, cache policies, the CSP once, the descriptor by key setting, a damaged build not served, the API unchanged |
 | `tests/test_m7_deploy.py` (44) | the static route class (exact names, no shadowing of the API), both exposed profiles, `nginx -t` without a warning; the static rate (at most twice the API's read rate); compression and types (nothing typed by the requested extension); publication (modes, verification, altered copies replaced, planted files removed); the release manifest; activation order, tunnel, rollback, explicit rollback, prune, status, upgrade plans; verification of the served and published dashboard (links refused); `render --apply` (only an installed release, as recorded, also through `current`); a malformed build manifest an error, not a crash |
 | `tests/test_m7_proxy.py` (32) | real nginx with TLS and the real API, inside an http block with the distribution's types by extension (as on Ubuntu): accounts, every page and file with its bytes, types, cache and policy; nginx's own 400, 401 and 404 answers in JSON whatever the extension; compression, pages included; methods; unlisted files, links and traversal; the API's own policy beside it; a simulation without a key in the browser; the public demo; the access log; rate limits (static never 429, the API still) |
 | `tests/test_m6_container.py` (+2) | on a disposable Ubuntu 24.04 server with systemd: the dashboard through nginx after a real activation; after the automatic and explicit rollbacks, the site's dashboard root (the restored release's copy), read from the site file |
-| Playwright (`web/e2e`, 4 projects) | every page in Chromium against the real API, with no error panel; every reference scenario opened; the simulator against the real M4 engine; reflow at 320 px (every disclosure open, a simulation result shown); failures injected at the network layer (a slow answer, an unavailable component, a network failure, a contract violation and an integrity violation, a simulation stopped at its deadline or refused for lack of a worker, a page whose code fails to load); keyboard-only use (every simulator field by Tab and Shift+Tab against both sticky bars); axe's WCAG 2.2 A/AA rules on every page in both themes, with tables and disclosures open, on a simulation result, a failed run and the phone layout; the current page in forced colours; no CSP violation; a phone viewport; the private and public-demo nginx sites (accounts, simulations, the read-only demo) |
+| Playwright (`web/e2e`, 4 projects) | every page in Chromium against the real API, with no error panel; every reference scenario opened; the simulator against the real M4 engine; reflow at 320 px (every disclosure open, a simulation result shown); failures injected at the network layer (a slow answer, an unavailable component, a network failure, a contract violation and an integrity violation, a simulation stopped at its deadline or refused for lack of a worker, a page whose code fails to load); keyboard-only use (every simulator field by Tab and Shift+Tab against both sticky bars); axe's WCAG 2.2 A/AA rules on every page in both themes, with tables and disclosures open, on a simulation result, a failed run, the error summary of two invalid fields and the phone layout; the current page in forced colours; no CSP violation; a phone viewport; the Forecasting page's dates in the Pacific/Kiritimati and America/Los_Angeles time zones; the footer's licence notices; the private and public-demo nginx sites (accounts, simulations, the read-only demo) |
 | CI job `dashboard` | format, lint, types, contract types up to date, Vitest with coverage, a reproducible build (`git diff --exit-code -- dist`), `verify:dist`, size budgets, `npm audit`, Playwright |
 
 ## 14. Limitations
@@ -482,6 +534,9 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) section 19 for how this fits the M6 package.
   Types is enforced by Chromium-based browsers; others ignore that directive (the rest of
   the policy still applies).
 - **The npm release-age cooldown** is a review rule, not enforced by a tool.
+- **Methods links** open the current documentation on GitHub's `main` branch, which can
+  differ from the release being viewed (its own copy is its `docs/` directory); the page
+  says so.
 
 ## 15. Risks for M8
 
@@ -625,3 +680,28 @@ how the fix was checked instead.
 | Statements stronger than the code: a slider for every bounded input, no "recommended" anywhere, a Permissions-Policy denying every powerful feature, axe covering WCAG 2.2, 24 px targets, the descriptor in the static rate zone, "at most twice" read as the whole rate before authentication, the Uncertainty page's endpoints | nit | each stated as the code does it (sections 3-9) | — |
 | The upgrade notes required creating `/opt/atlas/dashboard`, and said the M6 tool fails on an M7 release in every profile | nit | activation creates it; the M6 tool refuses only in the exposed profiles | — |
 | DEPLOYMENT.md: a rollback by hand leaves nginx on the newer release's dashboard (not said); the access matrix and the exposure control without the dashboard; stale test counts; the container test said to check nginx over HTTP after both rollbacks | nit | corrected | — |
+
+## 17. M8 release audit: corrections
+
+The M8 release audit of `194fa4a` ([M8_FINDINGS_REGISTER.md](audit/M8_FINDINGS_REGISTER.md))
+found one MEDIUM and several LOW defects in the dashboard. Each correction below has a test
+that fails on `8f077ed` (the audit's base) and passes with the correction (for M8-11, the
+dashboard's sentence; this document's status has none); most are in
+`web/src/views/m8-audit.test.tsx`. No research result, API answer or fixture changed.
+
+| Finding | Severity | Correction | Test |
+|---|---|---|---|
+| M8-05: the build shipped minified MIT and ISC code and the OFL font without their copyright and licence texts | MEDIUM | every build ships `third-party-licences.txt` (Vite's `build.license`) and `inter-licence.txt` (the font package's licence), listed in the manifest, served as text by the API and nginx, linked from the footer; inventory in section 2 | `web/build/notices.test.ts`, `test_m7_dashboard.py`, `test_m7_deploy.py` (one nginx location for each notice), Vitest (footer), e2e (the links open the notices) |
+| M8-27: with two or more client-side field errors, the error summary's links were 16 px targets on a 20 px pitch (WCAG 2.2, 2.5.8) | LOW | the links are at least 24 px high | e2e: axe on the summary of two invalid fields, and each link's height |
+| M8-28: the Reproducibility table gave the legacy window's target days to Jul 29, 2026 (the last origin + 30, past the data), and the model ranking showed legacy-window MAE without its caveat | LOW | the scored range, cut at the snapshot's last day from the API, with a caption that says so; the "descriptive only" callout in the ranking panel too | Vitest |
+| M8-29: the "whatever the time zone" date test ran only in CI's UTC, where removing the UTC formatting passed | LOW | Vitest runs in America/Los_Angeles; the date module is also loaded and checked in UTC−11, UTC−7 and UTC+14; the browser tests read the Forecasting page in Pacific/Kiritimati and America/Los_Angeles | Vitest (fails on both mutations: no UTC formatting, local-time parsing); e2e |
+| M8-30: most asynchronous queries of the view tests waited Testing Library's default 1 s, too short for a first page render on a loaded machine | LOW | 5 s for every query (`src/test/setup.ts`) | Vitest (the setting) |
+| M8-31: the Methods links pointed at the moving `main` branch while the page shows one release's fingerprints | LOW | the links say that they open the current documentation on `main`, and the page says where the release's own copy is (its `docs/` directory). A link pinned to the release is not possible yet: a build cannot name the commit it is committed in, and a release tag exists only after the owner approves a release | Vitest |
+| M8-34: the Overview heading used "decision-intelligence" marketing language | LOW | "NYC 311 demand: forecasts, uncertainty and hypothetical scenarios" | Vitest, e2e |
+| M8-18 (dashboard part): "failed" and "uncalibrated" were written into the Uncertainty page whatever status the API served | LOW | the words are chosen from the served status (section 6); the navigation reads "M3 intervals and their calibration"; an unused callout with fixed wording was removed | Vitest (each status, and a status that cannot be loaded) |
+| M8-19 (dashboard part): a certificate ratio was shown as "gap 6.1e-9", and each plan was called "the exact optimum" with "a zero duality gap" | LOW | "largest violation 6.1e-9 of its tolerance" (the largest of the certificate's four ratios); the tolerances as `optimizer.certify` applies them ([OPTIMIZATION.md](OPTIMIZATION.md) section 4): primal feasibility within 1e-7 + 1e-9 × magnitude, dual feasibility and the duality gap within 1e-9 × magnitude; "an optimum of an assumed problem within those tolerances, and one of several when the optimum is not unique" | Vitest (also a scenario whose largest ratio is stationarity, not the gap) |
+| M8-11 (dashboard part): this document still said M7 awaited review; the Methods page claimed "reproduction of every legacy figure" | LOW | the status above; "within its published precision (one RMSE rounding is a declared exception)" | Vitest (the Methods text) |
+| Observation: the calibration chart's "Perfect calibration" key was declared dashed, and never drawn (a one-series chart had no legend) | — | the legend is drawn whenever it has two entries; the key is dotted, like the diagonal | Vitest |
+
+The statements of section 14 on what is not tested (screen readers, Firefox, Safari) still
+hold.

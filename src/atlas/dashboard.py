@@ -76,8 +76,11 @@ CONTENT_TYPES: Final = {
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
     ".woff2": "font/woff2",
+    # The licence notices that ship with the bundled code and the font (docs/DASHBOARD.md).
+    ".txt": "text/plain; charset=utf-8",
 }
-#: Types worth compressing (woff2 is compressed already).
+#: Types worth compressing (woff2 is compressed already; the licence notices are rarely
+#: read, and nginx's gzip_types leaves text/plain alone too).
 COMPRESSIBLE: Final = frozenset({".html", ".js", ".css", ".svg"})
 
 #: A top-level file (``index.html``, ``favicon.svg``) or a content-hashed asset.

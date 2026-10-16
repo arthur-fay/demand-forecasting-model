@@ -21,13 +21,19 @@ import {
   useUncertaintyStatus,
 } from './data';
 
+/**
+ * The documentation on the repository's main branch. A build cannot name the commit it is
+ * committed in, and a release tag exists only once the owner approves a release, so the
+ * links are labelled as what they are: the current documents, not this release's copy (its
+ * docs/ directory, at the commit its release.json records).
+ */
 const REPOSITORY = 'https://github.com/arthur-fay/demand-forecasting-model/blob/main/docs';
 
 const METHODS = [
   {
     milestone: 'M0-M1',
     title: 'Data foundation and quality',
-    text: 'A frozen, hash-verified snapshot of NYC 311 daily totals with fail-closed contracts, reproduction of every legacy figure, causal data-quality flags and one leakage-safe feature builder.',
+    text: 'A frozen, hash-verified snapshot of NYC 311 daily totals with fail-closed contracts, reproduction of every legacy figure within its published precision (one RMSE rounding is a declared exception), causal data-quality flags and one leakage-safe feature builder.',
     doc: 'DATA_SNAPSHOT.md',
   },
   {
@@ -39,7 +45,7 @@ const METHODS = [
   {
     milestone: 'M3',
     title: 'Prediction intervals',
-    text: 'Horizon-specific intervals calibrated only on errors observable at each origin, evaluated with a pre-registered, dependence-aware protocol. Result: FAILED_CALIBRATION.',
+    text: 'Horizon-specific intervals calibrated only on errors observable at each origin, evaluated with a pre-registered, dependence-aware protocol.',
     doc: 'UNCERTAINTY.md',
   },
   {
@@ -278,17 +284,29 @@ function DashboardPanel() {
 }
 
 function MethodsPanel() {
+  const status = useUncertaintyStatus().data?.data.interval_status;
   return (
     <Panel title="Methods" subtitle="What each milestone did, and where its full documentation is">
+      <p className="small secondary">
+        The links open the current documentation on the repository's main branch, which may have
+        changed since this release. The documentation of this release is in the docs/ directory of
+        the release (or checkout) that serves this dashboard; a server release records its commit in
+        release.json.
+      </p>
       <ol className="methods-list">
         {METHODS.map((m) => (
           <li key={m.milestone}>
             <span className="chip">{m.milestone}</span>
             <div className="stack-2">
               <h3>{m.title}</h3>
-              <p className="small secondary">{m.text}</p>
+              <p className="small secondary">
+                {m.text}
+                {m.milestone === 'M3' &&
+                  status !== undefined &&
+                  ` Result: ${status.toUpperCase()}.`}
+              </p>
               <a className="small" href={`${REPOSITORY}/${m.doc}`} rel="noreferrer" target="_blank">
-                {m.doc} (opens GitHub)
+                {m.doc} on the main branch (opens GitHub)
               </a>
             </div>
           </li>

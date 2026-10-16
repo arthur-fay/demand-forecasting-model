@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   addDays,
@@ -39,11 +39,48 @@ describe('numbers', () => {
 });
 
 describe('dates', () => {
+  it('runs in a time zone west of UTC (vite.config.ts), where a local-time date shifts', () => {
+    // CI runs in UTC, where formatting a date in local time cannot be told apart.
+    expect(process.env.TZ).toBe('America/Los_Angeles');
+    expect(new Date(Date.UTC(2026, 6, 1)).getTimezoneOffset()).toBe(420);
+  });
+
   it('formats calendar dates in UTC, whatever the time zone', () => {
     expect(formatDate('2026-06-30')).toBe('Jun 30, 2026');
     expect(addDays('2026-06-30', 1)).toBe('2026-07-01');
     expect(addDays('2026-06-30', -179)).toBe('2026-01-02');
   });
+
+  // A UTC midnight formatted in local time is a day early west of UTC; a local midnight
+  // formatted in UTC is a day early east of it. The module is loaded again in each zone (its
+  // formatters take the zone when they are created).
+  for (const [zone, offset] of [
+    ['Pacific/Pago_Pago', 660],
+    ['America/Los_Angeles', 420],
+    ['Pacific/Kiritimati', -840],
+  ] as const) {
+    it(`shows the same calendar days in ${zone}`, async () => {
+      const before = process.env.TZ;
+      process.env.TZ = zone;
+      try {
+        vi.resetModules();
+        const format = await import('./format');
+        expect(new Date(Date.UTC(2026, 6, 1)).getTimezoneOffset()).toBe(offset);
+        expect(format.formatDate('2026-06-30')).toBe('Jun 30, 2026');
+        expect(format.formatDate('2026-07-01')).toBe('Jul 1, 2026');
+        expect(format.formatWeekdayDate('2026-07-03')).toBe('Fri, Jul 3, 2026');
+        expect(format.formatShortDate(format.dateValue('2026-07-01'))).toBe('Jul 1');
+        expect(format.formatMonthYear(format.dateValue('2026-07-01'))).toBe('Jul 2026');
+        expect(format.dateValue('2026-07-01')).toBe(Date.UTC(2026, 6, 1));
+        expect(format.isoDay(format.dateValue('2026-07-01'))).toBe('2026-07-01');
+        expect(format.addDays('2026-06-30', 1)).toBe('2026-07-01');
+      } finally {
+        if (before === undefined) delete process.env.TZ;
+        else process.env.TZ = before;
+        vi.resetModules();
+      }
+    });
+  }
 
   it('refuses something that is not a calendar date', () => {
     expect(() => formatDate('30/06/2026')).toThrow();

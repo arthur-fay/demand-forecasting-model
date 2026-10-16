@@ -4,6 +4,7 @@ import { Close, AtlasMark, Menu } from './components/icons';
 import { Loading } from './components/States';
 import { Tag } from './components/Tag';
 import { DeploymentContext, useDeploymentResource, type Deployment } from './deployment';
+import { FONT_LICENCE, THIRD_PARTY_NOTICES } from './notices';
 import { PAGES, type PagePath } from './pages';
 import { Link, useLocation } from './router';
 
@@ -236,6 +237,12 @@ export function App() {
             <p>
               Nothing here is a validated staffing, budget or service-capacity recommendation for
               any NYC agency.
+            </p>
+            <p>
+              Software in this dashboard:{' '}
+              <a href={`/${THIRD_PARTY_NOTICES}`}>third-party licences</a> (React, zod and d3: MIT
+              and ISC) and the <a href={`/${FONT_LICENCE}`}>Inter font licence</a> (SIL Open Font
+              License 1.1).
             </p>
           </div>
         </footer>
