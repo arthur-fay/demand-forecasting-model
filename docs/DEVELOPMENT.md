@@ -426,11 +426,12 @@ the lock, or records why the cap stays.
 
 **Known vulnerabilities.** `.github/workflows/dependency-audit.yml` audits the locks every
 Monday, on demand, and on every pull request that changes `uv.lock`, `pyproject.toml`,
-`web/package.json` or `web/package-lock.json`:
+`web/package.json` or `web/package-lock.json` (or the workflow and the uv bootstrap):
 
-- `pip-audit` (an exact release older than the cooldown, run with `uv tool run`) checks the
-  hash-pinned export of the runtime dependencies and, separately, of the development
-  dependencies against the PyPI advisory data, and fails on any known vulnerability;
+- `pip-audit`, an exact release more than two weeks old run with `uv tool run` (its own
+  dependencies resolved as PyPI listed them on a fixed date), checks the hash-pinned export
+  of the runtime dependencies and, separately, of the development dependencies against the
+  PyPI advisory data, and fails on any known vulnerability;
 - `npm audit --omit=dev --audit-level=moderate` checks what ships in the dashboard bundle,
   and `npm audit --audit-level=high` checks every locked package (the CI `dashboard` job
   also runs the latter on every push).
@@ -453,8 +454,8 @@ pip-audit 2.10.1 checked the 18 runtime packages that apply on Linux with CPytho
 0 vulnerabilities. As a control, the same pip-audit release reported `h11==0.14.0`
 (PYSEC-2026-348, fixed in 0.16.0) and exited with status 1.
 
-**A vulnerability.** A fix for a vulnerability that affects ATLAS is taken as soon as it is
-published, inside the cooldown if need be: the owner lifts any cap in the way, upgrades only
+**Handling an advisory.** A fix for a vulnerability that affects ATLAS is taken as soon as
+it is published, inside the cooldown if need be: the owner lifts any cap in the way, upgrades only
 the affected package, reads its changelog, runs the full checks, notes the exception in the
 commit message, and builds and deploys a new release. A deployed release keeps the
 environment it was built with (its `.venv`, from `uv.lock`); the server's
@@ -504,6 +505,7 @@ web/                  M7 dashboard source (src/, e2e/, scripts/) and its committ
 docs/                 this guide, architecture, data, limitations, roadmap, backtesting,
                       uncertainty, optimisation, API, deployment, dashboard
 docs/results/         curated reference results of the M2, M3 and M4 runs
+.github/              CI, dependency-audit and reproduction workflows, the uv bootstrap, scripts
 runs/                 local run directories (git-ignored)
 01 Data/ ... 06 Exports/   original project artifacts, unchanged and hash-verified
 ```
