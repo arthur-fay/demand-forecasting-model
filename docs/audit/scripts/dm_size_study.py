@@ -38,6 +38,12 @@ number of replications: every setting draws from its own ``numpy.random.default_
 A count could change only if a simulated p-value fell within rounding of a threshold.
 Monte Carlo standard errors are binomial: ``sqrt(p (1 - p) / N)``.
 
+A draw for which a rule or variant gives no p-value (the test is not computed, or, for a
+variant, its long-run variance estimate is not positive, which the rectangular kernel allows)
+counts as a non-rejection (p = 1), as a decision rule would treat a test that cannot be
+computed. The report gives the share of such draws and, for comparison, the size and the
+size-corrected p-values among the computed draws only.
+
 Nothing here changes a committed result: the script only reads the committed metrics.
 
 Usage, from the repository root (about two minutes on one core with the defaults)::
@@ -218,11 +224,16 @@ def null_series(rng: np.random.Generator, origins: int, overlap: int, shocks: st
 
 def simulate(
     origins: int, overlap: int, shocks: str, replications: int, seed: int, *, variants: bool
-) -> dict[str, np.ndarray]:
-    """Nominal p-values of every column for ``replications`` null series (missing -> 1.0)."""
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Nominal p-values of every column for ``replications`` null series.
+
+    Returns the p-values, with 1.0 (a non-rejection) where a column gives no p-value, and,
+    per column, a boolean mask of the draws where it was computed.
+    """
     rng = np.random.default_rng([seed, origins, SHOCKS.index(shocks)])
     names = COLUMNS if variants else (RULE, HLN)
     out = {name: np.ones(replications) for name in names}
+    computed = {name: np.zeros(replications, dtype=bool) for name in names}
     for i in range(replications):
         series = null_series(rng, origins, overlap, shocks)
         test = diebold_mariano(series, horizon=overlap)
@@ -230,12 +241,14 @@ def simulate(
             continue  # cannot reject: the p-values stay at 1.0
         out[RULE][i] = test.p_value_conservative
         out[HLN][i] = test.p_value
+        computed[RULE][i] = computed[HLN][i] = True
         if variants:
             for row in bandwidth_sensitivity(series, horizon=overlap):
                 name = _variant_name(row["kernel"], row["bandwidth"])
                 if name in out and row["p_value"] is not None:
                     out[name][i] = row["p_value"]
-    return out
+                    computed[name][i] = True
+    return out, computed
 
 
 def binomial_se(p: float, n: int) -> float:
@@ -282,10 +295,13 @@ def report(args: argparse.Namespace, emit: Callable[[str], None]) -> None:
     origins = sorted({t.origins for t in tests}, reverse=True)
     n = args.replications
     sims: dict[tuple[str, int], dict[str, np.ndarray]] = {}
+    computed: dict[tuple[str, int], dict[str, np.ndarray]] = {}
     for shocks in SHOCKS:
         for t in origins:
-            sims[(shocks, t)] = simulate(t, overlap, shocks, n, args.seed, variants=True)
-    control = simulate(
+            sims[(shocks, t)], computed[(shocks, t)] = simulate(
+                t, overlap, shocks, n, args.seed, variants=True
+            )
+    control, _ = simulate(
         CONTROL_ORIGINS, overlap, "gaussian", args.control_replications, args.seed, variants=False
     )
     print(f"simulations took {time.perf_counter() - started:.0f} s", file=sys.stderr)
@@ -297,7 +313,9 @@ def report(args: argparse.Namespace, emit: Callable[[str], None]) -> None:
         f"Overlap h = {overlap}; null: per-origin differential = mean of {overlap} consecutive "
         f"independent daily shocks (an exact MA({overlap - 1})); {n:,} replications per setting; "
         f"seed {args.seed}; Python {platform.python_version()}, NumPy {np.__version__}. "
-        "Monte Carlo standard errors (MC SE) are binomial."
+        "Monte Carlo standard errors (MC SE) are binomial. A draw for which a rule or variant "
+        "gives no p-value (its long-run variance estimate is not positive) counts as a "
+        "non-rejection; section 1 gives the share of such draws."
     )
     emit("")
     emit("## 1. Empirical size at a nominal 5 %")
@@ -324,6 +342,24 @@ def report(args: argparse.Namespace, emit: Callable[[str], None]) -> None:
                 f"HLN p-value rejects, the Bartlett 60 leg of the pre-registered rule keeps "
                 f"{hln_only:,} from being rejected."
             )
+    incomplete = False
+    for shocks in SHOCKS:
+        for t in origins:
+            for name in COLUMNS:
+                mask = computed[(shocks, t)][name]
+                missing = int(mask.size - np.sum(mask))
+                if missing == 0:
+                    continue
+                incomplete = True
+                among = float(np.mean(sims[(shocks, t)][name][mask] < NOMINAL))
+                emit(
+                    f"- T = {t}, {shocks}: {name} gives no p-value for {missing:,} draws "
+                    f"({100 * missing / mask.size:.2f} %; long-run variance not positive), "
+                    "counted as "
+                    f"non-rejections; among the computed draws its size is {_pct(among)}."
+                )
+    if not incomplete:
+        emit("- Every rule and variant gives a p-value for every draw.")
     rate = float(np.mean(control[RULE] < NOMINAL))
     emit(
         f"- Control, T = {CONTROL_ORIGINS:,}, gaussian, {args.control_replications:,} "
@@ -386,6 +422,21 @@ def report(args: argparse.Namespace, emit: Callable[[str], None]) -> None:
         emit(
             f"- {test.name}: committed HLN statistic {test.statistic:.4f}; |t| recovered from the "
             f"committed HLN p-value {nominal_t(test.p_values[HLN], test.origins):.4f}."
+        )
+    for name in COLUMNS:
+        if all(computed[("gaussian", test.origins)][name].all() for test in tests):
+            continue
+        conditional: list[str] = []
+        for test in tests:
+            mask = computed[("gaussian", test.origins)][name]
+            share = float(
+                np.mean(sims[("gaussian", test.origins)][name][mask] <= test.p_values[name])
+            )
+            conditional.append(f"{test.name} {share:.3f}")
+        emit(
+            f"- {name}, size-corrected among the computed draws only (gaussian): "
+            + ", ".join(conditional)
+            + "."
         )
     emit("")
     emit("## 4. Holm adjustment of the primary family with size-corrected p-values")

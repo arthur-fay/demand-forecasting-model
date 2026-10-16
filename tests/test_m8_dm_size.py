@@ -55,7 +55,8 @@ def _rejection_rate(origins: int, replications: int) -> float:
 def test_the_pre_registered_rule_over_rejects_at_336_origins() -> None:
     # 4,000 replications: the binomial standard error is 0.0034 at a true size of 5 % and
     # 0.0045 at the 9.1 % the size study measured. The bound 0.07 is 5.8 standard errors
-    # above the nominal level and 4.4 below the measured size.
+    # above the nominal level ((0.07 - 0.05) / 0.0034) and 4.6 below the measured size
+    # ((0.091 - 0.07) / 0.0045).
     assert _rejection_rate(336, 4_000) > 0.07
 
 
@@ -96,9 +97,12 @@ def test_the_size_study_reads_the_committed_statistics() -> None:
     families = {family for family, _, _, _ in study.m3_tests()}
     assert families == {"coverage", "WIS", "Brier"}
     # The simulation path still runs against the current atlas.stats.
-    p_values = study.simulate(336, H, "gaussian", 50, SEED, variants=True)
-    assert set(p_values) == set(study.COLUMNS)
+    p_values, computed = study.simulate(336, H, "gaussian", 50, SEED, variants=True)
+    assert set(p_values) == set(computed) == set(study.COLUMNS)
     assert all(np.all((v >= 0.0) & (v <= 1.0)) for v in p_values.values())
+    # A draw without a p-value counts as a non-rejection.
+    assert all(np.all(p_values[name][~computed[name]] == 1.0) for name in study.COLUMNS)
+    assert computed[study.RULE].all()
 
 
 def _rows(section: str) -> list[list[str]]:
@@ -120,6 +124,7 @@ def _first(cell: str) -> str:
 def test_the_recorded_output_comes_from_the_default_run() -> None:
     header = OUTPUT.read_text(encoding="utf-8").split("\n## ", 1)[0]
     assert "20,000 replications per setting; seed 20261016" in header
+    assert "counts as a non-rejection" in header  # the convention for draws without a p-value
 
 
 def test_backtesting_quotes_the_recorded_size_study() -> None:

@@ -26,14 +26,17 @@ give the protocols and the full tables.
    established** ([BACKTESTING.md](docs/BACKTESTING.md)). Seven models, refitted at each of
    822 historical forecast origins on the data up to that origin only, forecast 1-30 days
    ahead under a protocol fixed before any run: the model is chosen on a development period
-   and confirmed on the following year (targets 2025-07-01 to 2026-06-30). On that year the
-   selected regression's mean absolute error over horizons 1-30 is **984.9 requests per
-   day** (WAPE 9.2 %), against 1,112.2 for the best simple baseline B\* (the median of the
-   last five same weekdays) and 1,371.5 for seasonal naive.
+   and confirmed on a later confirmation year (targets 2025-07-01 to 2026-06-30, the last
+   year in the data). On that year the selected regression's mean absolute error over
+   horizons 1-30 is **984.9 requests per day** (WAPE 9.2 %), against 1,112.2 for the best
+   simple baseline B\* (the median of the last five same weekdays) and 1,371.5 for seasonal
+   naive.
    - Against B\* it is 11.4 % lower, but the 95 % interval of the difference, −256 to +2
      requests per day, includes zero, and the Holm-adjusted p-value is 0.054: **not
      significant**.
-   - Against seasonal naive it is 28.2 % lower (Holm-adjusted p 0.007).
+   - Against seasonal naive it is 28.2 % lower (Holm-adjusted p 0.007, nominal; 0.045 after
+     the M8 size correction below, and above 0.05 under three of the five HAC bandwidths
+     once each is size-corrected).
    - These are re-forecasts of days already in the data, not a prospective validation.
 2. **M8 statistical erratum: the selection evidence is weak**
    ([BACKTESTING.md, section 12](docs/BACKTESTING.md#12-m8-erratum-the-size-of-the-diebold-mariano-test)).
@@ -41,8 +44,9 @@ give the protocols and the full tables.
    5 % gate, but at a 30-day horizon with 336-486 overlapping origins this test over-rejects
    under its own assumptions (7.6-9.1 % false rejections at a nominal 5 %, measured in M8);
    after a size correction the selection evidence is borderline (p 0.069). The
-   pre-registered choice stands, but its statistical support is weak. The H1 result above
-   is unchanged.
+   pre-registered choice stands, but its statistical support is weak, and the M2 statements
+   that the selection and H2 are robust to the HAC bandwidth do not hold once each bandwidth
+   is size-corrected. The disclosed H1 result (not significant after Holm) is unchanged.
 3. **Prediction intervals: FAILED_CALIBRATION** ([UNCERTAINTY.md](docs/UNCERTAINTY.md)).
    Intervals and exceedance probabilities are built only from errors observed by each
    issue date, and were selected and evaluated under a pre-registered protocol. Over the
@@ -53,11 +57,13 @@ give the protocols and the full tables.
    decision-grade.
 4. **Planning: optimal plans for a HYPOTHETICAL model** ([OPTIMIZATION.md](docs/OPTIMIZATION.md)).
    A linear programme of daily service, overtime, surge and backlog over the projected
-   demand. Its plans are certified optimal (primal and dual feasibility, a zero duality gap
-   and a matrix-free check of every plan), but only for a model whose staffing,
-   productivity, cost and budget numbers are all invented and labelled `HYPOTHETICAL`: no
-   such data exist in the project. Six of its nine reference scenarios have no plan that
-   meets every hypothetical constraint. Nothing in it is a recommendation.
+   demand. Its plans are certified optimal within small numerical tolerances (primal
+   feasibility to 1e-7 plus 1e-9 of the magnitude; dual feasibility and the duality gap to
+   1e-9 relative; and a matrix-free check of every plan), but only for a model whose
+   staffing, productivity, cost and budget numbers are all invented and labelled
+   `HYPOTHETICAL`: no such data exist in the project. Six of its nine reference scenarios
+   have no plan that meets every hypothetical constraint. Nothing in it is a
+   recommendation.
 5. **Reproducibility.** Every committed result reproduces byte for byte. Each run records
    the fingerprints of its configuration, data, code and outputs, and `verify` regenerates
    it from the snapshot and compares every file. This was checked again in M8 for the M2,
@@ -65,18 +71,20 @@ give the protocols and the full tables.
    commit, as [BACKTESTING.md](docs/BACKTESTING.md), section 8, explains). Results that pass
    through BLAS, the regressions, can differ in the last bits on another CPU family
    ([DEVELOPMENT.md](docs/DEVELOPMENT.md)).
-6. **The original project's headline figures** reproduce arithmetically from its data, but
-   several do not mean what they were said to mean. The archived section below shows each
-   one with what it actually measures.
+6. **The original project's headline figures** reproduce arithmetically from its data
+   within their published precision, except one declared rounding exception (the
+   regression RMSE: 676.70 published, 676.69 recomputed, `LEGACY-V0-EX-002`), but several
+   do not mean what they were said to mean. The archived section below shows each one with
+   what it actually measures.
 
 ## What is in the repository
 
 | Milestone | What it adds | Documentation |
 |---|---|---|
-| M0 | The frozen, hash-verified `legacy-v0` snapshot; fail-closed data contracts; reproduction of every legacy aggregate, KPI and model metric, each with its actual meaning | [DATA_SNAPSHOT.md](docs/DATA_SNAPSHOT.md), [LEGACY_LIMITATIONS.md](docs/LEGACY_LIMITATIONS.md) |
+| M0 | The frozen, hash-verified `legacy-v0` snapshot; fail-closed data contracts; reproduction of every legacy aggregate, KPI and model metric within its published precision, except one declared RMSE rounding exception (`LEGACY-V0-EX-002`), each with its actual meaning | [DATA_SNAPSHOT.md](docs/DATA_SNAPSHOT.md), [LEGACY_LIMITATIONS.md](docs/LEGACY_LIMITATIONS.md) |
 | M1 | Causal data-quality flags, ISO 8601 calendar conventions, a reconciliation residual, a feature builder with leakage guards | [DATA_QUALITY.md](docs/DATA_QUALITY.md), [FEATURES.md](docs/FEATURES.md) |
 | M2 | Rolling-origin backtesting of seven models, a pre-registered selection and confirmation protocol, dependence-aware tests | [BACKTESTING.md](docs/BACKTESTING.md) |
-| M3 | Prediction intervals and exceedance probabilities with a pre-registered evaluation and a decision-grade status | [UNCERTAINTY.md](docs/UNCERTAINTY.md) |
+| M3 | Prediction intervals and exceedance probabilities, with a pre-registered decision-grade test that they failed (FAILED_CALIBRATION) | [UNCERTAINTY.md](docs/UNCERTAINTY.md) |
 | M4 | A HYPOTHETICAL linear-programming simulation with optimality certificates, policies, tradeoff frontiers and sensitivity analysis | [OPTIMIZATION.md](docs/OPTIMIZATION.md) |
 | M5 | An HTTP API over the committed outputs, with bounded HYPOTHETICAL simulations; every response states what its numbers are and carries `validated_recommendation: false` | [API.md](docs/API.md) |
 | M6 | A private-first deployment package for one Ubuntu 24.04 server: systemd and nginx, verified activation, automatic rollback, monitoring. Nothing has been deployed | [DEPLOYMENT.md](docs/DEPLOYMENT.md) |
@@ -217,7 +225,8 @@ workflow, with what each step was:
   8.23% for the 7-day seasonal baseline." **ATLAS:** reproduced exactly, but it is a
   one-step-ahead holdout score with observed lags. Run recursively, as the published
   forecast was, the same model scores 5.5-5.9 % at horizons 2-30 on those 90 days, which
-  were an easy period, and 9.0-9.8 % from horizon 7 on over the whole following year.
+  were an easy period, and 9.0-9.8 % from horizon 7 on over the whole confirmation year
+  (targets 2025-07-01 to 2026-06-30, which end with those 90 days).
 - **Original:** "Forecast accuracy improved by 40.10% over the baseline model." **ATLAS:** a
   40.1 % relative reduction of MAPE (8.23 % to 4.93 %), on a comparison in which the model
   saw the previous day and the baseline only the day a week earlier; not a 40 % gain in
@@ -229,7 +238,8 @@ workflow, with what each step was:
 - **Original:** "Five forecast dates are expected to exceed the daily planning capacity of
   11,609 requests." **ATLAS:** five point forecasts exceed a demand percentile, not a
   capacity, by 12 to 210 requests, 13 to 28 days ahead. At those horizons the legacy
-  model's recursive error over the following year is about 1,070-1,100 requests per day.
+  model's recursive mean absolute error over the confirmation year (targets 2025-07-01 to
+  2026-06-30) is 1,067-1,104 requests per day, more than twice its one-step holdout MAE.
 - **Original:** "The projected total capacity gap is 566 requests, with the earliest
   shortfall forecast for July 13, 2026." **ATLAS:** 566 is the sum of those five excesses.
   Over the 30 days the forecast total (330,941) is below 30 times the percentile (348,270).
@@ -307,6 +317,25 @@ monthly, yearly and year-to-date request counts; and the project KPIs.
 
 Python, pandas, NumPy, scikit-learn, Matplotlib, SQL and SQLite, Google Colab, Power BI
 Desktop, Power Query, DAX, Git and GitHub.
+
+### Original skills list
+
+The original README listed these skills, qualified here where the project's work differs
+from the name:
+
+- time-series forecasting (a 30-day recursive forecast, evaluated at horizon 1 only);
+- feature engineering;
+- train/test validation (one 90-day holdout block);
+- forecast-error measurement;
+- baseline-model comparison (against a baseline with less recent information);
+- "capacity planning" (a threshold at a demand percentile; no capacity data);
+- risk classification (tiers of that percentile);
+- operational analytics (of requests created);
+- SQL validation and reporting;
+- Power BI dashboard development;
+- data modelling and DAX;
+- executive data storytelling (its claims are qualified above);
+- GitHub repository documentation.
 
 ### Original repository structure
 

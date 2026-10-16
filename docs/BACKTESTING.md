@@ -410,6 +410,13 @@ over-rejects with the `t(T − 1)` reference, the wider ones most (11.0-17.6 % a
 | H1 (confirmation, 336 origins) | 0.096 | 0.213 | 0.123 | 0.179 | 0.233 |
 | H2 (confirmation, 336 origins) | 0.023 | 0.113 | 0.036 | 0.066 | 0.094 |
 
+The rectangular 29 column is the HLN p-value alone; the pre-registered rule (the larger of
+the HLN and Bartlett 60 p-values) gives 0.069, 0.095 and 0.022 (section 12). The two differ
+by at most 0.001, because the Bartlett leg almost never binds under the null. Under
+rectangular 59, 1.78 % (486 origins) and 5.35 % (336 origins) of the simulated series give
+no p-value, because their long-run variance estimate is not positive; they count as
+non-rejections (section 12).
+
 So H2 does not stay significant under every bandwidth: it is above 0.05 under rectangular
 59, Bartlett 90 and Bartlett 120 even before the Holm adjustment. The selection test's
 size-corrected p-value is above 0.05 under the pre-registered bandwidth and under Bartlett
@@ -986,9 +993,10 @@ sensitivity covers, and the projection is described as archived.
   14-27 independent observations for the main comparisons (the two regressions
   against seasonal naive and B\*, days 1-30) under the primary bandwidth, and fewer under
   wider ones. (**M8 correction:** 14-27 are the `eff. n` of section 6.5, computed with the
-  Bartlett `2h` bandwidth; under the primary rectangular bandwidth H1 and H2 are worth
-  13.0 and 20.8, and under the wider ones 9.6-17.4, section 6.2.) For H1 an observed MAE
-  difference has to exceed
+  Bartlett `2h` bandwidth. Under the primary rectangular bandwidth H1 and H2 are worth
+  13.0 and 20.8; under rectangular 59, Bartlett 90 and Bartlett 120, 9.6-17.4; under
+  Bartlett 60, 13.8 and 21.2 (section 6.2), so not every wider bandwidth gives fewer.)
+  For H1 an observed MAE difference has to exceed
   about 129 requests per day (the half-width of its interval, roughly
   12 % of B\*'s MAE) to be significant at 5 % (125-150 across the
   bandwidths of section 6.2): the primary figures sit at the optimistic end of that range.
@@ -1008,8 +1016,9 @@ sensitivity covers, and the projection is described as archived.
   excluding them changes the size but not the direction of any comparison. (**M8 note:**
   this sensitivity removes only the 44 target days covered by a warning-level M1 flag. In
   the confirmation year they are 18 days, 13 of them the agency-level DHS interruption of
-  2026-01-31..02-12; DHS is about 1.4 % of five-borough volume. The most extreme city-wide
-  days of that winter, 2026-01-27, 2026-01-28 and 2025-12-15, carry no flag and stay in
+  2026-01-31..02-12; DHS is about 1.4 % of five-borough volume. Three of the five largest
+  days of the series, 2026-01-27, 2026-01-28 and 2025-12-15, carry no flag and stay in (the
+  largest, 2026-02-24, is flagged and excluded)
   ([DATA_QUALITY.md](DATA_QUALITY.md), section 3; the counts are reproduced by
   [`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py)). So the result
   shows robustness to the M1-flagged days, not to city-wide anomalies.)
@@ -1066,7 +1075,13 @@ check, Student t shocks with 3 degrees of freedom. The script reads the committe
 from the development and full `metrics.json`; its output is recorded in
 [`dm_size_study_output.md`](audit/scripts/dm_size_study_output.md) (about two minutes on one
 core). Monte Carlo standard errors are at most 0.3 percentage points for the sizes and 0.003
-for the p-values quoted here.
+for the p-values quoted here. A simulated series for which a bandwidth gives no p-value
+counts as a non-rejection, as a decision rule would treat a test that cannot be computed.
+This happens only under rectangular 59, whose long-run variance estimate can be negative:
+for 1.78 % of the Gaussian series with 486 origins and 5.35 % with 336. Counting only the
+series where it is computed would raise its sizes to 13.8 % and 17.1 % and its
+size-corrected p-values to 0.042 (selection, unchanged), 0.225 (H1) and 0.119 (H2); no
+conclusion below changes.
 
 **Size at a nominal 5 %** (Gaussian shocks; with Student t shocks every value is within 0.5
 points):
@@ -1111,14 +1126,17 @@ under the pre-registered rule after the size correction and the Holm adjustment,
 (0.045).
 
 **Why the decision stands.** The selection rule, its test and its 5 % gate were fixed before
-any run, and the selection was sealed before any confirmation-period run (section 7).
+any run, and the selection was sealed before any confirmation-period run of the protocol
+(section 7; the earlier confirmation-period computations are listed in section 9).
 Replacing the test now, knowing that the gate passed narrowly, would choose the rule with
 knowledge of its outcome; that would be worse science than reporting the weakness. The
-recommendation itself rests on the confirmation rule (the selected model's confirmation MAE
-is not above B\*'s, section 6.2), which uses no test, and the lead it rests on is already
-disclosed as not statistically established. With a correctly sized gate the protocol would
-most likely have selected B\*, the median of the last five same weekdays, which finding 6
-already names as a close and much simpler alternative.
+recommendation also had to pass the confirmation rule (the selected model's confirmation
+MAE is not above B\*'s, section 6.2), which uses no test; but the regression reached that
+rule only through the selection gate, so the recommendation inherits the gate's weak
+support, and its confirmation lead is already disclosed as not statistically established.
+With a correctly sized gate the protocol would most likely have selected B\*, the median of
+the last five same weekdays, which finding 6 already names as a close and much simpler
+alternative.
 
 **Limits of the correction.** It assumes the test's own null, an MA(29) differential, and so
 shows what the test delivers when its assumption holds. The H1 differential stays

@@ -270,7 +270,7 @@ the run's manifest, and `tests/test_m3_results.py` checks only its eligibility d
 quantile ordering. Its bytes equal ATLAS's CSV writer applied to those rows read with
 pandas' default float parser, which rounds some 17-digit values, so it is not a verbatim
 copy: against the reference run regenerated in M8 (byte-identical to the manifest), 1,149
-of its floating-point fields differ by 1-2 units in the last place (at most 2.3e-16
+of its floating-point fields differ by 1-2 units in the last place (at most 2.35e-16
 relative) and 94 of its 600 lines are verbatim; every other field is identical
 ([`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py) reproduces this
 comparison).
@@ -525,7 +525,10 @@ with targets in the 365 days before the origin (at horizon 1: 365 residuals, tar
 2025-07-01..2026-06-30, while residuals exist from 2024-02-02). Its first line, which is
 also the manifest's label, says the intervals and probabilities are "calibrated on past
 errors"; they are built from past errors and FAILED their calibration criteria (the API
-serves its own label instead, [API.md](API.md), section 5). The rows of
+serves its own label instead, [API.md](API.md), section 5). The same label still calls
+the run a "FUTURE PROJECTION WITH INTERVALS" and says "No outcome has been observed"; that
+is true only relative to the frozen snapshot, as the archived-projection statement above
+says. The rows of
 `projection_intervals.csv` and `projection_exceedance.csv` carry `status = projected` but
 no calibration status: FAILED_CALIBRATION is recorded only in the run's `manifest.json`
 and `report.md`, so an extract of the CSV files must carry it separately.
@@ -558,11 +561,12 @@ Example:
    thresholds they were about right but not demonstrably better than climatology.
    (**M8 correction:** previously "beat climatology", without the qualification.)
 5. **When the history is insufficient.** Always, for decision-grade claims at present: no
-   days 1-30 coverage or probability estimate, the scope of the decision-grade criteria,
-   rests on 30 or more effective observations (8.1 to 16.2 for the primary model).
-   (**M8 correction:** previously "no coverage or probability estimate"; the shorter
-   horizon buckets are worth more, for example 242.0 at day 1 and 31.7 at days 8-14 for
-   the 95 % coverage, section 9.3.) Per forecast, the run labels an interval `unavailable` when fewer than 100
+   days 1-30 coverage or probability estimate, the scope of the evidence criterion
+   (section 8), rests on 30 or more effective observations (8.1 to 16.2 for the primary
+   model). (**M8 correction:** previously "no coverage or probability estimate"; the
+   shorter horizon buckets are worth more, for example 242.0 at day 1 and 31.7 at days
+   8-14 for the 95 % coverage, section 9.3.) Per forecast, the run labels an interval
+   `unavailable` when fewer than 100
    distinct origins can calibrate it (none in these periods) and `thin` when its calibration
    residuals are worth fewer than 20 independent observations (96 B\* forecasts early in the
    selection period, rolling schemes only).
