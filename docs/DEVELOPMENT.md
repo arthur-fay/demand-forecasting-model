@@ -343,9 +343,24 @@ runs/                 local run directories (git-ignored)
 
 ## Line endings on Windows
 
-`.gitattributes` stops git from converting line endings in every file registered in the
-snapshot manifest: CSVs, the notebook and the SQL script are `-text`, and the Power BI file,
-PDF and images are `binary`. Without this, `core.autocrlf=true` (the Git for Windows default)
-would rewrite these files on checkout and every SHA-256 check would fail. A test asserts that
-every registered path is covered. The committed dashboard build (`web/dist`) and the frontend test fixtures are
-`-text` for the same reason: both are verified byte for byte.
+Every file that ATLAS verifies byte for byte is protected from line-ending conversion in
+`.gitattributes`. Without this, `core.autocrlf=true` (the Git for Windows default) would
+rewrite text files on checkout while `git status` stayed clean, and every SHA-256 check on
+them would fail. The protected files are:
+
+- every file registered in the snapshot manifest: CSVs, the notebook and the SQL script are
+  `-text`, and the Power BI file, PDF and images are `binary`;
+- the research results in `docs/results/` (`-text`): each run manifest records the SHA-256
+  of its outputs, which `verify`, `inspect`, the API's readiness check and the M4 inputs
+  check, and every release fingerprints them;
+- the configurations in `configs/` (`-text`), fingerprinted with the results in every
+  release;
+- the API contract `docs/api/openapi.json` (`-text`), which CI and `build-release.sh`
+  compare byte for byte;
+- the committed dashboard build (`web/dist`) and the frontend test fixtures (`-text`).
+
+Tests in `tests/test_snapshot.py` assert that every snapshot-registered path, every file
+under the release's research paths, every output named in a `docs/results` manifest and the
+contract are covered, and that an export of them with `core.autocrlf=true` (`git archive`
+converts line endings as a checkout does) is identical to the committed files and matches
+every manifest hash.
