@@ -1,4 +1,4 @@
-"""Release checks (M8): the version and the CI action pins.
+"""Release checks (M8): the version, the CI action pins and the reproduction comparison.
 
 The version is declared by hand in ``pyproject.toml``, ``src/atlas/__init__.py`` and
 ``web/package.json``; the uv and npm locks, the committed dashboard build and the committed
@@ -12,9 +12,12 @@ release candidate is marked outside it: in the release-candidate manifest and a
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+import shutil
 import tomllib
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -124,3 +127,47 @@ def test_no_action_runs_on_the_deprecated_node20_runtime() -> None:
         if tag is None or int(tag.removeprefix("v").split(".")[0]) < FIRST_NODE24_MAJOR[action]
     ]
     assert old == []
+
+
+# --- The comparison the manual reproduction workflow uses ---------------------------------
+
+M2_PROJECTION = REPO_ROOT / "docs" / "results" / "atlas-m2-rolling-origin-v1" / "projection"
+LEGACY_HOLDOUT = REPO_ROOT / "docs" / "results" / "legacy-one-step-holdout"
+
+
+def _compare(committed: Path, regenerated: Path) -> int:
+    """Exit status of .github/scripts/same_outputs.py for two run directories."""
+    path = REPO_ROOT / ".github" / "scripts" / "same_outputs.py"
+    spec = importlib.util.spec_from_file_location("same_outputs", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    status = module.main(["same_outputs.py", str(committed), str(regenerated)])
+    assert isinstance(status, int)
+    return status
+
+
+def _copy_run(source: Path, target: Path) -> Path:
+    shutil.copytree(source, target)
+    return target
+
+
+def test_same_outputs_accepts_an_identical_regeneration(tmp_path: Path) -> None:
+    regenerated = _copy_run(M2_PROJECTION, tmp_path / "regenerated")
+    assert _compare(M2_PROJECTION, regenerated) == 0
+
+
+def test_same_outputs_refuses_a_different_output_hash(tmp_path: Path) -> None:
+    regenerated = _copy_run(LEGACY_HOLDOUT, tmp_path / "regenerated")
+    manifest = json.loads((regenerated / "manifest.json").read_text(encoding="utf-8"))
+    manifest["outputs"]["legacy_one_step_holdout.csv"] = "0" * 64
+    (regenerated / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    assert _compare(LEGACY_HOLDOUT, regenerated) == 1
+
+
+def test_same_outputs_refuses_an_altered_committed_file(tmp_path: Path) -> None:
+    committed = _copy_run(LEGACY_HOLDOUT, tmp_path / "committed")
+    data = committed / "legacy_one_step_holdout.json"
+    data.write_bytes(data.read_bytes().replace(b"\n", b"\r\n"))
+    assert _compare(committed, LEGACY_HOLDOUT) == 1

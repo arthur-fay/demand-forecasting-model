@@ -314,7 +314,7 @@ nginx and openssl on `PATH` and start the API and two nginx stacks; see
 rebuilds it and fails on any difference. `tests/test_m7_fixtures.py` keeps the fixtures of
 the frontend tests identical to the API's answers.
 
-GitHub Actions runs two workflows:
+GitHub Actions runs three workflows:
 
 - `.github/workflows/ci.yml`, on pushes to `main` and on pull requests: all of the above
   plus `atlas check`, `atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
@@ -327,11 +327,76 @@ GitHub Actions runs two workflows:
 - `.github/workflows/dependency-audit.yml`, weekly, on demand and on pull requests that
   change a lock or a dependency declaration: known vulnerabilities in the locked Python and
   npm packages (see [Dependency maintenance](#dependency-maintenance)).
+- `.github/workflows/reproduce-research.yml`, on demand only: regenerates every committed
+  reference run and compares it with the committed files (see
+  [Reproducing the committed reference results](#reproducing-the-committed-reference-results)).
 
 Every action is pinned to a full commit SHA with its version in a comment:
 `actions/checkout` v7.0.1, `actions/setup-python` v7.0.0, `actions/setup-node` v7.0.0 and
 `actions/upload-artifact` v7.0.1, all of which run on Node.js 24. uv is installed from a
 hash-pinned requirements file (`.github/ci-requirements.txt`).
+
+## Reproducing the committed reference results
+
+CI re-verifies only the smoke runs and the M4 reference run. It does not re-derive the
+committed M2 and M3 reference runs in `docs/results/`, which take several minutes each. The
+tests recompute the M2 forecasts at six spot-check origins and the point forecasts of the
+M2 projection (within a relative tolerance), and check the documents against
+`metrics.json` and the re-rendered reports; nothing in CI recomputes the M2 and M3 metrics
+or the M3 intervals. A change to the evaluation or interval code could therefore stop
+reproducing a published number without failing CI. Before a release, run the manual
+workflow `reproduce-research.yml` (Actions > Reproduce research results > Run workflow, on
+the branch or tag of the commit to be released). It runs one job per committed run, in
+parallel, and fails on any difference. The same checks by hand:
+
+```bash
+uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/full
+uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1-delay1/development
+uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/selection
+uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/full
+uv run atlas optimize verify docs/results/atlas-m4-optimization-v1
+# runs without a verify command: regenerate, then compare through the two manifests
+uv run atlas forecast --output-dir runs/m2-projection \
+    --recommendation docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json
+uv run python .github/scripts/same_outputs.py \
+    docs/results/atlas-m2-rolling-origin-v1/projection runs/m2-projection
+uv run atlas uncertainty project --output-dir runs/m3-projection \
+    --status docs/results/atlas-m3-intervals-v1/full/calibration_status.json
+uv run python .github/scripts/same_outputs.py \
+    docs/results/atlas-m3-intervals-v1/projection runs/m3-projection
+uv run atlas backtest legacy --output-dir runs/legacy-holdout
+uv run python .github/scripts/same_outputs.py \
+    docs/results/legacy-one-step-holdout runs/legacy-holdout
+```
+
+The sealed M2 development record (`docs/results/atlas-m2-rolling-origin-v1/development`)
+does not verify with the current code: the reporting code changed after it was sealed
+([BACKTESTING.md](BACKTESTING.md), section 8). The workflow verifies a copy of it with the
+code and lock of commit `a16672f` (`git archive a16672f`, `uv sync --locked`, `atlas
+backtest verify <copy>`). With the current code, the full reference run recomputes the
+development period and its sealed selection.
+
+On 2026-10-16, at commit `8f077ed`, every check passed on a 4-core Intel Xeon with AVX-512.
+The runs shared the machine with each other and with other work, so the wall times are
+indicative only:
+
+| Run | Check | Wall time | Result |
+|---|---|---|---|
+| M2 reference run (`full`) | `backtest verify` | 10.6 min | identical, fingerprint `d53bc911…5a8a` |
+| M2 delay sensitivity | `backtest verify` | 6.0 min | identical, fingerprint `79d4f796…f22d` |
+| M2 sealed development run, code of `a16672f` | `backtest verify` | 6.3 min (with `uv sync`) | identical, fingerprint `fbb948ec…ea43` |
+| M2 projection | `forecast`, `same_outputs.py` | 4 s | 5 of 5 files identical |
+| Legacy one-step holdout | `backtest legacy`, `same_outputs.py` | 5 s | 2 of 2 files identical |
+| M3 selection run | `uncertainty verify` | 5.1 min | identical, fingerprint `2e673489…7194` |
+| M3 reference run (`full`) | `uncertainty verify` | 6.6 min | identical, fingerprint `c4d2adbf…dfaf` |
+| M3 projection | `uncertainty project`, `same_outputs.py` | 3.6 min | 3 of 3 files identical |
+| M4 reference run | `optimize verify` | 43 s | identical, fingerprint `0dc4eb0f…3c82` |
+
+Byte-identical verification needs the same BLAS kernels as the recorded run (see
+[Reproducibility across machines](#reproducibility-across-machines)). The committed runs
+were computed with AVX-512 kernels; on a runner without AVX-512, `verify` can fail in the
+last bits of the regression outputs although nothing is wrong. The workflow logs the CPU
+and warns when AVX-512 is missing; re-run it, or run the commands on an AVX-512 machine.
 
 ## Dependency maintenance
 
