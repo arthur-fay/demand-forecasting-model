@@ -12,8 +12,15 @@ with simple baselines under identical conditions.
 ```bash
 uv run atlas backtest legacy                               # exact legacy reproduction
 uv run atlas backtest run --output-dir runs/dev            # pre-registered development run
-uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/development
+uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/full   # reference run
 ```
+
+**M8 note.** Until M8 the third command verified the sealed development record
+(`.../development`). That record reproduces byte for byte only with the code of its own
+commit, `a16672f`; with the current code its forecasts reproduce but three reporting files
+and the result fingerprint differ, so the command fails. Section 8 gives the recipe for it.
+The reference run above verifies with the current code (checked in M8: identical, about 7
+minutes on one core).
 
 All numbers below, in tables and in the text, are generated from the committed engine output
 in [`docs/results/`](results/) by a script, and tests check the headline tables and the
@@ -51,6 +58,14 @@ forecast is a re-forecast of days that were already in the data.
    p-value ranges from 0.047 to 0.096, and the confirmation year is
    worth only about 10-14 independent observations for this comparison
    (section 6.2).
+   **M8 erratum (section 12).** At this horizon and these sample sizes the test rejects a
+   true null more often than its nominal level: under its own assumptions the
+   pre-registered rule rejects 9.1 % of null series at a nominal 5 % with 336 origins and
+   7.6 % with 486. After a size correction the selection test that chose this model has
+   p = 0.069 (nominal 0.044), so its statistical support is weak; H2 keeps p = 0.022 (Holm
+   0.045) under the pre-registered rule but not under three of the five HAC bandwidths, so
+   "stays significant under every HAC bandwidth tried" no longer holds; H1 becomes 0.095.
+   The pre-registered choice stands.
 4. **In the confirmation period, almost all of the error growth with horizon comes from
    recursion.** Applying the same fitted regressions to *observed* previous days keeps their
    confirmation MAE nearly flat across horizons (686-749); feeding their own
@@ -78,7 +93,7 @@ forecast is a re-forecast of days that were already in the data.
 |---|---|---|
 | `legacy_one_step_holdout` | The original evaluation, re-computed: one fit through 2026-04-01, each of the next 90 days predicted from its observed previous days (horizon 1) | `atlas backtest legacy`; [results](results/legacy-one-step-holdout/) |
 | `historical_backtest` | Rolling-origin re-forecasts at horizons 1-30, refitted at every origin on data through that origin only | `atlas backtest run`; [results](results/atlas-m2-rolling-origin-v1/) |
-| `future_projection` | Forecasts beyond 2026-06-30; no outcome observed, not validated | `atlas forecast`; [projection](results/atlas-m2-rolling-origin-v1/projection/) |
+| `future_projection` | Forecasts beyond 2026-06-30; no outcome observed, not validated. The committed one is an archived projection, not a live forecast (section 10) | `atlas forecast`; [projection](results/atlas-m2-rolling-origin-v1/projection/) |
 
 The backtest also writes a fourth, clearly separated record type,
 `diagnostic_observed_inputs` (section 6.9), which reads actuals after the origin and is never
@@ -248,6 +263,17 @@ standard error alone and could exclude zero while the printed conservative p-val
 above 0.05; the bandwidth sensitivity is new. Neither changes a forecast, the selection or
 the recommendation.
 
+**M8 erratum (section 12).** "Conservative p" in this document, in the code
+(`p_value_conservative`) and in the results means the larger of the HLN and Bartlett `2h`
+p-values. It is conservative only relative to the HLN p-value alone, and it is not
+conservative in size. With `h = 30` and 336-486 origins the HLN statistic with a
+`t(T − 1)` reference over-rejects under its own maintained assumption (losses on different
+target days uncorrelated): the pre-registered rule rejects 7.6 % (486 origins) and 9.1 %
+(336 origins) of simulated null series at a nominal 5 %, and its Bartlett leg almost never
+binds. The wider bandwidths of section 6.2, with the same reference, reject 11.0-17.6 %.
+The formulas are correct; with 3,000 origins the same rule rejects 5.5 %. The selection,
+H1 and H2 statements below carry M8 notes where this changes them.
+
 **Selection** (development period only; rule fixed before any run):
 
 1. candidates: the five baselines and `atlas_linear_regression`. The legacy model is
@@ -318,7 +344,12 @@ interval −266.4 to −3.8; DM p 0.044 HLN, 0.018 Bartlett; conservative p 0.04
 effective sample size 27). Both conditions of the rule hold, so `atlas_linear_regression` is
 selected. This development p-value is optimistic, because the selection was made on the
 same data; it does not depend on the HAC bandwidth (p 0.002-0.044 across the
-bandwidths of section 6.2). The record was
+bandwidths of section 6.2). **M8 erratum (section 12):** that holds for the nominal
+p-values only. With 486 origins the size-corrected 5 % critical value of the pre-registered
+rule is 2.21, not 1.965; the selection statistic, |t| = 2.022, has a size-corrected p of
+0.069, and 0.035-0.069 across the five bandwidths, each corrected for its own size. With a
+correctly sized test the gate would most likely not have been passed, and step 4 of the
+rule would have selected B\*. The sealed decision stands (section 12). The record was
 sealed (`development/selection.json`, commit `10343e2`) before any confirmation-period run
 of the protocol; the confirmation-period computations made earlier, during design review
 and by the test suite, are listed in section 9.
@@ -368,6 +399,30 @@ conservative rule already takes the larger of it and the primary p-value
 The development selection test becomes more, not less, significant under wider bandwidths
 (0.002-0.044). These numbers decide nothing; the selection and the recommendation use
 the pre-registered test.
+
+**M8 erratum (section 12).** The p-values in this table are nominal, and every bandwidth
+over-rejects with the `t(T − 1)` reference, the wider ones most (11.0-17.6 % at a nominal
+5 %). Corrected for its own size, each bandwidth gives:
+
+| test | rectangular 29 | rectangular 59 | Bartlett 60 | Bartlett 90 | Bartlett 120 |
+|---|---:|---:|---:|---:|---:|
+| selection (development, 486 origins) | 0.069 | 0.042 | 0.060 | 0.042 | 0.035 |
+| H1 (confirmation, 336 origins) | 0.096 | 0.213 | 0.123 | 0.179 | 0.233 |
+| H2 (confirmation, 336 origins) | 0.023 | 0.113 | 0.036 | 0.066 | 0.094 |
+
+The rectangular 29 column is the HLN p-value alone; the pre-registered rule (the larger of
+the HLN and Bartlett 60 p-values) gives 0.069, 0.095 and 0.022 (section 12). The two differ
+by at most 0.001, because the Bartlett leg almost never binds under the null. Under
+rectangular 59, 1.78 % (486 origins) and 5.35 % (336 origins) of the simulated series give
+no p-value, because their long-run variance estimate is not positive; they count as
+non-rejections (section 12).
+
+So H2 does not stay significant under every bandwidth: it is above 0.05 under rectangular
+59, Bartlett 90 and Bartlett 120 even before the Holm adjustment. The selection test's
+size-corrected p-value is above 0.05 under the pre-registered bandwidth and under Bartlett
+60, and below it (0.035-0.042) under the three widest; wider bandwidths still give the
+smaller p-values, but the selection is not robustly significant. H1 is not significant
+under any bandwidth, which reinforces its disclosed result.
 
 ### 6.3 Accuracy by horizon bucket (MAE, requests per day)
 
@@ -816,10 +871,31 @@ uv run atlas forecast --recommendation runs/v1-full/recommendation.json
 
 `verify` recomputes everything from the snapshot with the current code, including the
 data-quality flags, and compares every regenerated file (result files, `report.md`,
-`config.json`). The sealed development run in `docs/results/.../development/` was produced
+`config.json`). The committed reference run verifies with the current code:
+
+```bash
+uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/full   # about 7 minutes
+```
+
+The sealed development run in `docs/results/.../development/` was produced
 with the code of commit `a16672f`; the reporting code has changed since (section 9), so it
-verifies byte for byte at that commit (`git worktree add <dir> a16672f`), while the
-reference run reproduces its forecasts and its selection with the current code.
+verifies byte for byte only with that commit's code, while the reference run reproduces its
+forecasts and its selection with the current code. A checkout of `a16672f` does not contain
+`docs/results/` (the record was committed afterwards, in `10343e2`), so verify the copy in
+the current checkout with that commit's code and its own lock file
+(**M8 correction**; the earlier recipe pointed at a worktree that lacks the directory):
+
+```bash
+git worktree add ../atlas-a16672f a16672f
+cd ../atlas-a16672f && uv sync --locked
+uv run atlas backtest verify <current checkout>/docs/results/atlas-m2-rolling-origin-v1/development
+```
+
+Checked in M8 (2026-10-16, from an export of `a16672f` set up with its own lock file):
+identical, result fingerprint `fbb948ec…dcea43`. With the
+current code the same directory fails `verify`: its forecasts, fits and observed inputs
+reproduce, but `coefficients.csv`, `metrics.json` and `report.md` and therefore the result
+fingerprint differ.
 
 | Item | Value |
 |---|---|
@@ -862,7 +938,9 @@ and the conservative p) replaced the originally designed Bartlett estimator afte
 statistics reviewer had computed confirmation-period DM statistics for baseline pairs under
 these estimators. The change was motivated by development-period arguments; it is listed
 here because it was made with that exposure. The conservative rule takes the larger of the
-two p-values, which works against significance.
+two p-values, which works against significance. (**M8 erratum, section 12:** only relative
+to the HLN p-value alone; the Bartlett leg almost never binds, and the rule's size is above
+5 % at these sample sizes.)
 
 Changes made to model specifications before the freeze, and why:
 - the modernised regression dropped the actual-date holiday indicator (identifiability: two
@@ -892,6 +970,15 @@ not reach: `forecasts.csv`, `fits.csv` and `observed_inputs.csv` are byte-identi
 (SHA-256 `forecasts.csv` `0e512044…`, `fits.csv` `5443998e…`, `observed_inputs.csv` `d20ee7ba…` in both runs), the recomputed selection equals the seal, and the recommendation is
 unchanged.
 
+**Amendments in M8 (release audit; documentation only).** No configuration, code path,
+committed result or decision changed. The M8 audit found that the Diebold-Mariano test, as
+used here, over-rejects at this horizon and these sample sizes; section 12 records the
+measurements, and M8 notes mark each statement it changes (finding 3, sections 5, 6.1 and
+6.2, this log and section 10). The quick start at the top now verifies the
+reference run, and the section 8 recipe for the sealed development record was corrected.
+Section 10 now states which effective sample sizes it quotes and what the flagged-target
+sensitivity covers, and the projection is described as archived.
+
 ## 10. Limitations and failure cases
 
 - **Not prospective.** Every forecast re-forecasts days already in the snapshot. All
@@ -905,18 +992,36 @@ unchanged.
 - **Small effective samples.** 336 confirmation origins with 30-day windows are worth about
   14-27 independent observations for the main comparisons (the two regressions
   against seasonal naive and B\*, days 1-30) under the primary bandwidth, and fewer under
-  wider ones. For H1 an observed MAE difference has to exceed
+  wider ones. (**M8 correction:** 14-27 are the `eff. n` of section 6.5, computed with the
+  Bartlett `2h` bandwidth. Under the primary rectangular bandwidth H1 and H2 are worth
+  13.0 and 20.8; under rectangular 59, Bartlett 90 and Bartlett 120, 9.6-17.4; under
+  Bartlett 60, 13.8 and 21.2 (section 6.2), so not every wider bandwidth gives fewer.)
+  For H1 an observed MAE difference has to exceed
   about 129 requests per day (the half-width of its interval, roughly
   12 % of B\*'s MAE) to be significant at 5 % (125-150 across the
   bandwidths of section 6.2): the primary figures sit at the optimistic end of that range.
-  Smaller real differences cannot be resolved with this history.
+  Smaller real differences cannot be resolved with this history. (**M8 erratum:** with
+  the size-corrected critical value of section 12, 2.39 instead of 1.967, the difference
+  would have to exceed about 157 requests per day.)
+- **The test over-rejects at this sample size (M8 erratum).** Under its own assumptions the
+  pre-registered Diebold-Mariano rule rejects 7.6-9.1 % of true null hypotheses at a
+  nominal 5 % with 336-486 origins, and the wider bandwidths more. The selection test's
+  size-corrected p-value is 0.069; see section 12.
 - **Not uniformly better.** The recommended regression loses to the same-weekday median in
   6 of 28 origin months, including the December 2024 year-end
   and summer 2025 (section 6.11). Its confirmation lead comes about equally from winter and
   spring 2026, not from a few hard months.
 - **Year-end and anomalies.** December and January origins are the weakest for every model.
   Days with intake interruptions or surges (M1 flags) are kept in the primary metrics;
-  excluding them changes the size but not the direction of any comparison.
+  excluding them changes the size but not the direction of any comparison. (**M8 note:**
+  this sensitivity removes only the 44 target days covered by a warning-level M1 flag. In
+  the confirmation year they are 18 days, 13 of them the agency-level DHS interruption of
+  2026-01-31..02-12; DHS is about 1.4 % of five-borough volume. Three of the five largest
+  days of the series, 2026-01-27, 2026-01-28 and 2025-12-15, carry no flag and stay in (the
+  largest, 2026-02-24, is flagged and excluded)
+  ([DATA_QUALITY.md](DATA_QUALITY.md), section 3; the counts are reproduced by
+  [`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py)). So the result
+  shows robustness to the M1-flagged days, not to city-wide anomalies.)
 - **Seasonality from one to three years of history.** Training data span 13 months at the
   first development origin and 41 months at the last confirmation origin, so annual
   effects are estimated from one to three cycles.
@@ -925,7 +1030,11 @@ unchanged.
 - **Projection.** `docs/results/atlas-m2-rolling-origin-v1/projection/` is a future
   projection from 2026-06-30 for the recommended model. Its total (333,968 requests for
   2026-07-01..30, against 330,941 published by the legacy notebook) is not validated, and no
-  uncertainty is attached.
+  uncertainty is attached. (**M8 note:** it is an ARCHIVED PROJECTION: issued from the
+  frozen snapshot, whose last observed day is 2026-06-30, for the target days 2026-07-01 to
+  2026-07-30. It is not a live forecast, and it has never been scored: no outcome after
+  2026-06-30 is in the snapshot. Its committed `report.md` keeps the original "FUTURE
+  PROJECTION" label.)
 
 ## 11. M3 readiness
 
@@ -943,3 +1052,99 @@ unchanged.
   development period part of the growth also comes from the ageing of the coefficients.
 - **Known weak spots** for interval calibration: year-end, holidays, and the confirmation
   year's under-forecasting bias.
+
+## 12. M8 erratum: the size of the Diebold-Mariano test
+
+The M8 release audit (finding M8-04 in the
+[findings register](audit/M8_FINDINGS_REGISTER.md#m8-04)) found that the test used for the
+selection and for the primary tests rejects a true null hypothesis more often than its
+nominal level at this horizon and these sample sizes. The formulas are implemented
+correctly; the problem is the finite-sample size of the HLN statistic with a `t(T − 1)`
+reference when `h = 30` and there are only 336-486 overlapping origins. Nothing below
+changes a committed result, the code or a decision; the statements it affects carry M8
+notes where they stand.
+
+**How it was measured.** [`docs/audit/scripts/dm_size_study.py`](audit/scripts/dm_size_study.py)
+simulates the test's own maintained null hypothesis: the per-origin loss differential is the
+mean of 30 consecutive independent daily shocks, an exact MA(29), so losses on different
+target days are uncorrelated and the mean difference is zero. Every simulated series goes
+through the unchanged `atlas.stats.diebold_mariano` and `bandwidth_sensitivity`, with the
+committed numbers of origins (486 in the development period, 336 in the confirmation
+period). 20,000 replications per setting, fixed seed, Gaussian shocks and, as a heavy-tailed
+check, Student t shocks with 3 degrees of freedom. The script reads the committed statistics
+from the development and full `metrics.json`; its output is recorded in
+[`dm_size_study_output.md`](audit/scripts/dm_size_study_output.md) (about two minutes on one
+core). Monte Carlo standard errors are at most 0.3 percentage points for the sizes and 0.003
+for the p-values quoted here. A simulated series for which a bandwidth gives no p-value
+counts as a non-rejection, as a decision rule would treat a test that cannot be computed.
+This happens only under rectangular 59, whose long-run variance estimate can be negative:
+for 1.78 % of the Gaussian series with 486 origins and 5.35 % with 336. Counting only the
+series where it is computed would raise its sizes to 13.8 % and 17.1 % and its
+size-corrected p-values to 0.042 (selection, unchanged), 0.225 (H1) and 0.119 (H2); no
+conclusion below changes.
+
+**Size at a nominal 5 %** (Gaussian shocks; with Student t shocks every value is within 0.5
+points):
+
+| rule or bandwidth | 486 origins | 336 origins |
+|---|---:|---:|
+| pre-registered rule (`p_value_conservative < 0.05`) | 7.6 % | 9.1 % |
+| HLN alone (rectangular 29) | 7.6 % | 9.2 % |
+| rectangular 59 | 13.6 % | 16.2 % |
+| Bartlett 60 | 11.0 % | 12.8 % |
+| Bartlett 90 | 12.3 % | 14.8 % |
+| Bartlett 120 | 13.9 % | 17.6 % |
+
+- The Bartlett leg of the pre-registered rule almost never binds: of the 1,831 null series
+  the HLN p-value rejects with 336 origins, it keeps 6 from being rejected (2 of 1,526 with
+  486 origins).
+- With 3,000 origins the same rule rejects 5.5 % (4,000 replications, Monte Carlo standard
+  error 0.4 points): the over-rejection is a finite-sample property.
+- Size-corrected 5 % critical values of `|t|` for the pre-registered rule are 2.21 (486
+  origins) and 2.39 (336 origins), instead of the nominal 1.965 and 1.967; for the wider
+  bandwidths they are 2.50-2.92 and 2.72-3.51.
+
+**The committed statistics, size-corrected** (the share of simulated null series whose
+p-value is at most the committed one; Gaussian shocks, Student t shocks in brackets; per
+bandwidth, see the M8 table in section 6.2):
+
+| test | origins | absolute t | nominal p | size-corrected p | size-corrected Holm p |
+|---|---:|---:|---:|---:|---:|
+| selection: ATLAS regression vs B\* (development) | 486 | 2.022 | 0.044 | 0.069 (0.067) | not in a family |
+| H1: ATLAS regression vs B\* (confirmation) | 336 | 1.938 | 0.054 | 0.095 (0.093) | 0.095 (0.093) |
+| H2: ATLAS regression vs seasonal naive (confirmation) | 336 | 2.943 | 0.003 | 0.022 (0.020) | 0.045 (0.040) |
+
+**What the evidence supports.** The pre-registered development selection test (HLN-DM,
+conservative p 0.044) passed its 5 % gate, but at a 30-day horizon with 336-486 overlapping
+origins this test over-rejects under its own assumptions (7.6 % and 9.1 % false rejections
+at a nominal 5 %); after a size correction the selection evidence is borderline (p 0.069).
+The pre-registered choice stands, but its statistical support is weak, and the statements
+of sections 6.1 and 6.2 that the selection and H2 are robust to the HAC bandwidth do not hold
+once each bandwidth is size-corrected. The disclosed H1 result (not significant after Holm)
+is unchanged; corrected, it is further from significance (0.095). H2 remains significant
+under the pre-registered rule after the size correction and the Holm adjustment, narrowly
+(0.045).
+
+**Why the decision stands.** The selection rule, its test and its 5 % gate were fixed before
+any run, and the selection was sealed before any confirmation-period run of the protocol
+(section 7; the earlier confirmation-period computations are listed in section 9).
+Replacing the test now, knowing that the gate passed narrowly, would choose the rule with
+knowledge of its outcome; that would be worse science than reporting the weakness. The
+recommendation also had to pass the confirmation rule (the selected model's confirmation
+MAE is not above B\*'s, section 6.2), which uses no test; but the regression reached that
+rule only through the selection gate, so the recommendation inherits the gate's weak
+support, and its confirmation lead is already disclosed as not statistically established.
+With a correctly sized gate the protocol would most likely have selected B\*, the median of
+the last five same weekdays, which finding 6 already names as a close and much simpler
+alternative.
+
+**Limits of the correction.** It assumes the test's own null, an MA(29) differential, and so
+shows what the test delivers when its assumption holds. The H1 differential stays
+autocorrelated beyond lag 29 (section 6.2), so the real distortion can differ, and the
+corrected p-values are approximations too. M3 uses the same test on the same grid; the M8
+notes in [UNCERTAINTY.md](UNCERTAINTY.md) give what the correction does there.
+
+**For a future protocol version** (not applied to v1, whose results stay as committed): a
+reference distribution that is correct for the chosen bandwidth, such as simulated MA(h − 1)
+critical values as here or fixed-b critical values for the Bartlett variants, fixed before
+any run, and a decision rule whose "conservative" label describes its size.

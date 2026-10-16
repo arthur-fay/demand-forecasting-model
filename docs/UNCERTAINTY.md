@@ -27,7 +27,7 @@ uv run atlas uncertainty project --status runs/m3-full/calibration_status.json  
 | Record type | What it is |
 |---|---|
 | `historical_probabilistic_backtest` | Intervals and exceedance probabilities re-issued at past origins from the residuals observable at each origin, scored against recorded actuals. Not prospective validation. |
-| `future_projection_intervals` | The selected intervals and probabilities attached to the M2 future projection from the last observed day. No outcome observed; labelled with the evaluation status. |
+| `future_projection_intervals` | The selected intervals and probabilities attached to the M2 future projection from the last observed day. No outcome observed; labelled with the evaluation status. The committed one is an archived projection, not a live forecast (section 9.8). |
 
 ## 2. Residuals: the calibration data
 
@@ -97,6 +97,18 @@ M3 handles this in three places:
   or for fewer than `max(3h, 50)` origins. A wider-bandwidth sensitivity is reported for the
   headline coverage.
 
+  **M8 notes.** (1) "Conservative" fits M2, where a rejection supports a claim (one model
+  beats another), so the larger p-value makes the claim harder to reach. For the coverage
+  test the pass condition is non-rejection, so the larger p-value is the *lenient*
+  choice: coverage counts as rejected only when both estimators reject. It did not bind in
+  the reference run: the smaller p-values were 0.989 (80 %) and 0.445 (95 %), against 0.989
+  and 0.458 used, and the status is `failed_calibration` on the tolerance criterion anyway
+  (section 9.2). The frozen v1 rule is kept; a later protocol should reject when either
+  estimator rejects. (2) The M2 test over-rejects at this horizon with 336 origins (about
+  9 % at a nominal 5 % under its own assumptions; [BACKTESTING.md](BACKTESTING.md), section
+  12), so the small p-values of sections 9.4 and 9.5 are optimistic. The size-corrected
+  values quoted in those sections come from that study.
+
 ## 5. Methods
 
 Each method turns a point prediction and a calibration set into an explicit predictive
@@ -116,6 +128,15 @@ distribution; quantiles, intervals and probabilities all come from it.
 | `fixed365` | calibrated once at the first origin of each period with the same 365-day window, then frozen |
 
 Results of the two schemes are always reported separately.
+
+**M8 correction.** "365-day window" is a maximum: a calibration set holds the residuals
+whose targets fall in the 365 days up to the cutoff *and exist*. Residuals begin at origin
+2024-02-01, so in `m3_selection` (first origin 2024-08-01) every `fixed365` set held 153-182
+residuals (targets from 2024-02-02, about six months), while the `rolling365` sets grew
+from 153 to 365 (median 319). The method was therefore selected with a half-length fixed
+window and compared with rolling candidates whose sets were longer on most origins; in
+`m3_evaluation` every set of both schemes held 365 residuals (`calibration_support` in
+`metrics.json`).
 
 **Uncertainty baselines** (never selected):
 
@@ -202,7 +223,7 @@ method on the evaluation period):
 | condition | rule |
 |---|---|
 | coverage within tolerance | `|coverage - level| <= 5 pp` (80 %) and `<= 3 pp` (95 %), over days 1-30 **and** in every horizon bucket |
-| coverage not rejected | HAC test of coverage = level not rejected at 5 % (conservative p) over days 1-30 |
+| coverage not rejected | HAC test of coverage = level not rejected at 5 % (conservative p) over days 1-30; **M8 note:** for this test the larger p-value is the lenient choice (section 4) |
 | enough evidence | the test is computed and the HAC effective sample size is at least 30 |
 
 Failing either of the first two is `failed_calibration`; passing both without enough
@@ -237,6 +258,23 @@ was issued (no `unavailable`, no failed point forecast, no missing actual). Tabl
 generated from the committed `metrics.json` and checked by `tests/test_m3_results.py`; the
 full report is [`report.md`](results/atlas-m3-intervals-v1/full/report.md).
 
+**M8 notes.** (1) The M3 comparisons and tests are descriptive: unlike M2's two primary
+tests, no family was pre-registered and no p-value in sections 9.2-9.7 is adjusted for
+multiplicity. Sections 9.4 and 9.5 add Holm-adjusted and size-corrected values where a
+conclusion rests on a single p-value. (2) `full/spot_check_intervals.csv` is a supporting
+extract, not a run output: 600 rows of the reference `intervals.csv` (the first and last
+origins of each period, 2024-08-01, 2025-05-31, 2025-06-30 and 2026-05-31, horizons 1-30,
+for the primary model and B\* with the selected method and with the Gaussian one-step
+baseline, and for climatology). No generator is committed and no hash pins it: it is not in
+the run's manifest, and `tests/test_m3_results.py` checks only its eligibility dates and
+quantile ordering. Its bytes equal ATLAS's CSV writer applied to those rows read with
+pandas' default float parser, which rounds some 17-digit values, so it is not a verbatim
+copy: against the reference run regenerated in M8 (byte-identical to the manifest), 1,149
+of its floating-point fields differ by 1-2 units in the last place (at most 2.35e-16
+relative) and 94 of its 600 lines are verbatim; every other field is identical
+([`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py) reproduces this
+comparison).
+
 ### 9.1 Selection (selection period only)
 
 | rank | candidate | mean WIS | coverage 80 % | coverage 95 % | width 80 % | width 95 % |
@@ -253,7 +291,9 @@ All six candidates under-covered on the selection period (80 % intervals contain
 most. The rule selected **`empirical_relative@fixed365`**: empirical quantiles of relative
 errors, calibrated once per period on the residuals of the preceding 365 days and then
 frozen. It was sealed in commit `ff44f54` before any evaluation-period computation, and the
-evaluation run reproduced it in every decision field.
+evaluation run reproduced it in every decision field. (**M8 correction:** in the selection
+period "the preceding 365 days" held only 153-182 residuals per horizon, because residuals
+begin six months earlier; the rolling candidates held 153-365. See the note in section 5.)
 
 ### 9.2 Decision status: FAILED_CALIBRATION
 
@@ -343,10 +383,20 @@ Evaluation period, days 1-30:
   86.7 % at 95 % on the evaluation period (85.7 % at days 15-30). The selected method's WIS
   is 5.9 % lower, a difference that is not significant (p 0.39).
 - Against climatology the selected method is 15.1 % better in WIS (p 0.008, effective
-  sample size 12): the forecast carries information about the coming month that the recent
-  distribution of demand does not.
+  sample size 12). This suggests that the forecast carries information about the coming
+  month that the recent distribution of demand does not, but the evidence is weak: Holm
+  over the five evaluation-period WIS comparisons gives 0.033, the size correction of
+  [BACKTESTING.md](BACKTESTING.md) section 12 gives 0.034, and both together 0.138.
+  (**M8 correction:** this sentence previously stated the conclusion without qualification.)
 - With the same method, the ATLAS regression's intervals beat B\*'s by 8.5 % in WIS
   (p < 0.001, effective sample size 54), consistent with M2's point accuracy ranking.
+  (**M8 note:** this compares the same two models on the same period as M2's
+  pre-registered H1, which tests point accuracy (MAE) and is **not significant after the
+  Holm adjustment (p 0.054)**; on the selection period the same WIS comparison was not
+  significant either (p 0.266, table above). The evaluation-period WIS difference itself
+  survives a Holm adjustment over the five comparisons (0.001) and the size correction
+  (0.0075; 0.0375 with both). It is a statement about the interval score, not evidence
+  that the point forecasts are significantly more accurate.)
 - Every candidate, scored on the evaluation period as a description (the selection was
   sealed before):
 
@@ -380,7 +430,11 @@ Evaluation period, ATLAS regression, `empirical_relative@fixed365`, days 1-30:
   too low. The Brier score is 21.5 % better than climatology's constant ≈ 0.25
   (conservative p 0.038), yet the mean-probability gap (0.054) is just outside the
   pre-registered 0.05 and the effective sample size is 11, so the status is
-  `failed_calibration`.
+  `failed_calibration`. (**M8 note:** p 0.038 is unadjusted; Holm over the three thresholds
+  gives 0.113 and the size correction of [BACKTESTING.md](BACKTESTING.md) section 12 gives
+  0.076, so this Brier advantage is not established. The pre-registered status criterion
+  uses the unadjusted p-value per threshold, and the status is `failed_calibration` in
+  either case.)
 - **Hypothetical thresholds** (HYPOTHETICAL, 12,000 and 13,000 requests per day; not NYC
   agency capacities): probabilities are close to the observed frequencies, with Brier skill
   of 9 % and 6 % that is not significant (p 0.14 and 0.13): `insufficient_evidence`.
@@ -408,7 +462,9 @@ observed frequencies.
 
 ### 9.6 Ordinary days, holidays and flagged days
 
-Evaluation period, ATLAS regression, `empirical_relative@fixed365`, days 1-30:
+Evaluation period, ATLAS regression, `empirical_relative@fixed365`, days 1-30. Bias is the
+mean of prediction − actual, as in M2: negative means the forecast was too low
+(under-forecast), positive too high.
 
 | target days | forecasts | distinct days | coverage 80 % | coverage 95 % | width 95 % | MAE | bias | Brier (P75) |
 |---|---|---|---|---|---|---|---|---|
@@ -418,10 +474,23 @@ Evaluation period, ATLAS regression, `empirical_relative@fixed365`, days 1-30:
 
 Coverage is close to nominal on ordinary days (84.8 % and 94.3 %) and much lower on
 holiday-related days (64.1 % and 83.3 %, over-forecast by about 300 per day) and on the 18
-target days with an M1 data-quality flag (26.5 % and 70.2 %; those are intake drops that the
-forecast does not anticipate, mean error −3,208). The strata leave gaps in the origin grid,
-so no test is computed; 33 holiday-related and 18 flagged days are too few for a reliable
-statement either way.
+target days with an M1 data-quality flag (26.5 % and 70.2 %). On those 18 days demand was
+far **above** the forecast: the mean error is −3,208 requests per day, an under-forecast
+(mean outcome 13,428 against a mean forecast of 10,220; MAE 3,235, so almost every error
+has that sign). The outcome exceeded the forecast in 520 of the 540 forecasts and exceeded
+the average forecast of every one of the 18 days; 29.8 % of the outcomes fell above the
+97.5 % quantile and none below the 2.5 % quantile: the upper tail was far too light. The
+days are four city-wide surges (2025-10-16, 2025-10-31, 2026-01-30 and 2026-02-24, the
+series maximum of 22,806), a DOB interruption (2025-12-14) and the 13 days of the DHS
+interruption of 2026-01-31..02-12. The agency interruptions removed about 270 requests on
+one day (DOB) and about 108 per day (DHS: 12 requests in 13 days against about 109 per day
+expected): an order of magnitude less than the miss, and in the other direction. (**M8
+correction:** this passage previously called these days "intake drops that the forecast
+does not anticipate", the opposite of what the sign of the error shows. The counts and
+quantile shares come from the evaluation intervals regenerated in M8, byte-identical to the
+committed manifest, through
+[`docs/audit/scripts/m8_doc_figures.py`](audit/scripts/m8_doc_figures.py).) The strata leave gaps in the origin grid, so no test is computed; 33
+holiday-related and 18 flagged days are too few for a reliable statement either way.
 
 ### 9.7 Sensitivity analyses (pre-registered, descriptive)
 
@@ -430,14 +499,41 @@ statement either way.
   recent week of residuals.
 - **HAC bandwidth** of the headline coverage test: p from 0.989 to 0.991 (80 %) and 0.445 to
   0.533 (95 %); effective sample sizes 5.2-8.1 and 6.0-9.0. No bandwidth changes a
-  conclusion.
+  conclusion. (**M8 note:** this sensitivity uses M2's `bandwidth_sensitivity`, with the
+  same `t(T − 1)` reference, which over-rejects at this horizon with 336 origins, the wider
+  bandwidths most: 12.8-17.6 % at a nominal 5 % under the test's own assumptions
+  ([BACKTESTING.md](BACKTESTING.md), section 12). Here that does not change the conclusion:
+  the p-values are far from 0.05, and corrected for the pre-registered rule's size the
+  headline ones become 0.990 (80 %) and 0.483 (95 %). Not rejecting nominal coverage is
+  still not evidence of calibration, section 9.2.)
 
 ### 9.8 Future projection
 
 [`projection/report.md`](results/atlas-m3-intervals-v1/projection/report.md) attaches the
 sealed intervals to the M2 projection from 2026-06-30 (its point forecasts are identical to
 M2's). They are calibrated at the origin on the residuals with targets in the preceding 365
-days and are labelled **FAILED_CALIBRATION: not decision-grade**. Example:
+days and are labelled **FAILED_CALIBRATION: not decision-grade**.
+
+It is an ARCHIVED PROJECTION: issued from the frozen snapshot, whose last observed day is
+2026-06-30, for the target days 2026-07-01 to 2026-07-30. It is not a live forecast, and it
+has never been scored: no outcome after 2026-06-30 is in the snapshot.
+
+**M8 erratum on the committed projection artefacts** (they stay as committed; the M4
+inputs and the API check their hashes). `projection/report.md` describes the method as
+"calibrated at the origin on every residual observed by then"; it uses only the residuals
+with targets in the 365 days before the origin (at horizon 1: 365 residuals, targets
+2025-07-01..2026-06-30, while residuals exist from 2024-02-02). Its first line, which is
+also the manifest's label, says the intervals and probabilities are "calibrated on past
+errors"; they are built from past errors and FAILED their calibration criteria (the API
+serves its own label instead, [API.md](API.md), section 5). The same label still calls
+the run a "FUTURE PROJECTION WITH INTERVALS" and says "No outcome has been observed"; that
+is true only relative to the frozen snapshot, as the archived-projection statement above
+says. The rows of
+`projection_intervals.csv` and `projection_exceedance.csv` carry `status = projected` but
+no calibration status: FAILED_CALIBRATION is recorded only in the run's `manifest.json`
+and `report.md`, so an extract of the CSV files must carry it separately.
+
+Example:
 
 | date | forecast | 80 % interval | 95 % interval | P(> 11,609, historical) | P(> 12,000, HYPOTHETICAL) |
 |---|---:|---:|---:|---:|---:|
@@ -459,12 +555,18 @@ days and are labelled **FAILED_CALIBRATION: not decision-grade**. Example:
    on holidays and flagged days. The uncertainty of these coverages is ±15 and ±8 points.
 3. **By horizon.** Width rises from day 1 to day 2 and then stays roughly level; coverage
    declines slowly with the horizon.
-4. **Exceedance.** Probabilities for the historical high-demand threshold beat climatology
-   in Brier score but were too low on average; for the hypothetical thresholds they were
-   about right but not demonstrably better than climatology.
+4. **Exceedance.** Probabilities for the historical high-demand threshold had a better Brier
+   score than climatology, but the evidence is weak (unadjusted p 0.038; 0.113 after Holm
+   over the three thresholds), and they were too low on average; for the hypothetical
+   thresholds they were about right but not demonstrably better than climatology.
+   (**M8 correction:** previously "beat climatology", without the qualification.)
 5. **When the history is insufficient.** Always, for decision-grade claims at present: no
-   coverage or probability estimate here rests on 30 or more effective observations
-   (8 to 16 for the primary model). Per forecast, the run labels an interval `unavailable` when fewer than 100
+   days 1-30 coverage or probability estimate, the scope of the evidence criterion
+   (section 8), rests on 30 or more effective observations (8.1 to 16.2 for the primary
+   model). (**M8 correction:** previously "no coverage or probability estimate"; the
+   shorter horizon buckets are worth more, for example 242.0 at day 1 and 31.7 at days
+   8-14 for the 95 % coverage, section 9.3.) Per forecast, the run labels an interval
+   `unavailable` when fewer than 100
    distinct origins can calibrate it (none in these periods) and `thin` when its calibration
    residuals are worth fewer than 20 independent observations (96 B\* forecasts early in the
    selection period, rolling schemes only).
@@ -518,13 +620,31 @@ planted 39 bugs. Leakage mutants were all caught. Its confirmed findings were fi
 None of these changes alters a reference output: `atlas uncertainty verify` on the full
 reference run is byte-identical with the amended code, the decision files included.
 
+**Amendments in M8 (release audit; documentation only).** No configuration, code, committed
+result or status changed; the full reference run was regenerated in M8 and is
+byte-identical to its manifest. M8 notes now mark: the sign and the cause of the
+flagged-day miss (section 9.6, which had described it the wrong way round); the direction
+of the "conservative" coverage p-value (sections 4 and 8); the effective window of
+`fixed365` in the selection period (sections 5 and 9.1); unadjusted and oversized p-values
+and the H1 caveat next to the ATLAS-versus-B\* comparison (sections 9, 9.4, 9.5, 9.7, 9.9
+and 11); the scope of the effective-sample-size statements (sections 9.9 and 11); the
+supporting file `spot_check_intervals.csv` (section 9); and an erratum on the wording of
+the committed projection artefacts, now described as an archived projection (section 9.8).
+
 ## 11. Limitations
 
 - **Not prospective.** One frozen snapshot and a single final data vintage; the evaluation
   period was used in M2.
-- **Small effective samples.** 336 overlapping 30-day paths are worth only tens of
-  independent observations. Coverage close to nominal can be consistent with substantial
-  miscalibration.
+- **Small effective samples.** 336 overlapping 30-day paths are worth about 8 to 9
+  independent observations for the days 1-30 coverage (section 9.2). Coverage close to
+  nominal can be consistent with substantial miscalibration. (**M8 correction:** this
+  previously said "only tens of independent observations"; the generic limitation text in
+  the committed reports keeps that wording, which overstates the evidence for the headline
+  coverage.)
+- **The test is oversized (M8).** M3 reuses M2's Diebold-Mariano test, which rejects a true
+  null more often than its nominal level at this horizon and sample size
+  ([BACKTESTING.md](BACKTESTING.md), section 12), and its p-values are not adjusted for
+  multiplicity (section 9).
 - **Exchangeability fails.** Level shifts, growth and year-end make past errors an imperfect
   guide to future errors; a 365-day window spans one annual cycle at most.
 - **Thresholds.** The historical threshold is a demand percentile and the hypothetical
