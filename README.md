@@ -37,7 +37,8 @@ give the protocols and the full tables.
    - Against seasonal naive it is 28.2 % lower. The Holm-adjusted p-value is 0.007 nominal,
      and 0.045 after the M8 size correction below. It rises above 0.05 under three of the five
      HAC bandwidths once each is size-corrected, and the correction itself assumes shorter
-     error dependence than the data show. ⟦H2-DEPENDENCE-README⟧ So this advantage, too, is
+     error dependence than the data show. In the audit's block bootstrap, which keeps the
+     data's own dependence, the Holm-adjusted p-value was at least 0.06. So this advantage, too, is
      borderline rather than established.
    - These are re-forecasts of days already in the data, not a prospective validation.
 2. **M8 statistical erratum: the selection evidence is weak**

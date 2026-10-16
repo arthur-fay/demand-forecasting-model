@@ -44,7 +44,8 @@ is listed in section 10.
   as computed, and its statistical support is weak (M8 erratum in BACKTESTING.md).
 - **(M8)** The advantage over seasonal naive (H2) is borderline once the test's size is
   corrected. It is significant after Holm (0.045) under the test's own short-memory assumption,
-  but the confirmation errors remain correlated beyond 29 days. ⟦H2-DEPENDENCE-KL⟧
+  but the confirmation errors remain correlated beyond 29 days. In the audit's block bootstrap, which keeps that dependence, its
+  Holm-adjusted p-value was at least 0.06 (M8-04 in the findings register).
 - The confirmation period has been exposed: a new, untouched evaluation needs data after
   2026-06-30.
 - The lead is not uniform (6 of 28 origin months lost to B\*), and recursion drives most of the

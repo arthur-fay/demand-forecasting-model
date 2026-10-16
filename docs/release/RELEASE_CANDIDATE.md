@@ -45,37 +45,81 @@ python3 docs/release/rc_manifest.py --check        # standard library only; exit
 
 ## 3. Reproducible build and verification
 
-Requirements: Linux x86-64 (x86-64-v2) or aarch64, Python 3.12, uv 0.11.32 (CI installs it from
-the hash-pinned `.github/ci-requirements.txt`), Node.js 22.22.2 or later in the 22 line (only for
-the dashboard checks). On Windows, keep the repository's `.gitattributes` (it stops line-ending
-conversion of every hash-checked file).
+Requirements:
+
+- Linux x86-64 (x86-64-v2) or aarch64;
+- Python 3.12;
+- uv 0.11.32 (CI installs it from the hash-pinned `.github/ci-requirements.txt`);
+- Node.js 22.22.2 or later in the 22 line, only for the dashboard checks;
+- for the deployment tests: nginx, openssl, shellcheck and systemd-analyze on `PATH`, plus
+  Docker for the container test.
+
+Byte-identical results have two further conditions:
+
+- **CPU class.** The research runs that involve the regression (M2, M3 and the legacy holdout)
+  reproduce byte for byte only on the CPU class of the reference runs. There, the locked
+  NumPy's OpenBLAS uses its SkylakeX (AVX-512) kernels;
+  `OPENBLAS_VERBOSE=2 uv run python -c "import numpy"` prints the core in use. On other CPUs
+  their `verify` reports last-bit differences, and the tests compare within 1e-9 instead
+  ([DEVELOPMENT.md](../DEVELOPMENT.md), reproduction). The M4 run did not depend on the kernels
+  in the audit: it also reproduced with OpenBLAS's AVX2 (Haswell) kernels.
+- **Line endings.** The dashboard build reproduces byte for byte from a checkout with LF line
+  endings. On Windows, clone with `git clone -c core.autocrlf=false`, because the build's HTML
+  entry file is otherwise converted. The result files are protected by `.gitattributes`
+  whatever the setting, and the manifest check (section 2) compares committed content, so it is
+  not affected either.
+
+These are the checks CI runs (`.github/workflows/ci.yml`), job by job:
 
 ```bash
-# Python: the locked environment and every check CI runs
+# quality: the locked environment, static checks, tests and the reference data
 python -m pip install --require-hashes -r .github/ci-requirements.txt
 uv sync --locked
 uv run ruff format --check . && uv run ruff check . && uv run mypy
-ATLAS_REQUIRE_DEPLOY_TOOLS=1 uv run pytest                     # needs nginx, shellcheck, openssl
+ATLAS_REQUIRE_DEPLOY_TOOLS=1 uv run pytest          # needs nginx, openssl, shellcheck, systemd-analyze
+shellcheck --severity=style deploy/scripts/*.sh
 uv run atlas check && uv run atlas quality && uv run atlas backtest legacy
+uv run atlas backtest run --config configs/backtest/smoke.json --output-dir /tmp/m2-smoke
+uv run atlas backtest verify /tmp/m2-smoke
+uv run atlas uncertainty run --config configs/uncertainty/smoke.json --output-dir /tmp/m3-smoke
+uv run atlas uncertainty verify /tmp/m3-smoke
+uv run atlas optimize run --config configs/optimization/smoke.json --output-dir /tmp/m4-smoke
+uv run atlas optimize verify /tmp/m4-smoke && uv run atlas optimize inspect /tmp/m4-smoke
 uv run atlas optimize verify docs/results/atlas-m4-optimization-v1   # byte for byte
+uv run atlas optimize inspect docs/results/atlas-m4-optimization-v1
 uv run atlas api openapi | diff - docs/api/openapi.json
+# (CI then starts `uv run atlas api serve` and requests /health/ready, /api/v1/scenarios and
+#  one simulation)
 
-# The full research reproduction (slow; also a manual CI workflow, see DEVELOPMENT.md)
-uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/full
-uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/full
+# deploy-e2e: the deployment package end to end in a disposable Ubuntu 24.04 systemd container
+uv run pytest tests/test_m6_container.py --no-cov
 
-# Dashboard: the committed build must be reproduced byte for byte from the lock
+# dashboard: the committed build is reproduced byte for byte from the lock
 cd web && npm ci && npm audit --audit-level=high
-npm run format:check && npm run lint && npm run typecheck && npm run test:coverage
+npm run format:check && npm run lint && npm run typecheck
+npm run gen:api && git diff --exit-code -- src/api/openapi.gen.ts
+npm run test:coverage
 npm run build && git diff --exit-code -- dist && npm run verify:dist && npm run size
-npx playwright test                                            # needs nginx and openssl
+npx playwright install chromium && npx playwright test              # needs nginx and openssl
+npx playwright install firefox webkit
+ATLAS_E2E_ALL_BROWSERS=1 ATLAS_E2E_API_ONLY=1 npx playwright test --project firefox --project webkit
+```
 
-# The deployment package end to end in a disposable Ubuntu 24.04 systemd container
-cd .. && ATLAS_E2E_CONTAINER=1 uv run pytest tests/test_m6_container.py --no-cov
+Two further checks are not on every pull request:
+
+- the full research reproduction. It is slow (about 7 and 5 CPU-minutes), and it is also a
+  manual CI workflow, `reproduce-research.yml` ([DEVELOPMENT.md](../DEVELOPMENT.md));
+- the dependency audit. It runs weekly, and on every pull request that changes a lock
+  (`dependency-audit.yml`).
+
+```bash
+uv run atlas backtest verify docs/results/atlas-m2-rolling-origin-v1/full        # SkylakeX core
+uv run atlas uncertainty verify docs/results/atlas-m3-intervals-v1/full          # SkylakeX core
 ```
 
 The measured results of these commands on the candidate are recorded in
-[RELEASE_GATE.md](RELEASE_GATE.md) and [../audit/M8_CORRECTIONS.md](../audit/M8_CORRECTIONS.md).
+[RELEASE_GATE.md](RELEASE_GATE.md) section 4 and in
+[../audit/M8_CORRECTIONS.md](../audit/M8_CORRECTIONS.md) section 1.
 
 ## 4. Versioning policy
 
@@ -102,13 +146,34 @@ commit); no research result or snapshot file is changed by M8, so nothing else n
 
 ## 6. Acceptance checklist (for the owner)
 
+Before approving:
+
 - [ ] Read the verdict and the acceptance matrix ([RELEASE_GATE.md](RELEASE_GATE.md)), including
-  every gate that is FAIL or NOT VERIFIED, and accept the disclosed limitations
-  ([../KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)).
-- [ ] CI is green on the pull request (all jobs).
+  every gate that is FAIL or NOT VERIFIED.
+- [ ] Accept the disclosed limitations ([../KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)), and
+  say so in the approval of the pull request (or later in the tag's annotation).
+- [ ] CI is green on the pull request's head commit (all jobs, including `deploy-e2e`, the
+  Firefox and WebKit step and the dependency audit).
 - [ ] `python3 docs/release/rc_manifest.py --check` passes on the commit to approve.
-- [ ] Decide the project licence (none is included) and confirm the NYC Open Data terms for the
-  committed derived tables, or keep the repository's current visibility until decided.
+- [ ] **The repository is already public.** Decide the project licence (none is included), or
+  record that none is granted, and confirm that the NYC Open Data terms permit redistributing
+  the committed derived tables with the attribution in the data card. Alternatively, make the
+  repository private until both are decided. This must be done before tagging
+  ([RELEASE_GATE.md](RELEASE_GATE.md) section 1, condition 3).
+
+Merging and tagging:
+
 - [ ] Approve and merge the pull request (a merge commit keeps the candidate commit reachable).
-- [ ] Tag `v1.0.0-rc.1` on the approved commit, and later `v1.0.0` (owner only).
+- [ ] Tag `v1.0.0-rc.1` on the approved commit (owner only).
+
+Before tagging `v1.0.0`:
+
+- [ ] Dispatch `reproduce-research.yml` on the merge commit, and record the date, the commit,
+  the CPU, the OpenBLAS core and the outcome ([DEVELOPMENT.md](../DEVELOPMENT.md)).
+- [ ] Confirm that `dependency-audit.yml` is enabled, and run it once by hand; it must be green.
+- [ ] Tag `v1.0.0` on the same commit (owner only). Any change to the content makes a new
+  candidate, `1.0.0-rc.2`, with a regenerated manifest.
+
+Deployment:
+
 - [ ] Authorise or defer M6 phase B (the runbook's section 1 decisions).

@@ -135,7 +135,9 @@ What the evidence supports:
 
   These corrected values assume the test's own short-memory dependence (an MA(29) differential).
   The confirmation differentials stay positively autocorrelated beyond 29 days.
-  ⟦H2-DEPENDENCE⟧
+  In the audit's block bootstrap, which keeps the data's own dependence, H2's p-value was
+  0.031-0.079 and its Holm-adjusted value at least 0.06 ([audit/M8_FINDINGS_REGISTER.md](audit/M8_FINDINGS_REGISTER.md),
+  M8-04). So H2's significance is not robust either.
   The pre-registered choice stands, because changing it after the fact would be worse science,
   but its statistical support is weak. Details: [BACKTESTING.md](BACKTESTING.md), M8 erratum, and
   the reproducible studies in `docs/audit/scripts/`.
