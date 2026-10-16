@@ -283,8 +283,12 @@ The lead completes this section when the release candidate is assembled.
 ## Known M0 limitations
 
 - **CI action pinning (resolved in M5):** CI pinned GitHub Actions to major-version tags.
-  M5 pins them to the commits those tags pointed to: `actions/checkout` v4.4.0 and
-  `actions/setup-python` v5.6.0. uv itself is installed from a hash-pinned requirements file.
+  M5 pins them to the commits those tags pointed to; M8 moved the pins to releases that run
+  on Node.js 24 (`actions/checkout` v7.0.1, `actions/setup-python` v7.0.0,
+  `actions/setup-node` v7.0.0, `actions/upload-artifact` v7.0.1), because GitHub deprecated
+  the Node.js 20 runtime of the earlier pins. uv itself is installed from a hash-pinned
+  requirements file. Updates follow [DEVELOPMENT.md](DEVELOPMENT.md), "Dependency
+  maintenance".
 - **No dependency cooldown:** the original lockfile was resolved without a release-age
   cooldown (`exclude-newer`). Since M4 a two-week cooldown is a review rule, not enforced by
   a tool: `tool.uv.constraint-dependencies` in `pyproject.toml` only caps three named

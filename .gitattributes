@@ -23,4 +23,6 @@ configs/** -text
 # The committed dashboard build and the API answers the frontend tests render are verified
 # byte for byte (web/dist/atlas-dashboard.json, tests/test_m7_fixtures.py).
 web/dist/** -text
+# Copied byte for byte into the reproducible web/dist (favicon, font licence).
+web/public/** -text
 web/src/test/fixtures/** -text

@@ -118,7 +118,7 @@ for a commit `0123456789ab...` (the examples below write `<release id>`).
 | Extra memory | none | dockerd + containerd: about 140 MiB resident (measured on the test machine: 95 + 48 MiB) | none (no daemon) |
 | Isolation | systemd sandbox: no capabilities, read-only system, private /tmp and devices, user namespace, syscall filter, loopback-only IP firewall; `systemd-analyze security` exposure **0.9 (SAFE)** | namespaces + seccomp; default profile weaker than the unit's | similar to Docker |
 | Firewall | ufw rules apply | published ports bypass ufw (Docker's own iptables chains): a classic accidental exposure | rules apply |
-| Security updates | unattended-upgrades patches nginx, OpenSSL, Python | images must be rebuilt | images must be rebuilt |
+| Security updates | unattended-upgrades patches nginx, OpenSSL, Python; a release's own `.venv` changes only by building and activating a new release (CI's weekly dependency audit reports advisories; see DEVELOPMENT.md, "Dependency maintenance") | images must be rebuilt | images must be rebuilt |
 | Reproducibility | exact commit + `uv.lock` hashes + Python 3.12 from Ubuntu; the release reproduces the M4 reference run byte for byte *on the server* before it can be activated | also pins OS libraries (stronger) | same as Docker |
 | Rollback | atomic link to the previous release | previous image tag | previous image tag |
 | Moving parts | systemd, nginx | + daemon, images, registry | + images, registry |

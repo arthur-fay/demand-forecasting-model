@@ -146,8 +146,10 @@ the project's own licence.
 **Versions and supply chain.** `web/package.json` pins exact versions (`.npmrc`:
 `save-exact`) and `package-lock.json` records every package with its integrity hash; CI
 installs with `npm ci` and runs `npm audit --audit-level=high` (0 vulnerabilities at the
-time of writing). The project's two-week release-age cooldown (M4, `pyproject.toml`) was
-applied to the npm packages as well: every one of the 426 locked packages was published
+time of writing); since M8 a weekly workflow (`.github/workflows/dependency-audit.yml`) also
+audits the shipped packages at moderate severity and re-audits both locks for new advisories
+(DEVELOPMENT.md, "Dependency maintenance"). The project's two-week release-age cooldown (a
+review rule since M4, not enforced by a tool) was applied to the npm packages as well: every one of the 426 locked packages was published
 before 1 October 2026, at least 14 days before this milestone (checked against the
 registry's publish times). npm has no setting that enforces this, so it is a review rule
 for future updates.
@@ -479,20 +481,27 @@ together:
   site that points to it; a release whose build is altered is refused before anything
   changes. In the tunnel profile nothing is published (the API serves the dashboard).
 - **Verification** (after every activation): the API serves the release's `index.html` with
-  the dashboard policy and the descriptor; the published copy holds exactly the recorded
-  files (a link or any other file that is not a regular file fails the check).
-- **Rollback** (automatic or explicit) re-renders the site of the restored release, so nginx
-  serves that release's dashboard with that release's API. A rollback by hand, without the
-  tool, switches only the API ([DEPLOYMENT.md](DEPLOYMENT.md) section 11). Copies are kept
-  per release; `atlas-deploy prune` removes the copies of pruned releases.
+  the dashboard policy and descriptor format **that the release records** in its
+  `release.json` (M8-03; releases built before 1.0.0 record only their CSP, and the tool's
+  other values apply); the published copy holds exactly the recorded files (a link or any
+  other file that is not a regular file fails the check).
+- **Rollback** (automatic or explicit) re-renders the site of the restored release **with that
+  release's recorded headers and descriptor** (M8-03), so nginx serves that release's dashboard
+  with that release's API, even when a later tool performs the rollback. `atlas-deploy
+  recover` installs the release's site again, restarts the service and reloads nginx before it
+  keeps an interrupted activation as verified (M8-02). A rollback by hand, without the tool,
+  switches only the API ([DEPLOYMENT.md](DEPLOYMENT.md) section 11). Copies are kept per
+  release; `atlas-deploy prune` removes the copies of pruned releases.
 - **Status and plans**: `atlas-deploy status` shows the dashboard version and fingerprint;
   `plan-upgrade` says whether the dashboard changes. A malformed build manifest stops
   `render`, `validate` and `plan-upgrade` with an error naming the release (exit 2).
 - **`atlas-deploy render --apply`** of an exposed site publishes the release's dashboard
-  first, and only for an installed release (`--release-dir /opt/atlas/releases/<id>`, also
-  through `/opt/atlas/current`) whose build matches its `release.json`. A checkout or a copy
-  elsewhere is refused; in a rehearsal (`--root`) a checkout's site reads the checkout's own
-  build.
+  first, and only for the **current** installed release (`--release-dir
+  /opt/atlas/releases/<id>`, also through `/opt/atlas/current`) whose build matches its
+  `release.json`, under the deployment lock and recorded in `history.jsonl` (M8-26). Before
+  the first activation only `--stage acme` is accepted; any other release is refused with a
+  pointer to `atlas-deploy activate <id>`. A checkout or a copy elsewhere is refused; in a
+  rehearsal (`--root`) a checkout's site reads the checkout's own build.
 
 **Upgrading an M6 server to M7.** Plan and activate the M7 release with **its own**
 `atlas-deploy` (`/opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`,
@@ -514,9 +523,9 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) section 19 for how this fits the M6 package.
 | Vitest (`web/src/**/*.test.ts(x)` and `web/build`, 191 tests, run in the America/Los_Angeles time zone; queries wait up to 5 s; coverage gates 85 % statements, functions and lines, 75 % branches) | the client: validation, integrity refusal, every error kind, timeouts, aborts, `Retry-After`; formatting (dates in UTC, also with the module loaded in UTC−11, UTC−7 and UTC+14; units, signs); the simulator form (ranges, integers, the money rule, minimal requests, API errors mapped onto fields); the cache; every view rendered from the real fixtures (warnings present next to their numbers, DIAGNOSTIC handling, disabled simulations in each profile, error states without numbers); charts (keyboard, readings, tables, markers, ticks, labels, halos, no line rebuilt when the reading moves); the colour tokens (contrast in both themes, colour-vision deficiency); the shell (menu, Escape, deployment badge); the source free of storage, cookies, `eval` and HTML injection; the build plugin and the licence notices of the committed build; the reviews' findings (`review.test.tsx`, the `round2-*.test.ts(x)` files and `m8-audit.test.tsx`) |
 | `tests/test_m7_fixtures.py` (15) | each fixture is byte for byte the API's answer |
 | `tests/test_m7_dashboard.py` (94) | the build manifest, verification and tamper detection; the licence notices listed and served; the API mount: exact paths (also as raw request paths, which the test client would normalise), methods, HEAD, ETag/304, gzip, cache policies, the CSP once, the descriptor by key setting, a damaged build not served, the API unchanged |
-| `tests/test_m7_deploy.py` (44) | the static route class (exact names, no shadowing of the API), both exposed profiles, `nginx -t` without a warning; the static rate (at most twice the API's read rate); compression and types (nothing typed by the requested extension); publication (modes, verification, altered copies replaced, planted files removed); the release manifest; activation order, tunnel, rollback, explicit rollback, prune, status, upgrade plans; verification of the served and published dashboard (links refused); `render --apply` (only an installed release, as recorded, also through `current`); a malformed build manifest an error, not a crash |
+| `tests/test_m7_deploy.py` (57) | the static route class (exact names, no shadowing of the API), both exposed profiles, `nginx -t` without a warning; the static rate (at most twice the API's read rate); compression and types (nothing typed by the requested extension); publication (modes, verification, altered copies replaced, planted files removed); the release manifest; activation order, tunnel, rollback, explicit rollback, prune, status, upgrade plans; verification of the served and published dashboard (links refused); `render --apply` (only the current installed release, as recorded, also through `current`; the ACME site before the first activation; M8-26); a malformed build manifest an error, not a crash; M8: recovery of an activation interrupted during the restart (M8-02), a later tool restoring and rolling back to an older release with its own CSP, Permissions-Policy and descriptor, and unsafe recorded policies refused (M8-03) |
 | `tests/test_m7_proxy.py` (32) | real nginx with TLS and the real API, inside an http block with the distribution's types by extension (as on Ubuntu): accounts, every page and file with its bytes, types, cache and policy; nginx's own 400, 401 and 404 answers in JSON whatever the extension; compression, pages included; methods; unlisted files, links and traversal; the API's own policy beside it; a simulation without a key in the browser; the public demo; the access log; rate limits (static never 429, the API still) |
-| `tests/test_m6_container.py` (+2) | on a disposable Ubuntu 24.04 server with systemd: the dashboard through nginx after a real activation; after the automatic and explicit rollbacks, the site's dashboard root (the restored release's copy), read from the site file |
+| `tests/test_m6_container.py` (+2) | on a disposable Ubuntu 24.04 server with systemd: the dashboard through nginx after a real activation; after the automatic rollback and an explicit rollback from a second verified release to the first (M8-37), the site's dashboard root (the restored release's copy), read from the site file |
 | Playwright (`web/e2e`, 4 projects) | every page in Chromium against the real API, with no error panel; every reference scenario opened; the simulator against the real M4 engine; reflow at 320 px (every disclosure open, a simulation result shown); failures injected at the network layer (a slow answer, an unavailable component, a network failure, a contract violation and an integrity violation, a simulation stopped at its deadline or refused for lack of a worker, a page whose code fails to load); keyboard-only use (every simulator field by Tab and Shift+Tab against both sticky bars); axe's WCAG 2.2 A/AA rules on every page in both themes, with tables and disclosures open, on a simulation result, a failed run, the error summary of two invalid fields and the phone layout; the current page in forced colours; no CSP violation; a phone viewport; the Forecasting page's dates in the Pacific/Kiritimati and America/Los_Angeles time zones; the footer's licence notices; the private and public-demo nginx sites (accounts, simulations, the read-only demo) |
 | CI job `dashboard` | format, lint, types, contract types up to date, Vitest with coverage, a reproducible build (`git diff --exit-code -- dist`), `verify:dist`, size budgets, `npm audit`, Playwright |
 
