@@ -20,9 +20,14 @@ check passes:
 6. **exposure**: the API listens on loopback addresses only;
 7. **proxy socket**: the Unix socket nginx connects to answers ``/health/live``;
 8. (M7) **dashboard**: the API serves the release's dashboard (``/`` is the recorded
-   ``index.html``, with the dashboard's Content-Security-Policy) and its deployment
-   descriptor; in an exposed profile, the copy published for nginx holds exactly the
-   recorded files.
+   ``index.html``, with the Content-Security-Policy the release records) and its
+   deployment descriptor (in the format the release records); in an exposed profile, the
+   copy published for nginx holds exactly the recorded files. (A release built before
+   1.0.0 records no descriptor format: it is held to this tool's, unchanged since M7.)
+
+Verification talks to the API on loopback and reads the published copy: it does not see
+what nginx has loaded. Every activation, rollback and recovery reloads nginx before it
+verifies (:mod:`atlas.deploy.releases`).
 
 The HTTP client is the standard library's, never configured with a proxy, and reads at
 most 1 MiB per response. Answers are untrusted: a malformed body fails a check, never the
@@ -526,6 +531,10 @@ def _dashboard(
 ) -> None:
     files = _obj(record.get("files"))
     expected = files.get("index.html")
+    # What the release's own code sends (release.json), not what this tool's would: a later
+    # tool restores and rolls back to older releases.
+    policy = record.get("csp", DASHBOARD_CSP)
+    descriptor_format = record.get("descriptor_format", DESCRIPTOR_FORMAT)
     digest = hashlib.sha256(page.body).hexdigest() if page is not None else None
     problems = []
     if page is None or page.status != 200:
@@ -533,10 +542,10 @@ def _dashboard(
     else:
         if digest != expected:
             problems.append("/ is not the release's index.html")
-        if _header(page, "Content-Security-Policy") != DASHBOARD_CSP:
+        if _header(page, "Content-Security-Policy") != policy:
             problems.append("/ lacks the dashboard's Content-Security-Policy")
     body = _obj(descriptor.json()) if descriptor is not None else {}
-    if descriptor is None or descriptor.status != 200 or body.get("format") != DESCRIPTOR_FORMAT:
+    if descriptor is None or descriptor.status != 200 or body.get("format") != descriptor_format:
         problems.append(f"{DESCRIPTOR_PATH} did not answer the descriptor")
     verification.add(
         "dashboard",

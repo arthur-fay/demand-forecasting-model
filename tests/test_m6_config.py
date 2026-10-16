@@ -52,11 +52,15 @@ def test_the_default_is_the_private_tunnel_profile() -> None:
     assert config.api_port == 8000
     assert config.api_docs is False
     assert config.allowed_hosts == ("127.0.0.1", "localhost", "::1")
+    # nginx stays off IPv6 unless asked: limits count per address (M8-25).
+    assert config.ipv6 is False
+    assert load_config("ATLAS_DEPLOY_IPV6=true\n").ipv6 is True
 
 
 def test_the_example_file_is_valid() -> None:
     config = load_config((REPO_ROOT / "deploy" / "deploy.env.example").read_text("utf-8"))
     assert config.profile == "tunnel"
+    assert config.ipv6 is False
 
 
 def test_a_private_deployment() -> None:

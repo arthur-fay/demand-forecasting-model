@@ -235,6 +235,15 @@ class Site:
         text = (self.directory / "nginx/logs/atlas-access.log").read_text(encoding="utf-8")
         return [json.loads(line) for line in text.splitlines()]
 
+    def next_log_entry(self, seen: int) -> dict[str, Any]:
+        """The access log's entry after the first ``seen`` (nginx writes it once the answer
+        has gone, so it may lag behind the reply a little)."""
+        deadline = time.monotonic() + 10
+        while len(entries := self.log()) <= seen:
+            assert time.monotonic() < deadline, "nginx logged nothing"
+            time.sleep(0.02)
+        return entries[seen]
+
 
 def _hash(password: str) -> str:
     result = run(["openssl", "passwd", "-6", "-stdin"], input=password + "\n")
@@ -620,3 +629,22 @@ def test_the_api_behind_the_proxy(
         )
         assert direct.getresponse().status == 401
         direct.close()
+        # HEAD: the proxy lets it through exactly where the API answers it (the health
+        # endpoints) and refuses it itself everywhere else, as the API would (M8-21).
+        for route in load_routes(REPO_ROOT):
+            if route.method != "GET":
+                continue
+            path = example_path(route.path)
+            direct = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+            direct.request("HEAD", path)
+            answered = direct.getresponse().status
+            direct.close()
+            assert answered in (200, 405), path
+            assert ("HEAD" in route.methods) == (answered == 200), path
+            seen = len(running.log())
+            proxied = running.request("HEAD", path, headers=AUTH)
+            assert proxied.status == answered, path
+            # A refused HEAD never reaches the API.
+            entry = running.next_log_entry(seen)
+            assert (entry["method"], entry["path"]) == ("HEAD", path)
+            assert entry["upstream_status"] == ("200" if answered == 200 else ""), entry

@@ -13,12 +13,17 @@ release (``deploy/templates/``) and its committed OpenAPI contract
   ``tls`` stage (the default) is the complete site: the contract's routes and (M7) the
   dashboard's exact pages and files, read from the release's published copy
   (:mod:`atlas.deploy.publish`) with the dashboard's own Content-Security-Policy, and the
-  deployment descriptor that tells the dashboard what this profile allows.
+  deployment descriptor that tells the dashboard what this profile allows. (M8) Those
+  headers and that descriptor are the ones the release records in its ``release.json``
+  (:class:`DashboardPolicy`): a later tool serves an older release's dashboard as that
+  release's own code does.
 
 Templates use ``{{name}}`` placeholders. Every value inserted comes from the validated
 configuration or from constants, and is checked against a character set without
-whitespace, quotes, braces, semicolons or ``$``: no value can add a directive. An unknown
-placeholder is an error, never an empty string.
+whitespace, quotes, braces, semicolons or ``$``: no value can add a directive (a release's
+recorded dashboard headers and descriptors are checked against character sets of their
+own, narrow enough that no value can leave its quoted string or add a directive). An
+unknown placeholder is an error, never an empty string.
 
 Writing (:func:`write_files`) is atomic per file and idempotent: unchanged files are not
 touched, and the result lists what changed, so the operator knows what to reload.
@@ -32,21 +37,23 @@ import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Final
+from typing import Any, Final
 
-from atlas.dashboard import DASHBOARD_HEADERS, DashboardBuild, DashboardError, descriptor
+from atlas.dashboard import DASHBOARD_CSP, DASHBOARD_HEADERS, DashboardBuild, DashboardError
 from atlas.deploy.layout import (
     ALERT_SERVICE,
     API_HOST,
     MONITOR_SERVICE,
     MONITOR_TIMER,
     MONITOR_USER,
+    RELEASE_MANIFEST,
     SERVICE,
     SERVICE_GROUP,
     SERVICE_USER,
     Layout,
     valid_release_id,
 )
+from atlas.deploy.manifest import ManifestError, load_manifest
 from atlas.deploy.routes import (
     COMPUTE,
     DASHBOARD,
@@ -56,6 +63,7 @@ from atlas.deploy.routes import (
     StaticRoute,
     dashboard_build,
     dashboard_routes,
+    descriptor_for,
     load_routes,
     routed,
 )
@@ -65,6 +73,13 @@ TEMPLATES: Final = Path("deploy") / "templates"
 STAGES: Final = ("acme", "tls")
 _PLACEHOLDER: Final = re.compile(r"\{\{([a-z0-9_]+)\}\}")
 _SAFE: Final = re.compile(r"[A-Za-z0-9._:/,@+=%\-\[\]]*")
+#: A dashboard header a release records, as nginx embeds it (``add_header Name "value"``):
+#: a plain name, and a value without a double quote, backslash, ``$``, brace or line break.
+_HEADER_NAME: Final = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,63}")
+_HEADER_VALUE: Final = re.compile(r"[A-Za-z0-9 '()*+,./:;=_-]{1,2048}")
+#: A deployment descriptor a release records, as nginx embeds it (``return 200 '...'``):
+#: compact JSON of names and values, without a single quote, backslash or ``$``.
+_DESCRIPTOR: Final = re.compile(r'\{[A-Za-z0-9":,_./-]{0,1024}\}')
 NGINX_LOG_DIR: Final = "/var/log/nginx"
 #: (M7) Per-client limit of the dashboard's static files, in their own zone so that loading
 #: the dashboard (about ten files at once, more with several tabs) never uses up the API's
@@ -139,15 +154,18 @@ def security_headers(indent: int, hsts_max_age: int) -> list[str]:
     return [" " * indent + line for line in lines]
 
 
-def dashboard_headers(indent: int, hsts_max_age: int, cache_control: str) -> list[str]:
+def dashboard_headers(
+    indent: int, hsts_max_age: int, cache_control: str, headers: Iterable[tuple[str, str]]
+) -> list[str]:
     """The response headers of a dashboard location: the server's security headers with
-    the dashboard's Content-Security-Policy (and its other headers) and its cache policy."""
+    the dashboard's own ``headers`` (its Content-Security-Policy, ...) and its cache
+    policy."""
     lines = [
         f'add_header Strict-Transport-Security "max-age={hsts_max_age}" always;',
         'add_header X-Content-Type-Options "nosniff" always;',
         'add_header X-Frame-Options "DENY" always;',
         'add_header Referrer-Policy "no-referrer" always;',
-        *(f'add_header {name} "{value}" always;' for name, value in DASHBOARD_HEADERS.items()),
+        *(f'add_header {name} "{value}" always;' for name, value in headers),
         'add_header X-Robots-Tag "noindex, nofollow" always;',
         f'add_header Cache-Control "{cache_control}" always;',
     ]
@@ -167,13 +185,67 @@ def file_type(indent: int, content_type: str) -> list[str]:
     return [" " * indent + line for line in lines]
 
 
-def descriptor_for(profile: str) -> str:
-    """The deployment descriptor of an exposed profile (what the dashboard may do)."""
-    if profile == "private":
-        return descriptor("private", "enabled", operational_detail=True).decode("ascii")
-    return descriptor("public-demo", "disabled_public_demo", operational_detail=False).decode(
-        "ascii"
-    )
+@dataclass(frozen=True)
+class DashboardPolicy:
+    """What nginx sends with a release's dashboard: its response headers and, for each
+    exposed profile, its deployment descriptor (M8).
+
+    A release records both in its ``release.json``
+    (:func:`atlas.deploy.manifest.dashboard_record`), so a tool of another release
+    (restoring or rolling back to it) sends exactly what the release's own code sends, and
+    the dashboard is never served with a policy or descriptor it was not built for.
+    """
+
+    headers: tuple[tuple[str, str], ...]
+    descriptors: tuple[tuple[str, str], ...]
+
+    @classmethod
+    def of(cls, record: Mapping[str, Any] | None) -> DashboardPolicy:
+        """The policy of a release's dashboard record (refused if it could change the site).
+
+        Releases built before 1.0.0 (M7) record only their Content-Security-Policy
+        (``csp``): their other headers and their descriptors are this tool's, the same as
+        in M7 until a release changes them. Without a record (a checkout), this tool's own.
+        """
+        record = record or {}
+        headers = record.get("headers", DASHBOARD_HEADERS)
+        descriptors = record.get(
+            "descriptors", {profile: descriptor_for(profile) for profile in PROFILE_ACCESS}
+        )
+        if not isinstance(headers, Mapping) or not isinstance(descriptors, Mapping):
+            raise RenderError("the release's dashboard record is malformed")
+        # One Content-Security-Policy, the one verification expects (atlas.deploy.verify).
+        headers = {**headers, "Content-Security-Policy": record.get("csp", DASHBOARD_CSP)}
+        for name, value in headers.items():
+            if not (
+                isinstance(name, str)
+                and _HEADER_NAME.fullmatch(name)
+                and isinstance(value, str)
+                and _HEADER_VALUE.fullmatch(value)
+            ):
+                raise RenderError(f"the dashboard header {name!r} cannot be rendered safely")
+        for profile, text in descriptors.items():
+            if not (isinstance(text, str) and _DESCRIPTOR.fullmatch(text)):
+                raise RenderError(f"the dashboard descriptor of {profile!r} cannot be rendered")
+        return cls(tuple(headers.items()), tuple(descriptors.items()))
+
+    def descriptor(self, profile: str) -> str:
+        found = dict(self.descriptors).get(profile)
+        if found is None:
+            raise RenderError(f"the release records no dashboard descriptor for {profile}")
+        return found
+
+
+def recorded_dashboard(release_dir: Path) -> Mapping[str, Any] | None:
+    """The dashboard record of a release's ``release.json`` (``None``: a checkout, which is
+    this tool's own code, or a release that records none)."""
+    if not (release_dir / RELEASE_MANIFEST).is_file():
+        return None
+    try:
+        record = load_manifest(release_dir).get("dashboard")
+    except ManifestError as exc:
+        raise RenderError(f"{release_dir}: {exc}") from exc
+    return record if isinstance(record, Mapping) else None
 
 
 def error_body(code: str, message: str) -> str:
@@ -195,6 +267,8 @@ class Renderer:
     dashboard: DashboardBuild | None = None
     #: Where nginx reads it: the release's published copy (:mod:`atlas.deploy.publish`).
     dashboard_dir: PurePosixPath | None = None
+    #: (M8) The headers and descriptors the release records for it (``None``: this tool's).
+    policy: DashboardPolicy | None = None
 
     @classmethod
     def for_release(cls, config: DeployConfig, layout: Layout, release_dir: Path) -> Renderer:
@@ -202,6 +276,11 @@ class Renderer:
             build = dashboard_build(release_dir)
         except DashboardError as exc:
             raise RenderError(f"{release_dir}: the dashboard build is invalid: {exc}") from exc
+        policy = (
+            DashboardPolicy.of(recorded_dashboard(release_dir))
+            if build is not None and config.exposed
+            else None
+        )
         # The release's own id names its copy, also through a link (/opt/atlas/current).
         release_id = release_dir.resolve().name
         published = (
@@ -217,6 +296,7 @@ class Renderer:
             tuple(load_routes(release_dir)),
             build,
             published if build is not None else None,
+            policy,
         )
 
     def template(self, name: str) -> str:
@@ -369,6 +449,7 @@ class Renderer:
             return ""
         root = safe("dashboard_dir", str(self.dashboard_dir))
         hsts = self.config.hsts_max_age
+        policy = self.policy or DashboardPolicy.of(None)
         method = "        if ($request_method !~ ^(GET|HEAD)$) { return 405; }"
         serve = [
             f"        limit_req zone=atlas_static burst={STATIC_BURST} nodelay;",
@@ -399,7 +480,7 @@ class Renderer:
                         *serve,
                         *file_type(8, entry.content_type),
                         f"        try_files /{safe('dashboard_file', entry.file or '')} =404;",
-                        *dashboard_headers(8, hsts, entry.cache_control),
+                        *dashboard_headers(8, hsts, entry.cache_control, policy.headers),
                         "    }",
                     ]
                 )
@@ -426,7 +507,7 @@ class Renderer:
                         "        default_type application/octet-stream;",
                         "        charset utf-8;",
                         "        charset_types text/javascript text/css;",
-                        *dashboard_headers(8, hsts, assets[0].cache_control),
+                        *dashboard_headers(8, hsts, assets[0].cache_control, policy.headers),
                         "    }",
                     ]
                 )
@@ -439,7 +520,7 @@ class Renderer:
                         method,
                         *serve,
                         *file_type(8, route.content_type),
-                        *dashboard_headers(8, hsts, route.cache_control),
+                        *dashboard_headers(8, hsts, route.cache_control, policy.headers),
                         "    }",
                     ]
                 )
@@ -459,7 +540,7 @@ class Renderer:
                     "        default_type application/json;",
                     # JSON, like the API's answers: their headers and policy (no-store).
                     *security_headers(8, hsts),
-                    f"        return 200 '{descriptor_for(self.config.profile)}';",
+                    f"        return 200 '{policy.descriptor(self.config.profile)}';",
                     "    }",
                 ]
             )

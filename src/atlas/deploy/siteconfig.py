@@ -115,7 +115,7 @@ class DeployConfig:
     simulation_timeout_seconds: float
     log_level: str
     api_docs: bool
-    ipv6: bool = True
+    ipv6: bool = False
 
     @property
     def exposed(self) -> bool:
@@ -274,7 +274,9 @@ def parse_config(values: Mapping[str, str], layout: Layout | None = None) -> Dep
             f"{PREFIX}API_DOCS=true is accepted with the tunnel profile only"
         )
 
-    ipv6_raw = get("IPV6", "true").lower()
+    # Off unless asked for: nginx's per-client limits count each address, and one IPv6
+    # client usually holds a whole /64 of them.
+    ipv6_raw = get("IPV6", "false").lower()
     if ipv6_raw not in _TRUE + _FALSE:
         problems.append(f"{PREFIX}IPV6 must be true or false (whether nginx listens on IPv6)")
 
