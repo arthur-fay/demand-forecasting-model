@@ -118,12 +118,15 @@ def _json(payload: bytes, what: str) -> dict[str, Any]:
     return value
 
 
-def _read_json_file(path: Path, what: str) -> dict[str, Any]:
+def _read_bytes(path: Path, what: str) -> bytes:
     try:
-        payload = path.read_bytes()
+        return path.read_bytes()
     except OSError as exc:
         raise ArtifactError(f"{what} cannot be read ({type(exc).__name__})") from exc
-    return _json(payload, what)
+
+
+def _read_json_file(path: Path, what: str) -> dict[str, Any]:
+    return _json(_read_bytes(path, what), what)
 
 
 def _csv_rows(payload: bytes, what: str) -> list[dict[str, str]]:
@@ -306,6 +309,14 @@ class ReferenceStore:
             record_type="observed_daily_total",
         )
 
+    def _projection_run_id(self, run_id: object) -> str | None:
+        """A projection run's id as served: ``None`` unless the M4 reference component is
+        ready. No configuration pins the projection manifests; the M4 run's record of each
+        one (SHA-256 and run id), compared when that component loads, is the only check of
+        their run ids, so an id is never served unchecked."""
+        state = self.status.get(M4_REFERENCE)
+        return _opt_str(run_id) if state is not None and state.ready else None
+
     def forecast_source(self) -> Source:
         inputs = _present(self.inputs)
         p = inputs.projection.provenance
@@ -313,7 +324,7 @@ class ReferenceStore:
             kind="m2_projection_run",
             path=str(p.get("run_dir")),
             record_type=str(p.get("record_type")),
-            run_id=_opt_str(p.get("run_id")),
+            run_id=self._projection_run_id(p.get("run_id")),
             config_fingerprint=_opt_str(p.get("config_fingerprint")),
             files=_files(("projections.csv", _opt_str(p.get("projections_sha256")))),
         )
@@ -347,15 +358,16 @@ class ReferenceStore:
 
     def intervals_source(self) -> Source:
         """The M3 projection intervals: the file pinned by the reference configuration
-        (run id and fingerprint once the intervals component has loaded it; the M4
-        reference component checks that manifest against its own record)."""
+        (run id and fingerprint once the intervals component has loaded it; the run id only
+        while the M4 reference component, which checks that manifest against its own
+        record, is ready)."""
         config = _present(self.config)
         intervals = self.m3_intervals
         return Source(
             kind="m3_projection_run",
             path=config.uncertainty.projection_run_dir,
             record_type="future_projection_intervals",
-            run_id=None if intervals is None else intervals.run_id,
+            run_id=None if intervals is None else self._projection_run_id(intervals.run_id),
             config_fingerprint=None if intervals is None else intervals.config_fingerprint,
             files=_files(
                 ("projection_intervals.csv", config.uncertainty.projection_intervals_sha256)
@@ -664,7 +676,16 @@ def _load_m3_intervals(
 ) -> M3Intervals:
     run_dir = config.uncertainty.projection_run_dir
     directory = root / run_dir
-    manifest = _read_json_file(directory / "manifest.json", "M3 projection manifest")
+    payload = _read_bytes(directory / "manifest.json", "M3 projection manifest")
+    # The run id and fingerprint served come from these bytes. They must be the manifest the
+    # stress paths were read from, which the M4 reference component compares with the M4
+    # run's record: a manifest changed between the two reads is not served.
+    digest = _sha256(payload)
+    if any(path.provenance.get("manifest_sha256") != digest for path in inputs.quantiles.values()):
+        raise ArtifactError(
+            "the M3 projection manifest changed after the stress paths were read from it"
+        )
+    manifest = _json(payload, "M3 projection manifest")
     pinned = config.uncertainty.projection_intervals_sha256
     if (manifest.get("outputs") or {}).get("projection_intervals.csv") != pinned:
         raise ArtifactError("the M3 projection manifest does not record the pinned intervals")

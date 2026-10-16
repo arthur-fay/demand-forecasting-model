@@ -4573,6 +4573,7 @@
                 "type": "null"
               }
             ],
+            "description": "The run's identifier. A projection run's (m2_projection_run, m3_projection_run) is null while the M4 reference run, the only record of its manifest, is not ready (see /health/ready).",
             "title": "Run Id"
           }
         },
@@ -4898,7 +4899,7 @@
     }
   },
   "info": {
-    "description": "Read-only access to the ATLAS NYC 311 demand-forecasting research outputs (M2 forecasts,\nM3 uncertainty, M4 decision simulation) and bounded HYPOTHETICAL simulations with the M4\nlinear-programming engine.\n\n**Read before using any number.**\n\n* Every response states what its numbers are (`integrity.data_status`): observed history,\n  a projection, a historical evaluation, or a HYPOTHETICAL simulation.\n* The projection is an archived projection issued from the frozen snapshot, not a live\n  forecast: no outcome after the snapshot's last observed day is in it, and it has never\n  been scored.\n* The point forecast is not prospectively validated (`point_forecast_validated: false`).\n* The M3 prediction intervals have the status **failed_calibration**: no interval or\n  probability is decision-grade, and none is presented as one.\n* Every M4 operational parameter is **HYPOTHETICAL**. Nothing returned is a validated\n  staffing, budget or service-capacity recommendation (`validated_recommendation: false`\n  is fixed by the schema).\n\nErrors share one body: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n",
+    "description": "Read-only access to the ATLAS NYC 311 demand-forecasting research outputs (M2 forecasts,\nM3 uncertainty, M4 decision simulation) and bounded HYPOTHETICAL simulations with the M4\nlinear-programming engine.\n\n**Read before using any number.**\n\n* Every response states what its numbers are (`integrity.data_status`): observed history,\n  a projection, a historical evaluation, or a HYPOTHETICAL simulation.\n* The projection is an archived projection issued from the frozen snapshot. It is not a\n  live forecast, and it has never been scored: no outcome after the snapshot's last\n  observed day is in the snapshot.\n* The point forecast is not prospectively validated (`point_forecast_validated: false`).\n* The M3 prediction intervals have the status **failed_calibration**: no interval or\n  probability is decision-grade, and none is presented as one.\n* Every M4 operational parameter is **HYPOTHETICAL**. Nothing returned is a validated\n  staffing, budget or service-capacity recommendation (`validated_recommendation: false`\n  is fixed by the schema).\n\nErrors share one body: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n",
     "title": "ATLAS API",
     "version": "0.7.0"
   },

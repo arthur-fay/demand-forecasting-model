@@ -2056,7 +2056,10 @@ export interface components {
             record_type: string | null;
             /** Result Fingerprint */
             result_fingerprint: string | null;
-            /** Run Id */
+            /**
+             * Run Id
+             * @description The run's identifier. A projection run's (m2_projection_run, m3_projection_run) is null while the M4 reference run, the only record of its manifest, is not ready (see /health/ready).
+             */
             run_id: string | null;
         };
         /** SystemData */

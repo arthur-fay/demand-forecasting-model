@@ -122,10 +122,23 @@ def test_docs_pages_load_pinned_files_under_their_own_csp(api: TestClient, path:
     for floating in ("swagger-ui-dist@5/", "redoc@2/", "fastapi.tiangolo.com", "googleapis"):
         assert floating not in html
     policy = _policy(response.headers["content-security-policy"])
-    assert policy["default-src"] == ["'none'"]
-    assert policy["frame-ancestors"] == ["'none'"]
-    assert policy["base-uri"] == ["'none'"]
+    redoc = path == "/redoc"
+    # Exactly these directives: what is not listed falls back to default-src 'none'.
+    assert set(policy) == {
+        "default-src",
+        "script-src",
+        "style-src",
+        "img-src",
+        "connect-src",
+        "base-uri",
+        "form-action",
+        "frame-ancestors",
+        *(["worker-src"] if redoc else []),
+    }
+    for name in ("default-src", "base-uri", "form-action", "frame-ancestors"):
+        assert policy[name] == ["'none'"], name
     assert policy["connect-src"] == ["'self'"]
+    assert policy["img-src"] == ["data:"]
     scripts = [url for url in assets if url.endswith(".js")]
     inline = re.findall(r"<script>(.*?)</script>", html, flags=re.DOTALL)
     hashes = [
@@ -133,11 +146,13 @@ def test_docs_pages_load_pinned_files_under_their_own_csp(api: TestClient, path:
         for s in inline
     ]
     assert sorted(policy["script-src"]) == sorted([*scripts, *hashes])
-    styles = policy["style-src"]
-    assert [s for s in styles if s.startswith("https://")] == [
-        url for url in assets if url.endswith(".css")
-    ]
-    assert "'unsafe-eval'" not in policy["script-src"]
+    # Swagger UI runs without inline styles (checked in a browser); ReDoc writes its styles
+    # into the page and searches in a worker started from a blob: URL.
+    if redoc:
+        assert policy["style-src"] == ["'unsafe-inline'"]
+        assert policy["worker-src"] == ["blob:"]
+    else:
+        assert policy["style-src"] == [url for url in assets if url.endswith(".css")]
     assert api.get("/openapi.json").status_code == 200
 
 

@@ -22,7 +22,6 @@ from atlas.api.reference import (
     M2_BACKTEST,
     M4_REFERENCE,
     SNAPSHOT,
-    WORDED_INTERVAL_STATUS,
     ReferenceStore,
     holiday_names,
     holiday_related,
@@ -98,11 +97,12 @@ RELAXED_NOTICE: Final = (
 )
 #: The label of the projection intervals as this API serves them. M3's own label describes
 #: its method in general ("calibrated on past errors"); these intervals failed that check.
-#: Served only with that status (``reference.check_fixed_wording``, at startup).
+#: Fixed text: it is served only while the M3 status is ``reference.WORDED_INTERVAL_STATUS``
+#: (``reference.check_fixed_wording``, at startup), so the two are reviewed together.
 INTERVALS_LABEL: Final = (
     "FUTURE PROJECTION WITH INTERVALS: marginal quantiles of each projected day from the "
     "sealed M3 interval method (built from past forecast errors), which FAILED its "
-    f"pre-registered calibration criteria ({WORDED_INTERVAL_STATUS}): they are not calibrated "
+    "pre-registered calibration criteria (failed_calibration): they are not calibrated "
     "quantiles and carry no probability to rely on."
 )
 #: The size caveat of the M2 development selection test, served next to the selection it

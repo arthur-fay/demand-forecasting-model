@@ -51,9 +51,9 @@ linear-programming engine.
 
 * Every response states what its numbers are (`integrity.data_status`): observed history,
   a projection, a historical evaluation, or a HYPOTHETICAL simulation.
-* The projection is an archived projection issued from the frozen snapshot, not a live
-  forecast: no outcome after the snapshot's last observed day is in it, and it has never
-  been scored.
+* The projection is an archived projection issued from the frozen snapshot. It is not a
+  live forecast, and it has never been scored: no outcome after the snapshot's last
+  observed day is in the snapshot.
 * The point forecast is not prospectively validated (`point_forecast_validated: false`).
 * The M3 prediction intervals have the status **failed_calibration**: no interval or
   probability is decision-grade, and none is presented as one.

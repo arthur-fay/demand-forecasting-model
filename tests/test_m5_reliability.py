@@ -149,19 +149,38 @@ def test_damaged_artifacts_make_components_unavailable(api_repo: Path, case: str
             assert len(component.detail) <= 300
 
 
-def test_a_forged_projection_run_id_makes_readiness_fail(api_repo: Path) -> None:
-    CASES["m2_projection_manifest_run_id_edited"][0](api_repo)
+@pytest.mark.parametrize(
+    ("case", "kind"),
+    [
+        ("m2_projection_manifest_run_id_edited", "m2_projection_run"),
+        ("m3_projection_manifest_run_id_edited", "m3_projection_run"),
+    ],
+)
+def test_a_forged_projection_run_id_is_never_served(api_repo: Path, case: str, kind: str) -> None:
+    CASES[case][0](api_repo)
     store = load(api_repo)
     with client(store) as api:
         ready = api.get("/health/ready")
         assert ready.status_code == 503
         states = {c["component"]: c for c in ready.json()["components"]}
-        assert "M2 projection manifest" in str(states["m4_reference_run"]["detail"])
-        # The forged identifier never reaches a response that rests on the M4 record.
+        manifest = "M2" if kind.startswith("m2") else "M3"
+        assert f"{manifest} projection manifest" in str(states["m4_reference_run"]["detail"])
+        # Endpoints that rest on the M4 record are unavailable.
         for path in ("/api/v1/scenarios", "/api/v1/simulations/parameters"):
             response = api.get(path)
             assert response.status_code == 503
             assert "FORGED-RUN-ID" not in response.text
+        # The forecast endpoints keep serving their pinned numbers, without the run id that
+        # only the M4 record could confirm.
+        for path in ("/api/v1/forecasts", "/api/v1/uncertainty/intervals", "/api/v1/system"):
+            response = api.get(path)
+            assert response.status_code == 200, path
+            assert "FORGED-RUN-ID" not in response.text, path
+            sources = response.json()["provenance"]["sources"]
+            served = [s["run_id"] for s in sources if s["kind"] == kind]
+            # /uncertainty/intervals cites both projection runs; the others may cite one.
+            expected = [[None]] if path == "/api/v1/uncertainty/intervals" else [[], [None]]
+            assert served in expected, path
 
 
 def test_endpoints_of_unavailable_components_answer_503(api_repo: Path) -> None:

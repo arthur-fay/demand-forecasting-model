@@ -146,7 +146,12 @@ class Source(_Model):
     kind: str
     path: str = Field(description="Repository-relative directory of the run or file.")
     record_type: str | None = None
-    run_id: str | None = None
+    run_id: str | None = Field(
+        default=None,
+        description="The run's identifier. A projection run's (m2_projection_run, "
+        "m3_projection_run) is null while the M4 reference run, the only record of its "
+        "manifest, is not ready (see /health/ready).",
+    )
     result_fingerprint: str | None = None
     config_fingerprint: str | None = None
     files: dict[str, str] = Field(
