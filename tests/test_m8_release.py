@@ -106,8 +106,20 @@ def _action_pins() -> list[tuple[str, str, str, str | None]]:
 
 
 def test_every_action_is_pinned_to_a_commit_with_its_version() -> None:
+    """Every ``uses:`` names a full commit SHA and, in a comment, the release it stands for.
+
+    Whether the SHA really is the commit of that release cannot be checked offline; the
+    update procedure in docs/DEVELOPMENT.md ("Dependency maintenance") checks it.
+    """
     pins = _action_pins()
-    assert {action for _, action, _, _ in pins} == set(FIRST_NODE24_MAJOR)
+    used = {action for _, action, _, _ in pins}
+    assert sorted(used - set(FIRST_NODE24_MAJOR)) == [], (
+        "add each new action to FIRST_NODE24_MAJOR, with the first major release whose "
+        "action.yml runs on Node.js 24"
+    )
+    assert sorted(set(FIRST_NODE24_MAJOR) - used) == [], (
+        "no workflow uses these actions any more; remove them from FIRST_NODE24_MAJOR"
+    )
     malformed = [
         pin
         for pin in pins
@@ -116,15 +128,19 @@ def test_every_action_is_pinned_to_a_commit_with_its_version() -> None:
         or MAJOR_MINOR_PATCH.fullmatch(pin[3].removeprefix("v")) is None
     ]
     assert malformed == []
-    # One release of each action across all workflows.
-    assert len({(action, ref, tag) for _, action, ref, tag in pins}) == len(FIRST_NODE24_MAJOR)
+    releases = {(action, ref, tag) for _, action, ref, tag in pins}
+    assert len(releases) == len(used), "every workflow must pin the same release of an action"
 
 
 def test_no_action_runs_on_the_deprecated_node20_runtime() -> None:
+    """Judged by the version comment; the previous test and the update procedure in
+    docs/DEVELOPMENT.md tie the comment to the pinned SHA."""
     old = [
         (workflow, action, tag)
         for workflow, action, _, tag in _action_pins()
-        if tag is None or int(tag.removeprefix("v").split(".")[0]) < FIRST_NODE24_MAJOR[action]
+        if action not in FIRST_NODE24_MAJOR
+        or tag is None
+        or int(tag.removeprefix("v").split(".")[0]) < FIRST_NODE24_MAJOR[action]
     ]
     assert old == []
 
@@ -171,3 +187,15 @@ def test_same_outputs_refuses_an_altered_committed_file(tmp_path: Path) -> None:
     data = committed / "legacy_one_step_holdout.json"
     data.write_bytes(data.read_bytes().replace(b"\n", b"\r\n"))
     assert _compare(committed, LEGACY_HOLDOUT) == 1
+
+
+def test_same_outputs_refuses_a_regenerated_file_that_its_manifest_does_not_describe(
+    tmp_path: Path,
+) -> None:
+    """The regenerated manifest is not trusted on its own: each file it names is hashed."""
+    regenerated = _copy_run(LEGACY_HOLDOUT, tmp_path / "regenerated")
+    data = regenerated / "legacy_one_step_holdout.csv"
+    data.write_bytes(data.read_bytes().replace(b"\n", b"\r\n"))
+    assert _compare(LEGACY_HOLDOUT, regenerated) == 1
+    data.unlink()
+    assert _compare(LEGACY_HOLDOUT, regenerated) == 1

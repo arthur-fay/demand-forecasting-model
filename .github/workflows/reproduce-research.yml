@@ -1,16 +1,20 @@
 name: Reproduce research results
 
 # Manual only (Actions > Reproduce research results > Run workflow). Regenerates every
-# committed reference run in docs/results with the code of the chosen ref and the locked
-# environment, and requires identical files: `verify` recomputes a run and compares each
-# regenerated file with the SHA-256 in its manifest; the projections and the legacy holdout,
-# which have no verify command, are regenerated and compared through their manifests.
+# committed reference run in docs/results with the locked environment and requires identical
+# files: `verify` recomputes a run and compares each regenerated file with the SHA-256 in its
+# manifest; the projections and the legacy holdout, which have no verify command, are
+# regenerated and compared through their manifests. Every run is regenerated with the code
+# of the chosen ref, except the sealed M2 development run, which verifies only with the code
+# and lock of commit a16672f (docs/BACKTESTING.md, section 8).
 # CI (ci.yml) only verifies smoke runs and the M4 reference run.
 #
-# The committed runs were computed with OpenBLAS's AVX-512 kernels. On a runner without
-# AVX-512 the least-squares predictions can differ in the last bits, and verify then fails
-# on those files although nothing is wrong (docs/DEVELOPMENT.md, "Reproducibility across
-# machines"); the first step records the CPU and the kernels in use.
+# The committed runs were last verified with OpenBLAS's SkylakeX (AVX-512) kernels. With
+# other kernels the regression outputs differ slightly, so a failure on a runner that does
+# not use SkylakeX is inconclusive and is not a reproduction record (except in the M4 job,
+# which does not depend on the kernels); see docs/DEVELOPMENT.md, "Reproducing the
+# committed reference results". The first step records the CPU and the OpenBLAS kernels in
+# the log and in the job summary.
 
 on:
   workflow_dispatch:
@@ -66,15 +70,23 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r .github/ci-requirements.txt
           uv sync --locked
 
-      - name: The CPU and the BLAS kernels of this runner
+      - name: The CPU and the OpenBLAS kernels of this runner
         run: |
-          grep -m1 'model name' /proc/cpuinfo
-          if grep -qw avx512f /proc/cpuinfo; then
-            echo "AVX-512: available"
-          else
-            echo "::warning::This runner has no AVX-512; regression outputs may differ in the last bits from the committed (AVX-512) runs."
+          cpu="$(grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
+          if grep -qw avx512f /proc/cpuinfo; then avx512=yes; else avx512=no; fi
+          # OpenBLAS, bundled with numpy, names the kernel family it selected on stderr.
+          core="$(OPENBLAS_VERBOSE=2 uv run python -c 'import numpy' 2>&1 >/dev/null | sed -n 's/^Core: //p')"
+          core="${core:-unknown}"
+          echo "CPU: $cpu; AVX-512: $avx512; OpenBLAS core: $core"
+          {
+            echo "| CPU | AVX-512 | OpenBLAS core |"
+            echo "|---|---|---|"
+            echo "| $cpu | $avx512 | $core |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The M4 run does not depend on the kernels: CI verifies it on every runner.
+          if [ "$core" != "SkylakeX" ] && [ "$RUN" != m4 ]; then
+            echo "::warning::OpenBLAS uses its $core kernels here (AVX-512: $avx512), not the SkylakeX kernels with which the committed runs were last verified. Regression outputs can differ slightly, so a failure of this job is inconclusive and does not count as the release's reproduction record; re-run the job or run the commands on a machine whose OpenBLAS core is SkylakeX (docs/DEVELOPMENT.md)."
           fi
-          uv run python -c "import numpy; numpy.show_runtime()"
 
       - name: Regenerate and compare with the committed run
         shell: bash # -e and -o pipefail

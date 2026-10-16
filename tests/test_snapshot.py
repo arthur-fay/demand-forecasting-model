@@ -300,14 +300,16 @@ def test_a_crlf_checkout_writes_every_byte_verified_file_unchanged(tmp_path: Pat
 
     ``git archive`` converts line endings exactly as a checkout does; with
     ``--worktree-attributes`` it applies this working tree's .gitattributes to the files
-    committed at HEAD.
+    committed at HEAD. README.md, which no rule protects, is the positive control: it must
+    come out with CRLF, or the export did not convert anything and proves nothing.
     """
+    control = "README.md"
     trees: dict[str, dict[str, bytes]] = {}
     for autocrlf in ("false", "true"):
         archive = tmp_path / f"autocrlf-{autocrlf}.tar"
         result = _git(
             *("-c", f"core.autocrlf={autocrlf}", "archive", "--worktree-attributes"),
-            *("-o", str(archive), "HEAD", "--", *RESEARCH_PATHS, CONTRACT),
+            *("-o", str(archive), "HEAD", "--", *RESEARCH_PATHS, CONTRACT, control),
         )
         assert result.returncode == 0, result.stderr.decode()
         trees[autocrlf] = {}
@@ -316,6 +318,9 @@ def test_a_crlf_checkout_writes_every_byte_verified_file_unchanged(tmp_path: Pat
                 extracted = tar.extractfile(member) if member.isfile() else None
                 if extracted is not None:
                     trees[autocrlf][member.name] = extracted.read()
+    unconverted, converted = trees["false"].pop(control), trees["true"].pop(control)
+    assert b"\r\n" not in unconverted
+    assert converted.count(b"\r\n") == unconverted.count(b"\n"), "autocrlf converted nothing"
     crlf = trees["true"]
     assert sorted(crlf) == sorted(trees["false"])
     assert [name for name in crlf if crlf[name] != trees["false"][name]] == []

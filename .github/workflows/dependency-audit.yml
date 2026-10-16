@@ -4,7 +4,9 @@ name: Dependency audit
 # after the last push would otherwise go unnoticed), on demand, and on every pull request
 # that changes a lock or a dependency declaration. It checks the locks; it changes nothing.
 # docs/DEVELOPMENT.md ("Dependency maintenance") says what to do when it fails.
-# GitHub disables scheduled workflows in a repository without activity for 60 days.
+# In a public repository GitHub disables scheduled workflows after 60 days without
+# repository activity (and in a fork by default): check that this one is enabled before
+# every release.
 
 on:
   schedule:

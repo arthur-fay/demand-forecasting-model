@@ -3,8 +3,9 @@
 Usage: python .github/scripts/same_outputs.py <committed run dir> <regenerated run dir>
 
 For the runs that have no ``verify`` command (the M2 and M3 projections and the legacy
-one-step holdout). Both manifests must record the same output files with the same SHA-256,
-and every output kept in the committed directory must still hash to its recorded value.
+one-step holdout). Both manifests must record the same output files with the same SHA-256;
+every regenerated output must exist and hash to the value its manifest records; and every
+output kept in the committed directory must still hash to its recorded value.
 Exit status 0 when everything is identical, 1 otherwise.
 """
 
@@ -19,6 +20,10 @@ from pathlib import Path
 def _outputs(run_dir: Path) -> tuple[str, dict[str, str]]:
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     return str(manifest.get("record_type")), dict(manifest.get("outputs", {}))
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def main(argv: list[str]) -> int:
@@ -40,12 +45,11 @@ def main(argv: list[str]) -> int:
             problems.append(
                 f"{name}: SHA-256 {regenerated.get(name)}, committed {committed.get(name)}"
             )
+        written = regenerated_dir / name
+        if name in regenerated and (not written.is_file() or _sha256(written) != regenerated[name]):
+            problems.append(f"{written} is missing or does not match its manifest")
         kept = committed_dir / name
-        if (
-            name in committed
-            and kept.is_file()
-            and hashlib.sha256(kept.read_bytes()).hexdigest() != committed[name]
-        ):
+        if name in committed and kept.is_file() and _sha256(kept) != committed[name]:
             problems.append(f"{kept} no longer matches its manifest")
     for problem in problems:
         print(f"FAIL {problem}")
