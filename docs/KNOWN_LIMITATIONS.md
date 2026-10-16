@@ -55,6 +55,12 @@ section 9.
   capability.
 - The evidence is too thin for any calibration claim either way: about 8-9 effective independent
   observations; the 95 % HAC interval of the 80 % coverage spans 65 to 95 %.
+- The interval construction itself (empirical type-7 quantiles without a finite-sample
+  correction) lowers the expected coverage of a 95 % interval by about half a point at the
+  calibration sizes used, which is more than the margin by which the two failing buckets missed
+  the tolerance **(M8)**; a corrected construction might have been `insufficient_evidence`
+  rather than failed, which is not decision-grade either
+  ([audit/M8_SCIENTIFIC_VALIDATION.md](audit/M8_SCIENTIFIC_VALIDATION.md) section 3).
 - Exceedance probabilities come from the same uncalibrated distribution and share its status.
 - The M3 comparisons with baselines are descriptive and not adjusted for multiplicity **(M8)**.
 
