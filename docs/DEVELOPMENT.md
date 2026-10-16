@@ -322,6 +322,27 @@ test in a disposable systemd container, and (job `dashboard`) the dashboard's ch
 reproducible build and the browser tests, on pushes to `main` and on pull requests. The GitHub Actions are pinned to commit SHAs. It installs uv from a hash-pinned requirements file
 (`.github/ci-requirements.txt`).
 
+## Versioning
+
+The code carries the version being released, as MAJOR.MINOR.PATCH: a release candidate of
+version 1.0.0 already carries 1.0.0, and so does the release itself. It is declared in
+`pyproject.toml`, `src/atlas/__init__.py` and `web/package.json`, and copied into
+`uv.lock`, `web/package-lock.json`, the dashboard build (`web/dist/atlas-dashboard.json`)
+and the API contract (`docs/api/openapi.json`). `tests/test_m8_release.py` requires all of
+them to be equal, so a version change is one commit: edit the three declarations, then run
+`uv lock`, `npm version <version> --no-git-tag-version` in `web/`,
+`uv run atlas api openapi > docs/api/openapi.json`, record the dashboard fixtures again
+(`ATLAS_UPDATE_DASHBOARD_FIXTURES=1 uv run pytest tests/test_m7_fixtures.py --no-cov`),
+rebuild and commit `web/dist`, and update the tests and documents that quote the version.
+
+Release-candidate status is not part of the version. The release id
+(`<version>-<12 hex digits of the commit>`), the dashboard manifest and `build-release.sh`
+accept MAJOR.MINOR.PATCH only, and a pre-release would be spelled differently in the two
+ecosystems (`1.0.0rc1` for Python, `1.0.0-rc.1` for npm). A candidate is identified by the
+release-candidate manifest and by a tag `v<version>-rc.<n>` (for example `v1.0.0-rc.1`) on
+the approved commit, which only the owner creates, after approval. The validators keep
+MAJOR.MINOR.PATCH.
+
 ## Repository layout
 
 ```
