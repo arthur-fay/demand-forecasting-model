@@ -308,11 +308,12 @@ through nginx.
 - The API answers only the exact paths in the verified manifest, from memory.
 - nginx gets one location per class, generated from the manifest:
   - the pages (one exact-match regex) answer `index.html` through `try_files`;
-  - the assets (one regex of their exact names) and the favicon are served from the
-    published copy with `disable_symlinks on`;
+  - the assets (one regex of their exact names) and the other top-level files (the favicon
+    and the licence notices, one exact location each) are served from the published copy
+    with `disable_symlinks on`;
   - the descriptor goes through the same authentication, then a named location.
   - Every one is GET/HEAD only, behind the same accounts and allow-list as the API. The
-    pages, assets and favicon have their own per-client zone (`atlas_static`, 20
+    pages, assets and top-level files have their own per-client zone (`atlas_static`, 20
     requests/s, burst 60) so that a first load or several tabs never use up the API's
     limit; the descriptor, one small request per page load, counts against the API's read
     limit. nginx counts requests before authentication, so a client without an account can
