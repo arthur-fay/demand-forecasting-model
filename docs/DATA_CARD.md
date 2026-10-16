@@ -25,10 +25,13 @@ not affiliated with, sponsored or endorsed by the City of New York or NYC Open D
 **Terms of use: not verified.** The City publishes the terms that govern NYC Open Data
 (nyc.gov, *Terms of Use*), and individual datasets can carry further terms from the agency that
 supplies them. This repository has never recorded or checked them, and the M8 audit environment
-could not retrieve them (its network policy blocks nyc.gov). Before the repository is made public
-under a licence, or the derived tables are redistributed in another form, the owner must read the
-current terms, confirm that redistribution of these aggregates is permitted, and add any required
-attribution or disclaimer wording. Nothing in ATLAS asserts a permission.
+could not retrieve them, because its network policy blocks nyc.gov. The repository is public
+(since 2026-07-18), so the aggregates are already redistributed. The owner must therefore read the
+current terms now, confirm that redistribution of these aggregates is permitted, and add any
+required attribution or disclaimer wording. The alternative is to make the repository private until
+that is done. The release gate makes this a condition of the release
+([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1). Nothing in ATLAS asserts a
+permission.
 
 ## 2. Composition
 
@@ -107,8 +110,8 @@ measure reporting behaviour, which differs between communities); agency-level ca
 - **Integrity.** `atlas check` verifies every hash, size, header, row count and date range, then
   validates every contract and reproduces the derived tables and every legacy KPI. Loading fails
   closed on any mismatch. The files are stored without line-ending conversion (`.gitattributes`).
-- **Distribution.** The tables are committed to this repository. Their redistribution is subject
-  to the NYC Open Data terms above (owner action).
+- **Distribution.** The tables are committed to this public repository. Their redistribution is
+  subject to the NYC Open Data terms above, which have not been confirmed (owner action).
 - **Maintenance.** `legacy-v0` is immutable. New data would be a new snapshot (`legacy-v1` or
   later) with recorded extraction metadata, a pagination and truncation guard and its own
   manifest ([ROADMAP.md](ROADMAP.md), deferred work).

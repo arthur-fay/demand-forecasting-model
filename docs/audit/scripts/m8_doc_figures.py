@@ -60,6 +60,8 @@ FLOATS: Final = (
     "q_0.975",
 )
 CONFIRMATION: Final = (date(2025, 7, 1), date(2026, 6, 30))
+#: Target days of the development period: first origin + 1 to last origin + 30.
+DEVELOPMENT: Final = (date(2024, 2, 2), date(2025, 6, 30))
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -246,13 +248,19 @@ def flagged_sensitivity(emit: Callable[[str], None]) -> None:
     dates = [
         date.fromisoformat(d) for d in _read_json(M2_FULL / "manifest.json")["flagged_target_dates"]
     ]
+    early = [d for d in dates if DEVELOPMENT[0] <= d <= DEVELOPMENT[1]]
     late = [d for d in dates if CONFIRMATION[0] <= d <= CONFIRMATION[1]]
+    before = [d for d in dates if d < DEVELOPMENT[0]]
     dhs = [d for d in late if date(2026, 1, 31) <= d <= date(2026, 2, 12)]
     emit("## 4. The flagged-target sensitivity (BACKTESTING.md, section 10)")
     emit("")
     emit(
         f"- flagged target dates: {len(dates)}; in the confirmation year: {len(late)}, of which "
         f"{len(dhs)} in the DHS interruption 2026-01-31..02-12"
+    )
+    emit(
+        f"- in the backtest's target range: {len(early) + len(late)} ({len(early)} development, "
+        f"{len(late)} confirmation); before its first target day {DEVELOPMENT[0]}: {len(before)}"
     )
     emit("")
 

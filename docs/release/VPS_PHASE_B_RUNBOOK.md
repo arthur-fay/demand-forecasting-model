@@ -41,7 +41,7 @@ remains the reference for every command; the section numbers below point to it.
 | 15 | Log retention | nginx 14 days, journal 30 days (the package defaults) | nginx logs client addresses |
 | 16 | Where the encrypted configuration backup is stored | off the server, owner's storage | |
 | 17 | Maintenance window, who watches, rollback authority | a window with the administrator present; a failed verification is rolled back without further approval | |
-| 18 | Licence and data terms (repository) | owner decision | not needed to deploy privately, needed before making the repository or the demo public |
+| 18 | Licence and data terms (repository) | owner decision, due now | the repository is already public, so this is a condition of the release itself ([RELEASE_GATE.md](RELEASE_GATE.md) section 1), whatever the deployment profile |
 
 ## 2. Read-only preflight (changes nothing on the server)
 
@@ -55,22 +55,35 @@ systemctl --version | head -1; timedatectl show -p NTPSynchronized
 ss -ltnp                                    # what already listens (8000 must be free; 80/443 free or nginx)
 sudo ufw status verbose 2>/dev/null || echo "ufw not installed"
 
-# the ATLAS preflight (standard library only; reads, never writes)
-git clone https://github.com/arthur-fay/demand-forecasting-model.git ~/atlas
-cd ~/atlas && git checkout <approved commit SHA>
-python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir .
-sudo python3 -I src/atlas/deploy/preflight.py --resources low --release-dir .    # root sees more
-python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --json > ~/preflight.json
+# the source of the approved commit (git may not be installed yet: the archive needs only curl)
+mkdir ~/atlas && cd ~/atlas
+curl -fsSL https://github.com/arthur-fay/demand-forecasting-model/archive/<approved commit SHA>.tar.gz |
+    tar -xz --strip-components=1
+# (or, if git is installed: git clone https://github.com/arthur-fay/demand-forecasting-model.git ~/atlas
+#  && cd ~/atlas && git checkout <approved commit SHA>)
+
+# the ATLAS preflight (standard library only; reads, never writes). Before the bootstrap,
+# --before-bootstrap reports what the bootstrap will install as information, not as a failure.
+python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --before-bootstrap
+sudo python3 -I src/atlas/deploy/preflight.py --resources low --release-dir . --before-bootstrap   # root sees more
+python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --before-bootstrap --json > ~/preflight.json
 ```
 
-The verdict must not be `UNSUITABLE` (any `[FAIL]`). Expected on a fresh server, and fixed by the
-bootstrap: missing `python3.12-venv`, `git`, `nginx`. Not fixable by the bootstrap: the CPU
-instruction set, memory, disk and a busy server (the load check fails above 0.7 × CPUs). Send the
-JSON report to the owner; the warnings must be acknowledged in writing. After the bootstrap, run
-the definitive dependency probe as an ordinary user:
-`python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --probe-dependencies`
-(installs the locked runtime into a temporary directory, imports it and solves an LP, then deletes
-it).
+The verdict must not be `UNSUITABLE` (any `[FAIL]`). With `--before-bootstrap`, missing
+`python3.12-venv`, `git` and `nginx` are reported as information, because the bootstrap installs
+them. Without the option they are failures, so a fresh server would always be `UNSUITABLE`.
+
+The bootstrap cannot fix the CPU instruction set, memory, disk or a busy server. The load check
+warns above 0.7 × CPUs and fails above 1.5 × CPUs (five-minute load average).
+
+Send the JSON report to the owner; the warnings must be acknowledged in writing. The definitive
+checks come after the bootstrap (section 4, step 2):
+
+- the same preflight without `--before-bootstrap`;
+- the dependency probe, as an ordinary user:
+  `python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --probe-dependencies`.
+  It installs the locked runtime into a temporary directory, imports it and solves an LP, then
+  deletes it.
 
 ## 3. Hosting recommendation: private first
 
@@ -95,20 +108,31 @@ order, as the administrator, in one maintenance window.
 2. **Bootstrap** (5.2): `sudo deploy/scripts/bootstrap-host.sh --resources standard` (read the
    plan), then the same with `--apply`. It installs nginx, Python 3.12 venv, git, OpenSSL, a
    hash-pinned uv, the system users and directories, and `/etc/atlas/deploy.env` (tunnel profile).
-   Then run the dependency probe (step 2 above).
+   Add `--with-certbot` if the private profile will follow (step 6). Then run the definitive
+   preflight (without `--before-bootstrap`) and the dependency probe (section 2).
 3. **Build the release** (5.3): `sudo deploy/scripts/build-release.sh <approved 40-character SHA>`.
    It fetches exactly that commit, installs the locked runtime with hash checks, makes the tree
    read-only and runs the release's own checks as the unprivileged user (snapshot integrity, the M4
    reproduction byte for byte, the API contract, the dashboard build). It prints the release id
    (`1.0.0-<12 hex>`).
-4. **Secrets and first activation** (5.4, tunnel): `secrets init`, `validate --installed`,
-   `activate <release id>`.
+4. **Secrets and first activation** (5.4, tunnel): with the new release's own tool
+   (`/opt/atlas/releases/<release id>/.venv/bin/atlas-deploy`), run `secrets init`,
+   `validate --installed` and `activate <release id>`. Then make `atlas-deploy` the current
+   release's tool:
+   `sudo ln -s /opt/atlas/current/.venv/bin/atlas-deploy /usr/local/sbin/`. The steps below use
+   it.
 5. **Verify** (8): `sudo atlas-deploy verify` and `sudo atlas-deploy status`; through the tunnel,
    open `http://localhost:8000/` and check the six dashboard pages (section 5 below).
-6. **Private profile, when approved** (7): set the profile and domain in `deploy.env`, render the
-   ACME-only site, obtain the certificate with certbot (deploy hook `systemctl reload nginx`),
-   create the accounts (`secrets add-user NAME --generate`), activate the release again, and check
-   `curl -su NAME https://<domain>/health/ready`.
+6. **Private profile, when approved** (7), in this order:
+   1. Open ports 80 and 443 in ufw (`sudo ufw allow 80/tcp; sudo ufw allow 443/tcp`, or only
+      from the allow-listed networks, 5.1).
+   2. Install certbot if the bootstrap did not (`sudo apt-get install -y certbot`).
+   3. Set the profile and domain in `deploy.env`.
+   4. Render the ACME-only site.
+   5. Obtain the certificate with certbot (deploy hook `systemctl reload nginx`).
+   6. Create the accounts (`secrets add-user NAME --generate`).
+   7. Activate the release again.
+   8. Check `curl -su NAME https://<domain>/health/ready`.
 7. **Monitoring** (14): confirm `systemctl list-timers atlas-monitor.timer`; install
    `/etc/atlas/alert-hook` for the chosen channel; set up the external uptime check.
 8. **Backup** (12): create the first encrypted configuration archive and store it off the server.
@@ -139,8 +163,16 @@ All of these must hold before the deployment is called done:
 
 - **Daily**: nothing by hand; the monitor runs every minute and alerts on critical checks.
 - **Weekly**: read the monitor's warnings; `apt` security updates arrive by `unattended-upgrades`.
-  After a `python3.12` update, rebuild the current release (the build re-verifies the M4
-  reproduction on the new interpreter).
+- **After a `python3.12` update**: the release's environment runs on the system interpreter. A
+  rebuild of the same commit only re-checks the release's files; it does not run the M4
+  reproduction again. Instead:
+  1. Restart the service (`sudo systemctl restart atlas`).
+  2. Re-run the reproduction as the service user, exactly as the build does
+     ([DEPLOYMENT.md](../DEPLOYMENT.md) section 17).
+  3. Run `sudo atlas-deploy verify`.
+
+  If the reproduction fails, the results are no longer reproduced on this interpreter: report it
+  and do not upgrade until it is understood.
 - **When CI's dependency audit reports a vulnerability**: follow the dependency policy in
   [DEVELOPMENT.md](../DEVELOPMENT.md): fix on a branch, CI green, then build and activate the new
   release.
@@ -175,8 +207,17 @@ bootstrap, restore the archive, build the last good commit, activate (12).
 
 ## 9. What only phase B can verify
 
-The M6 package was tested end to end in a disposable Ubuntu 24.04 systemd container (CI job
-`deploy-e2e`, and 22 of 22 in the M8 audit). These remain unverified until the real server:
+The M6 package was tested end to end in a disposable Ubuntu 24.04 systemd container: the CI job
+`deploy-e2e`, and 22 of 22 tests in the M8 audit, recorded in
+[../audit/M8_CORRECTIONS.md](../audit/M8_CORRECTIONS.md) section 1. That test covers the
+bootstrap, builds, activation, upgrade, rollback, recovery and monitoring. It does not cover:
+
+- the pre-bootstrap preflight on a fresh server (it copies the checkout in);
+- SSH hardening, ufw and swap (section 4, step 1);
+- certbot and certificate issuance (it installs a self-signed certificate);
+- the encrypted backup.
+
+These, and the following, remain unverified until the real server:
 
 - the provider's CPU flags, kernel, cgroup configuration and real resource margins on a shared
   1-2 vCPU server with swap;

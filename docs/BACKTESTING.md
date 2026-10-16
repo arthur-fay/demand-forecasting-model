@@ -1014,8 +1014,10 @@ sensitivity covers, and the projection is described as archived.
 - **Year-end and anomalies.** December and January origins are the weakest for every model.
   Days with intake interruptions or surges (M1 flags) are kept in the primary metrics;
   excluding them changes the size but not the direction of any comparison. (**M8 note:**
-  this sensitivity removes only the 44 target days covered by a warning-level M1 flag. In
-  the confirmation year they are 18 days, 13 of them the agency-level DHS interruption of
+  this sensitivity removes only the target days covered by a warning-level M1 flag. Of the
+  44 flagged dates in the run manifest, 31 fall in the backtest's target range (13 are earlier
+  than its first target, 2024-02-02): 13 development and 18 confirmation target days. In
+  the confirmation year they are the 18 days, 13 of them the agency-level DHS interruption of
   2026-01-31..02-12; DHS is about 1.4 % of five-borough volume. Three of the five largest
   days of the series, 2026-01-27, 2026-01-28 and 2025-12-15, carry no flag and stay in (the
   largest, 2026-02-24, is flagged and excluded)

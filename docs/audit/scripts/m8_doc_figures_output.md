@@ -50,4 +50,5 @@ results and a regenerated M3 reference run identical to its committed manifest.
 ## 4. The flagged-target sensitivity (BACKTESTING.md, section 10)
 
 - flagged target dates: 44; in the confirmation year: 18, of which 13 in the DHS interruption 2026-01-31..02-12
+- in the backtest's target range: 31 (13 development, 18 confirmation); before its first target day 2024-02-02: 13
 

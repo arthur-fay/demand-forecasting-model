@@ -34,19 +34,25 @@ give the protocols and the full tables.
    - Against B\* it is 11.4 % lower, but the 95 % interval of the difference, −256 to +2
      requests per day, includes zero, and the Holm-adjusted p-value is 0.054: **not
      significant**.
-   - Against seasonal naive it is 28.2 % lower (Holm-adjusted p 0.007, nominal; 0.045 after
-     the M8 size correction below, and above 0.05 under three of the five HAC bandwidths
-     once each is size-corrected).
+   - Against seasonal naive it is 28.2 % lower. The Holm-adjusted p-value is 0.007 nominal,
+     and 0.045 after the M8 size correction below. It rises above 0.05 under three of the five
+     HAC bandwidths once each is size-corrected, and the correction itself assumes shorter
+     error dependence than the data show. ⟦H2-DEPENDENCE-README⟧ So this advantage, too, is
+     borderline rather than established.
    - These are re-forecasts of days already in the data, not a prospective validation.
 2. **M8 statistical erratum: the selection evidence is weak**
    ([BACKTESTING.md, section 12](docs/BACKTESTING.md#12-m8-erratum-the-size-of-the-diebold-mariano-test)).
    The pre-registered development selection test (HLN-DM, conservative p 0.044) passed its
-   5 % gate, but at a 30-day horizon with 336-486 overlapping origins this test over-rejects
-   under its own assumptions (7.6-9.1 % false rejections at a nominal 5 %, measured in M8);
-   after a size correction the selection evidence is borderline (p 0.069). The
-   pre-registered choice stands, but its statistical support is weak, and the M2 statements
-   that the selection and H2 are robust to the HAC bandwidth do not hold once each bandwidth
-   is size-corrected. The disclosed H1 result (not significant after Holm) is unchanged.
+   5 % gate as computed. At a 30-day horizon with 336-486 overlapping origins, however, this
+   test over-rejects under its own assumptions: 7.6-9.1 % false rejections at a nominal 5 %,
+   measured in M8.
+   - After a size correction the selection p-value is 0.069, above the gate.
+   - A correctly sized test would therefore most likely have kept the simpler baseline B\*.
+   - The regression remains the recommended model only under the pre-registered rule as
+     computed, and its statistical support is weak.
+   - The M2 statements that the selection and H2 are robust to the HAC bandwidth do not hold
+     once each bandwidth is size-corrected.
+   - The disclosed H1 result (not significant after Holm) is unchanged.
 3. **Prediction intervals: FAILED_CALIBRATION** ([UNCERTAINTY.md](docs/UNCERTAINTY.md)).
    Intervals and exceedance probabilities are built only from errors observed by each
    issue date, and were selected and evaluated under a pre-registered protocol. Over the
@@ -144,14 +150,17 @@ Present*** (dataset `erm2-nwe9`), published by the City of New York. The origina
 aggregated them once, for 2023-01-01 to 2026-06-30; ATLAS freezes those aggregates as the
 hash-verified `legacy-v0` snapshot. The extraction time was not recorded
 ([DATA_SNAPSHOT.md](docs/DATA_SNAPSHOT.md)). ATLAS is not affiliated with or endorsed by the
-City of New York. The source's terms of use were not verified in this repository;
-confirming them, and the attribution wording, before redistribution is an action for the
-owner.
+City of New York. The source's terms of use were not verified in this repository. This
+public repository already redistributes the derived tables. Confirming that the terms permit
+this, and the attribution wording they require, is an owner action and a condition of the
+release ([release/RELEASE_GATE.md](docs/release/RELEASE_GATE.md) section 1).
 
 ## Licence
 
-There is no licence file yet. Choosing a licence for the code is the owner's decision
-([ROADMAP.md](docs/ROADMAP.md), known limitations).
+There is no licence file. The repository is public, but no licence has been granted for the
+code or the derived data. Choosing one, or deciding that none is granted, is the owner's
+decision and a condition of the release ([release/RELEASE_GATE.md](docs/release/RELEASE_GATE.md)
+section 1).
 
 ## The original project (July 2026, archived)
 

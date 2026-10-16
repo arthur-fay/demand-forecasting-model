@@ -17,7 +17,7 @@ assessment reports what was tested and what was found; it is not a certification
 | Dashboard (M7) | strict CSP with Trusted Types verified in a browser; no credential in the browser; notices for shipped code added (M8-05) |
 | Dependencies | 0 known vulnerabilities (pip-audit, npm audit, all severities); lockfiles complete and hash-checked; no install script runs on Linux; monitoring added (M8-06) |
 | CI | read-only permissions, actions pinned to verified SHAs, now on Node.js 24 (M8-32) |
-| Secrets | none in the 979 blobs of the history; secrets never in the environment, argv, logs or unit properties |
+| Secrets | none in the 1,228 blobs reachable from every ref of the candidate (979 at the baseline); secrets never in the environment, argv, logs or unit properties |
 
 ## 2. API
 
@@ -25,7 +25,10 @@ Tested against live servers on loopback (no key, with a key and CORS, with a 1 s
 
 - **Contract.** The served OpenAPI equals the committed one. Schemathesis 4.31.1 generated 729
   cases over all 14 operations with every check enabled: no server error, no schema breach, no
-  undocumented status.
+  undocumented status. Its two reports of a schema-compliant request being refused (422) are
+  documented cross-field rules: a history window outside the snapshot, and a quantile sent
+  with a point-forecast basis. That run was on the baseline. The final independent review
+  repeated it on the corrected API, with the same result.
 - **Authentication.** The simulation key is compared in constant time (`hmac.compare_digest`)
   and checked before the body is read and again in the route. Missing, empty, wrong, prefix,
   Latin-1, 8 KB and comma-joined keys get 401; no path, method or header variant (encoded,
@@ -100,9 +103,16 @@ it (M8-05).
 - **CI.** Workflow permissions `contents: read`; `persist-credentials: false`; no
   `pull_request_target`; no untrusted expression in a run step; every action pinned to a full
   SHA, independently checked against its tag, all on Node.js 24 (M8-32).
-- **Secrets.** A scan of every blob reachable from every ref (979) for key formats, tokens,
-  private keys and high-entropy assignments found none; test passwords and keys are obvious
-  fakes. The legacy Power BI file embeds only generic local paths.
+- **Secrets.** The scan covered every blob reachable from every ref for key formats, tokens,
+  private keys, credentials in URLs and connection strings, and high-entropy assignments. Zip
+  and PDF contents were included. It found none:
+  - at the baseline, 979 blobs;
+  - repeated on the candidate, 1,228 blobs. The only new matches were two quotations in
+    [M8_AUDIT_EVIDENCE.md](M8_AUDIT_EVIDENCE.md): a description of key generation and the
+    legacy Power BI path.
+
+  Test passwords and keys are obvious fakes. The legacy Power BI file embeds only generic local
+  paths.
 
 ## 6. What remains
 

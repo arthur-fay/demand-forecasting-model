@@ -31,11 +31,14 @@ expanding window. Its coefficients are identifiable and saved for every origin
 (`coefficients.csv`). Specification: [BACKTESTING.md](BACKTESTING.md) section 3; configuration
 `configs/backtest/atlas-m2-rolling-origin-v1.json`, fingerprint `78da64e8…1b1753`.
 
-**Prediction intervals.** Empirical quantiles of relative forecast errors, pooled by horizon
-bucket, calibrated once per period on the residuals of the preceding 365 days whose target dates
-were already observed at the issue date, then frozen. Levels 80 % and 95 %; exceedance
-probabilities come from the same predictive distribution. Specification:
-[UNCERTAINTY.md](UNCERTAINTY.md) sections 2-6.
+**Prediction intervals.** Empirical quantiles (type 7) of relative forecast errors, for each
+horizon separately, calibrated once per period and then frozen. The calibration set holds the
+residuals whose targets fall in the 365 days up to the cutoff and were already observed at the
+issue date. 365 is a maximum: such sets held 365 residuals in the evaluation and 153-182 in the
+selection period, when residuals had existed for only six months (M8 correction). A horizon is
+pooled with its horizon bucket only when fewer than 100 origins can calibrate it, which never
+happened in the committed runs. Levels 80 % and 95 %; exceedance probabilities come from the
+same predictive distribution. Specification: [UNCERTAINTY.md](UNCERTAINTY.md) sections 2-6.
 
 **Decision model.** A linear programme over one city-wide service unit and days `t = 1..T`:
 requests served, overtime hours, surge requests and end-of-day backlog per day, subject to a
@@ -120,15 +123,22 @@ What the evidence supports:
   MASE and MAPE at every horizon bucket), but **its lead over the simple same-weekday median is not
   statistically established**: the interval includes zero, and the confirmation year is worth only
   about 10-14 independent observations for this comparison.
-- It beats seasonal naive clearly (H2).
+- It is 28.2 % more accurate than seasonal naive (H2, Holm-adjusted p 0.007 as computed). After
+  the M8 size correction this result is borderline, not clear (next item).
 - **M8 erratum.** The development selection test that chose this model (HLN-DM, conservative
   p 0.044 against a 5 % gate) over-rejects at a 30-day horizon with a few hundred overlapping
-  origins: under its own assumptions the pre-registered rule rejects a true null 7.6 % of the time
-  with 486 origins and 9.1 % with 336, instead of 5 %. After a size correction the selection
-  p-value is 0.069, so the gate would not have been passed; H1 becomes 0.095 and H2 0.022 (Holm
-  0.045). The pre-registered choice stands (changing it after the fact would be worse science),
+  origins. Under its own assumptions the pre-registered rule rejects a true null 7.6 % of the time
+  with 486 origins and 9.1 % with 336, instead of 5 %. After a size correction:
+  - the selection p-value is 0.069, so the gate would not have been passed, and a correctly
+    sized test would most likely have kept B\*;
+  - H1 becomes 0.095, and H2 0.022 (Holm 0.045).
+
+  These corrected values assume the test's own short-memory dependence (an MA(29) differential).
+  The confirmation differentials stay positively autocorrelated beyond 29 days.
+  ⟦H2-DEPENDENCE⟧
+  The pre-registered choice stands, because changing it after the fact would be worse science,
   but its statistical support is weak. Details: [BACKTESTING.md](BACKTESTING.md), M8 erratum, and
-  the reproducible study in `docs/audit/scripts/`.
+  the reproducible studies in `docs/audit/scripts/`.
 - The lead is not uniform: the model loses to B\* in 6 of 28 origin months. In the confirmation
   period, almost all of its error growth with horizon comes from the recursion.
 - The original project's "4.93 % MAPE" is a horizon-1 score on observed inputs over 90 easy days;
@@ -153,6 +163,20 @@ pre-registered 3 points below nominal, so the status is **`FAILED_CALIBRATION`**
 that, about 8-9 effective observations are far too few for any calibration claim. Exceedance
 probabilities share this status. The intervals are shown in ATLAS only with that label
 ([UNCERTAINTY.md](UNCERTAINTY.md) section 9).
+
+The M8 audit noted two properties of the construction and the evaluation. Neither was changed;
+both are recorded for a future protocol version:
+
+- **Construction bias.** The type-7 quantiles carry no finite-sample correction. Even with
+  exchangeable errors, they lower the expected coverage of a 95 % interval to about 94.5 % at
+  365 residuals. That is more than the 0.2-0.3 points by which the two 95 % buckets missed the
+  tolerance. With a corrected construction the status might have been `insufficient_evidence`
+  rather than failed, and neither status is decision-grade.
+- **HAC degrees of freedom.** The coverage intervals above use `t(335)` critical values despite
+  8-9 effective observations. They are therefore narrower than a `t(ESS − 1)` reference would
+  give (±14.6 instead of ±17.5 points at 80 %), and they are indicative only.
+
+Details are in [audit/M8_SCIENTIFIC_VALIDATION.md](audit/M8_SCIENTIFIC_VALIDATION.md) section 3.
 
 ### 5.3 Decision model (M4)
 
@@ -205,9 +229,19 @@ so no plan is a recommendation.
 
 ## 9. Reproducibility and provenance
 
-Every committed result reproduces byte for byte with the locked environment: in the M8 audit the
-full M2 reference run (result fingerprint `d53bc911…`), the full M3 pipeline (`2e673489…`,
-`c4d2adbf…`) and the M4 reference run (`0dc4eb0f…`) were regenerated and compared. All runs record
-the configuration, data (`5ab8b3a5…`), code and environment fingerprints in their manifests. How to
-reproduce: [DEVELOPMENT.md](DEVELOPMENT.md); the release-candidate manifest:
+In the M8 audit every committed result was regenerated with the locked environment and compared
+byte for byte: the full M2 reference run (result fingerprint `d53bc911…`), the full M3 pipeline
+(`2e673489…`, `c4d2adbf…`) and the M4 reference run (`0dc4eb0f…`). All runs record the
+configuration, data (`5ab8b3a5…`), code and environment fingerprints in their manifests.
+
+Byte-identical reproduction has two conditions:
+
+- **CPU class.** The runs that involve the regression (M2, the M3 pipeline built on its forecasts,
+  the legacy holdout) need the CPU class of the reference runs. The locked NumPy's OpenBLAS then
+  chooses its SkylakeX (AVX-512) kernels. On other CPUs the last bits differ, and `verify`
+  reports a difference. The M4 run reproduces either way.
+- **Own commit.** The sealed M2 development record verifies only with the code and lock of its
+  own commit, `a16672f`.
+
+How to reproduce: [DEVELOPMENT.md](DEVELOPMENT.md). The release-candidate manifest:
 [release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md).

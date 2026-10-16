@@ -187,14 +187,19 @@ Startup to ready: 3-6 s.
 ## 4. Preflight assessment
 
 Run it on the candidate server **before anything else**. It reads, never changes, and needs
-only the system Python:
+only the system Python. On a server that has not been bootstrapped yet, add
+`--before-bootstrap`. That option reports what the bootstrap installs (python3.12-venv, git,
+nginx, ...) as information instead of failures; without it, a fresh server is always
+UNSUITABLE. The bootstrap runs the same check itself, and after it the plain command is the
+definitive one:
 
 ```bash
 git clone https://github.com/arthur-fay/demand-forecasting-model.git ~/atlas   # any user
+# (no git yet: mkdir ~/atlas && curl -fsSL https://github.com/arthur-fay/demand-forecasting-model/archive/<SHA>.tar.gz | tar -xz -C ~/atlas --strip-components=1)
 cd ~/atlas
-python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir .
-sudo python3 -I src/atlas/deploy/preflight.py --resources low --release-dir .   # root sees more
-python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --json > preflight.json
+python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --before-bootstrap
+sudo python3 -I src/atlas/deploy/preflight.py --resources low --release-dir . --before-bootstrap   # root sees more
+python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --json > preflight.json   # after the bootstrap
 ```
 
 It checks the distribution and version, kernel and systemd; the CPU architecture, the
@@ -570,10 +575,26 @@ which are the same as in 0.7.0 until a release changes them.
 
 **From 0.7.0 (M7) to 1.0.0**, plan and activate with the new release's own tool, as from M6
 to M7: `sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`,
-then `... activate <new id>`. The 0.7.0 tool fingerprints every file of the environment, so
-it reports a 1.0.0 release as "the installed environment (.venv) differs from the
-manifest" and refuses it before changing anything. Restoring or rolling back to a 0.7.0
-release with the 1.0.0 tool works (its manifest is checked as it was written).
+then `... activate <new id>`. The 0.7.0 tool cannot read a 1.0.0 release, for two reasons:
+
+- its dashboard parser rejects the licence notices that 1.0.0 ships (`.txt` files);
+- it fingerprints the environment differently (fingerprint version 2, M8-24).
+
+Its `plan-upgrade` therefore fails ("the dashboard build is invalid: unexpected file name in
+the build"), and its `activate` and `rollback` refuse before changing anything. Restoring or
+rolling back to a 0.7.0 release with the 1.0.0 tool works, because the release's manifest is
+checked as it was written.
+
+Two consequences:
+
+- **Rolling forward after a rollback.** After a rollback to 0.7.0, `/opt/atlas/current`, and so
+  the plain `atlas-deploy`, is the 0.7.0 tool, which refuses to roll forward. Return to 1.0.0
+  with the 1.0.0 release's own tool:
+  `sudo /opt/atlas/releases/<1.0.0 id>/.venv/bin/atlas-deploy activate <1.0.0 id>`.
+- **IPv6.** `ATLAS_DEPLOY_IPV6` now defaults to `false` (M8-25). A 0.7.0 `deploy.env` without
+  the key loses its IPv6 listeners at the 1.0.0 activation, and the 1.0.0 tool reads a restored
+  0.7.0 configuration the same way. If IPv6 clients are served, set `ATLAS_DEPLOY_IPV6=true`
+  before upgrading.
 
 **From M6 to M7**, plan and activate with the new release's own tool, in every profile:
 `sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`, then
@@ -844,8 +865,20 @@ against the real certificate.
 - **One server, one process.** No high availability: an upgrade restarts the API (3-6 s),
   a server failure is an outage until recovery (section 12).
 - **OS libraries are not pinned.** Ubuntu security updates can change Python or OpenSSL
-  under a running release. Rebuild the release after a `python3.12` update (the build
-  re-verifies the M4 results on the new interpreter).
+  under a running release. A rebuild of the same commit does not help: it finds the release
+  and only checks its files against the manifest, and the environment fingerprint records the
+  interpreter link, not the interpreter's bytes. After a `python3.12` update, restart the
+  service and re-run the M4 reproduction on the new interpreter as the service user, exactly
+  as the build runs it:
+
+  ```bash
+  R=/opt/atlas/current
+  cd /tmp && sudo setpriv --reuid=atlas --regid=atlas --clear-groups --no-new-privs \
+      env -i PATH=/usr/bin:/bin LC_ALL=C HOME=/nonexistent PYTHONDONTWRITEBYTECODE=1 \
+      ATLAS_REPO_ROOT=$R OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+      $R/.venv/bin/atlas --repo-root $R optimize verify $R/docs/results/atlas-m4-optimization-v1
+  sudo atlas-deploy verify
+  ```
 - **Basic authentication** is a shared-secret scheme: no MFA, no per-user roles. Everyone
   with an account can run simulations (rate-limited). Fine for a private research
   deployment; not for a public service.

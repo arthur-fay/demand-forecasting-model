@@ -275,10 +275,34 @@ See [the M8 audit](audit/README.md).
 - The README rewritten as an account of ATLAS, with the original July 2026 project kept as
   an archived, qualified section.
 - Release candidate 1.0.0, under review. The code carries the version being released
-  (1.0.0); the candidate status is carried by the release-candidate manifest and by a tag
-  `v1.0.0-rc.1` that only the owner creates after approval.
+  (1.0.0). The candidate status is carried by the release-candidate manifest
+  ([release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md)) and by a tag `v1.0.0-rc.1`,
+  which only the owner creates, after approval.
+- Release documents: a [model card](MODEL_CARD.md), a [data card](DATA_CARD.md), the
+  [known limitations](KNOWN_LIMITATIONS.md), the [release gate](release/RELEASE_GATE.md) with
+  its acceptance matrix, and a [phase B runbook](release/VPS_PHASE_B_RUNBOOK.md) (prepared,
+  not executed).
+- A final independent review of the corrected candidate, in two rounds. Its findings were
+  corrected before the candidate was fixed
+  ([audit/M8_CORRECTIONS.md](audit/M8_CORRECTIONS.md) section 7).
+- Verdict: **CONDITIONAL GO** for a private-first research demonstration. NO-GO for
+  operational use and for the `public-demo` profile. A real deployment (phase B) is not
+  authorised. Owner actions:
+  - the licence and the NYC Open Data terms, due now because the repository is public;
+  - accepting the disclosed limitations;
+  - the tags;
+  - the first run of the research-reproduction workflow after the merge;
+  - the dependency caps' review dates.
 
-The lead completes this section when the release candidate is assembled.
+**Deferred to a future protocol version** (each needs new data or would change committed
+results):
+
+- a correctly sized and dependence-robust comparison test, pre-registered before any run;
+- interval quantiles with a finite-sample correction, and coverage tests whose degrees of
+  freedom follow the effective sample size;
+- a new snapshot after 2026-06-30, with recorded extraction metadata, for an untouched
+  evaluation;
+- the generator wording that M8 corrected only by errata (M8-15, M8-17).
 
 ## Known M0 limitations
 
@@ -298,7 +322,8 @@ The lead completes this section when the release candidate is assembled.
   releases at least two weeks old.)
 - **No LICENSE file:** the code licence and the NYC Open Data attribution wording need an
   owner decision. (M8: the README now gives the attribution and states that the source's
-  terms of use have not been verified; both remain owner actions.)
+  terms of use have not been verified. Both remain owner actions, and they are due now: the
+  repository is public, so the release gate makes them a condition of the release.)
 - **Legacy README claims (resolved in M8):** the README kept the original headline claims
   under a notice until M8. M8 rewrote it: it now describes ATLAS first and keeps the
   original project as an archived section in which every claim is qualified in place.

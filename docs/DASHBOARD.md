@@ -455,9 +455,11 @@ npx playwright install chromium # once: npm ci downloads no browser
 npx playwright test            # browser tests (starts the API and two nginx stacks)
 ```
 
-The browser tests use Chromium only: `npx playwright install chromium` downloads it (on a
-bare Debian or Ubuntu host `--with-deps` also installs its system libraries, with sudo), or
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE` names a local one. They also need uv, nginx and openssl on
+By default the browser tests use Chromium: `npx playwright install chromium` downloads it (on
+a bare Debian or Ubuntu host `--with-deps` also installs its system libraries, with sudo), or
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` names a local one. With `ATLAS_E2E_ALL_BROWSERS=1`, the
+API-backed pages and the failure states also run in Playwright's Firefox and WebKit
+(`npx playwright install firefox webkit` first), as CI does (M8; [DEVELOPMENT.md](DEVELOPMENT.md)). They also need uv, nginx and openssl on
 `PATH` (on Debian or Ubuntu `sudo apt-get install nginx`, add `/usr/sbin` to `PATH` and stop
 the nginx service, as CI does) and the ports 8766, 8443, 8444, 8081 and 8082 free.
 
@@ -526,7 +528,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) section 19 for how this fits the M6 package.
 | `tests/test_m7_deploy.py` (57) | the static route class (exact names, no shadowing of the API), both exposed profiles, `nginx -t` without a warning; the static rate (at most twice the API's read rate); compression and types (nothing typed by the requested extension); publication (modes, verification, altered copies replaced, planted files removed); the release manifest; activation order, tunnel, rollback, explicit rollback, prune, status, upgrade plans; verification of the served and published dashboard (links refused); `render --apply` (only the current installed release, as recorded, also through `current`; the ACME site before the first activation; M8-26); a malformed build manifest an error, not a crash; M8: recovery of an activation interrupted during the restart (M8-02), a later tool restoring and rolling back to an older release with its own CSP, Permissions-Policy and descriptor, and unsafe recorded policies refused (M8-03) |
 | `tests/test_m7_proxy.py` (32) | real nginx with TLS and the real API, inside an http block with the distribution's types by extension (as on Ubuntu): accounts, every page and file with its bytes, types, cache and policy; nginx's own 400, 401 and 404 answers in JSON whatever the extension; compression, pages included; methods; unlisted files, links and traversal; the API's own policy beside it; a simulation without a key in the browser; the public demo; the access log; rate limits (static never 429, the API still) |
 | `tests/test_m6_container.py` (+2) | on a disposable Ubuntu 24.04 server with systemd: the dashboard through nginx after a real activation; after the automatic rollback and an explicit rollback from a second verified release to the first (M8-37), the site's dashboard root (the restored release's copy), read from the site file |
-| Playwright (`web/e2e`, 4 projects) | every page in Chromium against the real API, with no error panel; every reference scenario opened; the simulator against the real M4 engine; reflow at 320 px (every disclosure open, a simulation result shown); failures injected at the network layer (a slow answer, an unavailable component, a network failure, a contract violation and an integrity violation, a simulation stopped at its deadline or refused for lack of a worker, a page whose code fails to load); keyboard-only use (every simulator field by Tab and Shift+Tab against both sticky bars); axe's WCAG 2.2 A/AA rules on every page in both themes, with tables and disclosures open, on a simulation result, a failed run, the error summary of two invalid fields and the phone layout; the current page in forced colours; no CSP violation; a phone viewport; the Forecasting page's dates in the Pacific/Kiritimati and America/Los_Angeles time zones; the footer's licence notices; the private and public-demo nginx sites (accounts, simulations, the read-only demo) |
+| Playwright (`web/e2e`, 4 Chromium projects; in CI also Firefox and WebKit for `dashboard.spec.ts` and `failures.spec.ts`) | every page in Chromium against the real API, with no error panel; every reference scenario opened; the simulator against the real M4 engine; reflow at 320 px (every disclosure open, a simulation result shown); failures injected at the network layer (a slow answer, an unavailable component, a network failure, a contract violation and an integrity violation, a simulation stopped at its deadline or refused for lack of a worker, a page whose code fails to load); keyboard-only use (every simulator field by Tab and Shift+Tab against both sticky bars); axe's WCAG 2.2 A/AA rules on every page in both themes, with tables and disclosures open, on a simulation result, a failed run, the error summary of two invalid fields and the phone layout; the current page in forced colours; no CSP violation; a phone viewport; the Forecasting page's dates in the Pacific/Kiritimati and America/Los_Angeles time zones; the footer's licence notices; the private and public-demo nginx sites (accounts, simulations, the read-only demo) |
 | CI job `dashboard` | format, lint, types, contract types up to date, Vitest with coverage, a reproducible build (`git diff --exit-code -- dist`), `verify:dist`, size budgets, `npm audit`, Playwright |
 
 ## 14. Limitations
@@ -538,8 +540,10 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) section 19 for how this fits the M6 package.
 - **One account model.** HTTP Basic through nginx: no per-user roles; everyone with an
   account can run simulations (rate-limited).
 - **Accessibility** is tested automatically and by keyboard; not with screen-reader users.
-- **Browsers**: tested in Chromium only (desktop and a phone profile). The code uses
-  standard APIs supported by current Firefox and Safari, but they were not run. Trusted
+- **Browsers**: the whole browser suite runs in Chromium (desktop and a phone profile). Since
+  M8, the API-backed pages and every injected failure state also run in Playwright's Firefox
+  and WebKit (Safari's engine) in CI. The accessibility, keyboard, reflow, phone and nginx
+  specs run in Chromium only. Real Safari and real mobile devices were not tested. Trusted
   Types is enforced by Chromium-based browsers; others ignore that directive (the rest of
   the policy still applies).
 - **The npm release-age cooldown** is a review rule, not enforced by a tool.
@@ -712,5 +716,6 @@ dashboard's sentence; this document's status has none); most are in
 | M8-11 (dashboard part): this document still said M7 awaited review; the Methods page claimed "reproduction of every legacy figure" | LOW | the status above; "within its published precision (one RMSE rounding is a declared exception)" | Vitest (the Methods text) |
 | Observation: the calibration chart's "Perfect calibration" key was declared dashed, and never drawn (a one-series chart had no legend) | — | the legend is drawn whenever it has two entries; the key is dotted, like the diagonal | Vitest |
 
-The statements of section 14 on what is not tested (screen readers, Firefox, Safari) still
-hold.
+The statements of section 14 on what is not tested (screen readers, real Safari, real
+devices) still hold; Firefox and WebKit now run in CI for the API-backed pages and the
+failure states.

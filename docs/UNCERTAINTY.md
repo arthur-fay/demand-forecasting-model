@@ -628,7 +628,8 @@ of the "conservative" coverage p-value (sections 4 and 8); the effective window 
 `fixed365` in the selection period (sections 5 and 9.1); unadjusted and oversized p-values
 and the H1 caveat next to the ATLAS-versus-B\* comparison (sections 9, 9.4, 9.5, 9.7, 9.9
 and 11); the scope of the effective-sample-size statements (sections 9.9 and 11); the
-supporting file `spot_check_intervals.csv` (section 9); and an erratum on the wording of
+finite-sample bias of the construction and the degrees of freedom of the HAC coverage
+intervals (section 11); the supporting file `spot_check_intervals.csv` (section 9); and an erratum on the wording of
 the committed projection artefacts, now described as an archived projection (section 9.8).
 
 ## 11. Limitations
@@ -645,6 +646,20 @@ the committed projection artefacts, now described as an archived projection (sec
   null more often than its nominal level at this horizon and sample size
   ([BACKTESTING.md](BACKTESTING.md), section 12), and its p-values are not adjusted for
   multiplicity (section 9).
+- **Construction bias and HAC degrees of freedom (M8 note).** The empirical quantiles use
+  type 7 without an `(n + 1)` finite-sample correction. Even under exchangeability, that
+  lowers the expected coverage of a 95 % interval to about 94.5 % at n = 365 (about 93.8 % at
+  n = 153). The bias is larger than the 0.2-0.3 points by which the two 95 % buckets missed
+  the 3-point tolerance, so with a corrected construction the status might have been
+  `insufficient_evidence` rather than `failed_calibration`. Neither is decision-grade, and the
+  pre-registered result stands as computed.
+
+  The HAC intervals of the coverage use `t(335)` critical values despite 8-9 effective
+  observations. They are narrower than a `t(ESS − 1)` reference would give (±14.6 instead of
+  ±17.5 points at 80 %), which is one more reason to read them as indicative.
+
+  Both points are recorded for a future protocol version
+  ([audit/M8_SCIENTIFIC_VALIDATION.md](audit/M8_SCIENTIFIC_VALIDATION.md) section 3).
 - **Exchangeability fails.** Level shifts, growth and year-end make past errors an imperfect
   guide to future errors; a 365-day window spans one annual cycle at most.
 - **Thresholds.** The historical threshold is a demand percentile and the hypothetical
