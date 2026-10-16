@@ -1,9 +1,9 @@
 # Roadmap and deferred work
 
-Each milestone requires separate approval. M0-M6 phase A are merged; M6 phase B (a real
-deployment) needs separate authorisation (DEPLOYMENT.md section 18). M7 (the web dashboard)
-is implemented on `feature/atlas-m7-dashboard` and awaits review. Nothing from M8 onward is
-implemented.
+Each milestone requires separate approval. M0-M7 are merged (M7, the web dashboard, in
+`194fa4a`); M6 phase B (a real deployment) needs separate authorisation (DEPLOYMENT.md
+section 18). M8, the final audit and its corrections, prepares release candidate 1.0.0,
+which is under review.
 
 ## M0: Foundation (merged)
 
@@ -215,7 +215,7 @@ Deliberately not done in M6 phase A:
 - **A metrics stack (Prometheus, Grafana):** the timer-driven monitor covers the needs.
 - **Public exposure:** the public-demo profile exists, refused until a security review.
 
-## M7: Interactive web dashboard (implemented; awaiting approval)
+## M7: Interactive web dashboard (merged)
 
 See [DASHBOARD.md](DASHBOARD.md).
 
@@ -261,10 +261,24 @@ Deliberately not done in M7:
   browser must never hold one.
 - **Live data:** the dashboard shows the committed, archived outputs only.
 
-## Later milestones (deferred, outline only)
+## M8: Final audit, corrections and release candidate (under review)
 
-- **M8:** not started; needs its own approval (DASHBOARD.md section 15 lists the risks M7
-  leaves for it).
+See [the M8 audit](audit/README.md).
+
+- A release audit of `194fa4a` (`main` after the M7 merge), recorded before any correction:
+  a baseline assessment, a register of verified findings with their evidence, and the
+  checks that held up.
+- Corrections of the verified findings, each with a regression test or a recorded check.
+  The research results are not changed; where a finding concerns a committed result, the
+  correction is an erratum in the documentation (for example the size of the M2
+  Diebold-Mariano test, [BACKTESTING.md](BACKTESTING.md), section 12).
+- The README rewritten as an account of ATLAS, with the original July 2026 project kept as
+  an archived, qualified section.
+- Release candidate 1.0.0, under review. The code carries the version being released
+  (1.0.0); the candidate status is carried by the release-candidate manifest and by a tag
+  `v1.0.0-rc.1` that only the owner creates after approval.
+
+The lead completes this section when the release candidate is assembled.
 
 ## Known M0 limitations
 
@@ -272,12 +286,17 @@ Deliberately not done in M7:
   M5 pins them to the commits those tags pointed to: `actions/checkout` v4.4.0 and
   `actions/setup-python` v5.6.0. uv itself is installed from a hash-pinned requirements file.
 - **No dependency cooldown:** the original lockfile was resolved without a release-age
-  cooldown (`exclude-newer`). Since M4, new packages are held to releases at least two weeks
-  old through `tool.uv.constraint-dependencies` (see `pyproject.toml`).
+  cooldown (`exclude-newer`). Since M4 a two-week cooldown is a review rule, not enforced by
+  a tool: `tool.uv.constraint-dependencies` in `pyproject.toml` only caps three named
+  packages (optype, starlette and truststore), each held until its review date; it does not
+  hold back any other new or upgraded package. See [DEVELOPMENT.md](DEVELOPMENT.md).
+  (**M8 correction:** this previously said that the constraints hold every new package to
+  releases at least two weeks old.)
 - **No LICENSE file:** the code licence and the NYC Open Data attribution wording need an
-  owner decision.
-- **Legacy README claims:** the legacy README still contains the original headline claims. A
-  notice at its top points to this documentation; the claims themselves are not rewritten in
-  M0.
+  owner decision. (M8: the README now gives the attribution and states that the source's
+  terms of use have not been verified; both remain owner actions.)
+- **Legacy README claims (resolved in M8):** the README kept the original headline claims
+  under a notice until M8. M8 rewrote it: it now describes ATLAS first and keeps the
+  original project as an archived section in which every claim is qualified in place.
 - **Legacy-specific reproduction:** reproduction rules exist only for `legacy-v0`. Other
   snapshots report the stage as "not applicable".
