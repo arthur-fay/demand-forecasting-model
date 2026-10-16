@@ -1,0 +1,98 @@
+name: Dependency audit
+
+# Known vulnerabilities in the locked dependencies, checked weekly (an advisory published
+# after the last push would otherwise go unnoticed), on demand, and on every pull request
+# that changes a lock or a dependency declaration. It checks the locks; it changes nothing.
+# docs/DEVELOPMENT.md ("Dependency maintenance") says what to do when it fails.
+# GitHub disables scheduled workflows in a repository without activity for 60 days.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - uv.lock
+      - pyproject.toml
+      - web/package.json
+      - web/package-lock.json
+      - .github/ci-requirements.txt
+      - .github/workflows/dependency-audit.yml
+
+permissions:
+  contents: read
+
+env:
+  # pip-audit, pinned to a release older than the two-week cooldown, and its own
+  # dependencies resolved as PyPI listed them on a fixed date (raise both together).
+  PIP_AUDIT: pip-audit==2.10.1
+  PIP_AUDIT_EXCLUDE_NEWER: "2026-10-02T00:00:00Z"
+
+jobs:
+  python:
+    name: Locked Python packages (pip-audit against the PyPI advisory data)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # The deployment runs CPython 3.12 on Linux; environment markers are evaluated for it.
+      UV_PYTHON: "3.12"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-pinned uv
+        run: python -m pip install --disable-pip-version-check --require-hashes -r .github/ci-requirements.txt
+
+      - name: Export the locked requirements with their hashes (runtime and development)
+        run: |
+          uv export --quiet --frozen --format requirements-txt --no-dev --no-emit-project \
+            -o "$RUNNER_TEMP/runtime-requirements.txt"
+          uv export --quiet --frozen --format requirements-txt --only-dev --no-emit-project \
+            -o "$RUNNER_TEMP/dev-requirements.txt"
+
+      - name: Runtime dependencies (deployed with every release) have no known vulnerability
+        run: |
+          uv tool run --exclude-newer "$PIP_AUDIT_EXCLUDE_NEWER" --from "$PIP_AUDIT" \
+            pip-audit --strict --require-hashes --disable-pip --progress-spinner off \
+            --desc on --aliases on -r "$RUNNER_TEMP/runtime-requirements.txt"
+
+      - name: Development dependencies (tests and tooling, never deployed) have no known vulnerability
+        if: ${{ !cancelled() }}
+        run: |
+          uv tool run --exclude-newer "$PIP_AUDIT_EXCLUDE_NEWER" --from "$PIP_AUDIT" \
+            pip-audit --strict --require-hashes --disable-pip --progress-spinner off \
+            --desc on --aliases on -r "$RUNNER_TEMP/dev-requirements.txt"
+
+  npm:
+    name: Locked npm packages (npm audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22"
+          # npm audit reads package-lock.json only; nothing is installed or cached.
+          package-manager-cache: false
+
+      - name: Shipped dependencies (the dashboard bundle) have no known vulnerability of moderate severity or above
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: All locked dependencies, build and test tools included, have none of high severity or above
+        if: ${{ !cancelled() }}
+        run: npm audit --audit-level=high

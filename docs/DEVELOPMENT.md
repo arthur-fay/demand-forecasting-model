@@ -98,10 +98,12 @@ for its bundled HiGHS linear-programming solver (NumPy and the rest come with th
 request-read deadline builds on. The tests use `httpx2`, the HTTP client Starlette's test
 client asks for.
 Development tools (`pytest`, `pytest-cov`, `hypothesis`, `ruff`, `mypy`, `pandas-stubs`,
-`scipy-stubs`) are in the `dev` dependency group, installed by default. Releases younger
-than two weeks are held back through `tool.uv.constraint-dependencies`: `optype` (a
-typing-only dependency of `scipy-stubs`, since M4), and `starlette` and `truststore` (since
-M5).
+`scipy-stubs`) are in the `dev` dependency group, installed by default. New and upgraded
+packages are held to releases at least two weeks old. That is a review rule, not a setting
+uv enforces (see [Dependency maintenance](#dependency-maintenance)); three caps in
+`tool.uv.constraint-dependencies` hold back releases that were younger than that when the
+lock was resolved: `optype` (a typing-only dependency of `scipy-stubs`, since M4), and
+`starlette` and `truststore` (since M5).
 
 ## Run the checks
 
@@ -312,19 +314,94 @@ nginx and openssl on `PATH` and start the API and two nginx stacks; see
 rebuilds it and fails on any difference. `tests/test_m7_fixtures.py` keeps the fixtures of
 the frontend tests identical to the API's answers.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs all of the above plus `atlas check`,
-`atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
-`atlas backtest verify`, an M3 smoke run followed by `atlas uncertainty verify`, and the M4
-smoke and reference runs followed by `atlas optimize verify` and `inspect`, and an M5 step
-that checks the committed OpenAPI contract and serves the reference data from a real server,
-shellcheck of the deployment scripts, and (job `deploy-e2e`) the M6 end-to-end deployment
-test in a disposable systemd container, and (job `dashboard`) the dashboard's checks, a
-reproducible build and the browser tests, on pushes to `main` and on pull requests.
+GitHub Actions runs two workflows:
+
+- `.github/workflows/ci.yml`, on pushes to `main` and on pull requests: all of the above
+  plus `atlas check`, `atlas quality`, `atlas backtest legacy`, a smoke backtest followed by
+  `atlas backtest verify`, an M3 smoke run followed by `atlas uncertainty verify`, the M4
+  smoke and reference runs followed by `atlas optimize verify` and `inspect`, an M5 step
+  that checks the committed OpenAPI contract and serves the reference data from a real
+  server, shellcheck of the deployment scripts, (job `deploy-e2e`) the M6 end-to-end
+  deployment test in a disposable systemd container, and (job `dashboard`) the dashboard's
+  checks, a reproducible build and the browser tests.
+- `.github/workflows/dependency-audit.yml`, weekly, on demand and on pull requests that
+  change a lock or a dependency declaration: known vulnerabilities in the locked Python and
+  npm packages (see [Dependency maintenance](#dependency-maintenance)).
 
 Every action is pinned to a full commit SHA with its version in a comment:
 `actions/checkout` v7.0.1, `actions/setup-python` v7.0.0, `actions/setup-node` v7.0.0 and
 `actions/upload-artifact` v7.0.1, all of which run on Node.js 24. uv is installed from a
 hash-pinned requirements file (`.github/ci-requirements.txt`).
+
+## Dependency maintenance
+
+The repository owner approves every change to `uv.lock`, `web/package-lock.json` and the
+pinned actions, lifts the cooldown caps and decides on exceptions. No Dependabot or
+Renovate configuration exists: upgrades are deliberate commits.
+
+**Release-age cooldown.** A new or upgraded Python package, npm package or GitHub Action
+must have been published at least two weeks earlier (publication time on PyPI, the npm
+registry, or the date of the action's release commit). Neither uv nor npm enforces this
+here; it is a review rule, checked by whoever changes a lock. uv's `exclude-newer` setting
+could enforce it, but adopting it would re-resolve the lock and downgrade eight packages
+that entered at M0, numpy among them (M8 audit, finding M8-33), so every result would have
+to be verified again.
+
+**Caps.** When a lock is resolved while a wanted release is younger than two weeks, a cap
+in `tool.uv.constraint-dependencies` (`pyproject.toml`) holds it back, with its review date
+in the comment beside it. Caps do not expire on their own: on the review date the owner
+removes the cap, runs `uv lock --upgrade-package <name>` and the full checks and commits
+the lock, or records why the cap stays.
+
+| Cap | Release held back | Published (PyPI, UTC) | Review date |
+|---|---|---|---|
+| `optype<0.19` (typing only, via `scipy-stubs`) | 0.19.0 | 2026-10-02 23:14 | 2026-10-16 |
+| `truststore<0.10.5` (tests only, via `httpx2`) | 0.10.5 | 2026-10-12 22:27 | 2026-10-26 |
+| `starlette<1.8` (runtime, via `fastapi`) | 1.8.0 | 2026-10-13 07:54 | 2026-10-27 |
+
+**Known vulnerabilities.** `.github/workflows/dependency-audit.yml` audits the locks every
+Monday, on demand, and on every pull request that changes `uv.lock`, `pyproject.toml`,
+`web/package.json` or `web/package-lock.json`:
+
+- `pip-audit` (an exact release older than the cooldown, run with `uv tool run`) checks the
+  hash-pinned export of the runtime dependencies and, separately, of the development
+  dependencies against the PyPI advisory data, and fails on any known vulnerability;
+- `npm audit --omit=dev --audit-level=moderate` checks what ships in the dashboard bundle,
+  and `npm audit --audit-level=high` checks every locked package (the CI `dashboard` job
+  also runs the latter on every push).
+
+GitHub disables scheduled workflows in a repository without activity for 60 days; the
+owner re-enables the workflow under Actions, and runs it by hand before every release.
+The Python part, locally:
+
+```bash
+uv export --frozen --format requirements-txt --no-dev --no-emit-project -o runtime.txt
+uv export --frozen --format requirements-txt --only-dev --no-emit-project -o dev.txt
+uv tool run --exclude-newer 2026-10-02T00:00:00Z --from pip-audit==2.10.1 \
+    pip-audit --strict --require-hashes --disable-pip -r runtime.txt   # then dev.txt
+```
+
+On 2026-10-16 these commands found no known vulnerability in the lock of commit `8f077ed`:
+pip-audit 2.10.1 checked the 18 runtime packages that apply on Linux with CPython 3.12 (of
+19 exported; `tzdata` is installed only on Windows) and 27 of the 29 development packages
+(the other two are for Windows and WebAssembly only), and both `npm audit` levels reported
+0 vulnerabilities. As a control, the same pip-audit release reported `h11==0.14.0`
+(PYSEC-2026-348, fixed in 0.16.0) and exited with status 1.
+
+**A vulnerability.** A fix for a vulnerability that affects ATLAS is taken as soon as it is
+published, inside the cooldown if need be: the owner lifts any cap in the way, upgrades only
+the affected package, reads its changelog, runs the full checks, notes the exception in the
+commit message, and builds and deploys a new release. A deployed release keeps the
+environment it was built with (its `.venv`, from `uv.lock`); the server's
+unattended-upgrades do not update it. An advisory that does not affect ATLAS (for example
+one in a development tool, or in a code path ATLAS never calls) may be ignored with
+`--ignore-vuln <id>` in the workflow, with the reason and a review date beside it.
+
+**GitHub Actions.** To update an action, take its newest release that is at least two weeks
+old and runs on a supported Node.js runtime: read the tag's commit with
+`git ls-remote --tags https://github.com/actions/<name>`, fetch that commit and check
+`runs.using` in its `action.yml` and the release's breaking changes against the inputs the
+workflows use, then pin the full SHA with the version in a comment.
 
 ## Versioning
 
