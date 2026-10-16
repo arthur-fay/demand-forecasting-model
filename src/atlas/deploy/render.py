@@ -10,7 +10,10 @@ release (``deploy/templates/``) and its committed OpenAPI contract
 * ``/etc/systemd/journald.conf.d/60-atlas.conf``: persistent, capped logs;
 * ``/etc/nginx/sites-available/atlas.conf``, except for the tunnel profile. Its ``acme``
   stage serves only ACME challenges on port 80 (to obtain the first certificate); the
-  ``tls`` stage (the default) is the complete site.
+  ``tls`` stage (the default) is the complete site: the contract's routes and (M7) the
+  dashboard's exact pages and files, read from the release's published copy
+  (:mod:`atlas.deploy.publish`) with the dashboard's own Content-Security-Policy, and the
+  deployment descriptor that tells the dashboard what this profile allows.
 
 Templates use ``{{name}}`` placeholders. Every value inserted comes from the validated
 configuration or from constants, and is checked against a character set without
@@ -31,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
+from atlas.dashboard import DASHBOARD_HEADERS, DashboardBuild, DashboardError, descriptor
 from atlas.deploy.layout import (
     ALERT_SERVICE,
     API_HOST,
@@ -41,8 +45,20 @@ from atlas.deploy.layout import (
     SERVICE_GROUP,
     SERVICE_USER,
     Layout,
+    valid_release_id,
 )
-from atlas.deploy.routes import COMPUTE, READINESS, Route, load_routes, routed
+from atlas.deploy.routes import (
+    COMPUTE,
+    DASHBOARD,
+    PROFILE_ACCESS,
+    READINESS,
+    Route,
+    StaticRoute,
+    dashboard_build,
+    dashboard_routes,
+    load_routes,
+    routed,
+)
 from atlas.deploy.siteconfig import DeployConfig, runtime_environment
 
 TEMPLATES: Final = Path("deploy") / "templates"
@@ -50,6 +66,14 @@ STAGES: Final = ("acme", "tls")
 _PLACEHOLDER: Final = re.compile(r"\{\{([a-z0-9_]+)\}\}")
 _SAFE: Final = re.compile(r"[A-Za-z0-9._:/,@+=%\-\[\]]*")
 NGINX_LOG_DIR: Final = "/var/log/nginx"
+#: (M7) Per-client limit of the dashboard's static files, in their own zone so that loading
+#: the dashboard (about ten files at once, more with several tabs) never uses up the API's
+#: read limit. nginx applies limits before authentication, so this is also the rate at which
+#: a client without an account can try passwords on these paths: twice the API's, no more
+#: (the zones add up: 30 requests/s per client in all; the descriptor counts as an API read).
+#: Their connections still count against the per-client connection cap.
+STATIC_RATE: Final = "20r/s"
+STATIC_BURST: Final = 60
 JOURNAL_DROPIN: Final = "60-atlas.conf"
 JOURNAL_MAX_USE: Final = {"low": "200M", "standard": "500M"}
 
@@ -115,6 +139,43 @@ def security_headers(indent: int, hsts_max_age: int) -> list[str]:
     return [" " * indent + line for line in lines]
 
 
+def dashboard_headers(indent: int, hsts_max_age: int, cache_control: str) -> list[str]:
+    """The response headers of a dashboard location: the server's security headers with
+    the dashboard's Content-Security-Policy (and its other headers) and its cache policy."""
+    lines = [
+        f'add_header Strict-Transport-Security "max-age={hsts_max_age}" always;',
+        'add_header X-Content-Type-Options "nosniff" always;',
+        'add_header X-Frame-Options "DENY" always;',
+        'add_header Referrer-Policy "no-referrer" always;',
+        *(f'add_header {name} "{value}" always;' for name, value in DASHBOARD_HEADERS.items()),
+        'add_header X-Robots-Tag "noindex, nofollow" always;',
+        f'add_header Cache-Control "{cache_control}" always;',
+    ]
+    return [" " * indent + line for line in lines]
+
+
+def file_type(indent: int, content_type: str) -> list[str]:
+    """The type of a dashboard location's one file: the bare type as its default type and
+    the charset added by nginx's charset filter. (A charset inside default_type would be
+    part of the type gzip_types compares, so the file would never be compressed.)"""
+    mime, _, charset = content_type.partition("; charset=")
+    lines = ["types { }", f"default_type {safe('content_type', mime)};"]
+    if charset:
+        lines.append(f"charset {safe('charset', charset)};")
+        if mime != "text/html":  # (always in charset_types: naming it again is a warning)
+            lines.append(f"charset_types {mime};")
+    return [" " * indent + line for line in lines]
+
+
+def descriptor_for(profile: str) -> str:
+    """The deployment descriptor of an exposed profile (what the dashboard may do)."""
+    if profile == "private":
+        return descriptor("private", "enabled", operational_detail=True).decode("ascii")
+    return descriptor("public-demo", "disabled_public_demo", operational_detail=False).decode(
+        "ascii"
+    )
+
+
 def error_body(code: str, message: str) -> str:
     return (
         '{"error":{"code":"' + code + '","message":"' + message + '",'
@@ -130,10 +191,33 @@ class Renderer:
     layout: Layout
     release_dir: Path
     routes: tuple[Route, ...]
+    #: (M7) The release's dashboard build (``None``: a release built before M7).
+    dashboard: DashboardBuild | None = None
+    #: Where nginx reads it: the release's published copy (:mod:`atlas.deploy.publish`).
+    dashboard_dir: PurePosixPath | None = None
 
     @classmethod
     def for_release(cls, config: DeployConfig, layout: Layout, release_dir: Path) -> Renderer:
-        return cls(config, layout, release_dir, tuple(load_routes(release_dir)))
+        try:
+            build = dashboard_build(release_dir)
+        except DashboardError as exc:
+            raise RenderError(f"{release_dir}: the dashboard build is invalid: {exc}") from exc
+        # The release's own id names its copy, also through a link (/opt/atlas/current).
+        release_id = release_dir.resolve().name
+        published = (
+            layout.dashboard(release_id)
+            if valid_release_id(release_id)
+            # Rendering from a checkout (no release): its own build directory.
+            else PurePosixPath(str(release_dir.resolve() / "web" / "dist"))
+        )
+        return cls(
+            config,
+            layout,
+            release_dir,
+            tuple(load_routes(release_dir)),
+            build,
+            published if build is not None else None,
+        )
 
     def template(self, name: str) -> str:
         try:
@@ -208,6 +292,7 @@ class Renderer:
             "profile": config.profile,
             "domain": domain,
             "read_rate": safe("read_rate", resources.read_rate),
+            "static_rate": STATIC_RATE,
             "read_burst": str(resources.read_burst),
             "compute_rate": safe("compute_rate", resources.compute_rate),
             "connections_per_client": str(resources.connections_per_client),
@@ -265,7 +350,121 @@ class Renderer:
             "bad_request_body": error_body(*NGINX_ERRORS[0][1:]),
             "error_locations": self._error_locations(),
             "locations": "\n".join(self._location(route) for route in exposed) + "\n",
+            "dashboard_locations": self._dashboard_locations(),
         }
+
+    def dashboard_static_routes(self) -> list[StaticRoute]:
+        """The dashboard URLs this deployment's site serves (none without a build)."""
+        if self.dashboard is None or DASHBOARD not in PROFILE_ACCESS[self.config.profile]:
+            return []
+        return dashboard_routes(self.dashboard, self.routes)
+
+    def _dashboard_locations(self) -> str:
+        """The dashboard's locations: its pages (each answered with ``index.html``), its
+        content-hashed assets (an alternation of their exact names), its other top-level
+        files, and the descriptor. Nothing else of the published directory is reachable,
+        nginx follows no link in it, and only GET and HEAD are answered."""
+        routes = self.dashboard_static_routes()
+        if not routes or self.dashboard_dir is None:
+            return ""
+        root = safe("dashboard_dir", str(self.dashboard_dir))
+        hsts = self.config.hsts_max_age
+        method = "        if ($request_method !~ ^(GET|HEAD)$) { return 405; }"
+        serve = [
+            f"        limit_req zone=atlas_static burst={STATIC_BURST} nodelay;",
+            f"        root {root};",
+            "        disable_symlinks on;",
+        ]
+        pages = [r for r in routes if r.kind == "page"]
+        assets = [r for r in routes if r.kind == "file" and r.url.startswith("/assets/")]
+        others = [r for r in routes if r.kind == "file" and not r.url.startswith("/assets/")]
+        blocks = [
+            "",
+            "    # Dashboard (M7): exactly the pages and files of this release's verified build,",
+            f"    # read from its published copy {root}. The descriptor says",
+            f"    # what the {self.config.profile} profile allows the dashboard to do.",
+        ]
+        if pages:
+            names = "|".join(
+                safe("dashboard_page", r.url.lstrip("/")) for r in pages if r.url != "/"
+            )
+            pattern = f"^/(?:{names})?$" if names else "^/$"
+            entry = pages[0]
+            blocks.append(
+                "\n".join(
+                    [
+                        "    # Pages (web/src/pages.ts), each answered with index.html.",
+                        f'    location ~ "{pattern}" {{',
+                        method,
+                        *serve,
+                        *file_type(8, entry.content_type),
+                        f"        try_files /{safe('dashboard_file', entry.file or '')} =404;",
+                        *dashboard_headers(8, hsts, entry.cache_control),
+                        "    }",
+                    ]
+                )
+            )
+        if assets:
+            # Names are [A-Za-z0-9_.-] only (atlas.dashboard): '.' is the one regex character.
+            names = "|".join(
+                safe("dashboard_asset", r.url.removeprefix("/assets/")).replace(".", r"\.")
+                for r in assets
+            )
+            types = sorted(
+                {r.content_type.split(";")[0]: r.url.rsplit(".", 1)[-1] for r in assets}.items()
+            )
+            blocks.append(
+                "\n".join(
+                    [
+                        "    # Content-hashed assets: immutable under their names.",
+                        f'    location ~ "^/assets/(?:{names})$" {{',
+                        method,
+                        *serve,
+                        "        types {",
+                        *(f"            {mime} {extension};" for mime, extension in types),
+                        "        }",
+                        "        default_type application/octet-stream;",
+                        "        charset utf-8;",
+                        "        charset_types text/javascript text/css;",
+                        *dashboard_headers(8, hsts, assets[0].cache_control),
+                        "    }",
+                    ]
+                )
+            )
+        for route in others:
+            blocks.append(
+                "\n".join(
+                    [
+                        f"    location = {safe('dashboard_url', route.url)} {{",
+                        method,
+                        *serve,
+                        *file_type(8, route.content_type),
+                        *dashboard_headers(8, hsts, route.cache_control),
+                        "    }",
+                    ]
+                )
+            )
+        descriptor_route = next(r for r in routes if r.kind == "descriptor")
+        # The descriptor's body is answered from a named location reached by try_files: a
+        # `return` here would answer before authentication and the rate limits.
+        blocks.append(
+            "\n".join(
+                [
+                    f"    location = {safe('dashboard_url', descriptor_route.url)} {{",
+                    method,
+                    "        root /nonexistent;",
+                    "        try_files /.atlas-descriptor @atlas_descriptor;",
+                    "    }",
+                    "    location @atlas_descriptor {",
+                    "        default_type application/json;",
+                    # JSON, like the API's answers: their headers and policy (no-store).
+                    *security_headers(8, hsts),
+                    f"        return 200 '{descriptor_for(self.config.profile)}';",
+                    "    }",
+                ]
+            )
+        )
+        return "\n".join(blocks) + "\n"
 
     def _access_control(self) -> str:
         config = self.config

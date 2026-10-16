@@ -1,0 +1,6 @@
+node_modules/
+playwright-report/
+test-results/
+coverage/
+*.tsbuildinfo
+# dist/ IS committed: the release ships the verified build (docs/DASHBOARD.md).

@@ -11,3 +11,8 @@ snapshots/** -text
 *.pbix binary
 *.pdf binary
 *.png binary
+
+# The committed dashboard build and the API answers the frontend tests render are verified
+# byte for byte (web/dist/atlas-dashboard.json, tests/test_m7_fixtures.py).
+web/dist/** -text
+web/src/test/fixtures/** -text

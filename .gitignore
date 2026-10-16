@@ -12,6 +12,10 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+# The dashboard's verified build is committed (docs/DASHBOARD.md): releases need no Node.js.
+!web/dist/
+# The dashboard's build plugin (source, not output).
+!web/build/
 .venv/
 venv/
 
@@ -40,3 +44,9 @@ Thumbs.db
 
 # --- Notebooks ------------------------------------------------------------
 .ipynb_checkpoints/
+
+# --- Dashboard (M7) toolchain -----------------------------------------------
+node_modules/
+web/playwright-report/
+web/test-results/
+web/coverage/

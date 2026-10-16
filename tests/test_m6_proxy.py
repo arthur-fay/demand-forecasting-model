@@ -326,7 +326,6 @@ def test_authenticated_routes_reach_the_api_with_their_methods_only(private: Sit
 @pytest.mark.parametrize(
     "path",
     [
-        "/",
         "/docs",
         "/redoc",
         "/openapi.json",

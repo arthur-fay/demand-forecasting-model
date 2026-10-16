@@ -10,12 +10,16 @@ templates in `deploy/templates/`.
 > to any server, domain or DNS record. Deploying it (phase B) needs separate approval; the
 > exact requirements are in [section 18](#18-authorising-phase-b).
 >
+> **M7** adds the web dashboard to every release: nginx serves a verified copy of it next to
+> the API, and activation, verification and rollback cover it with the API
+> ([section 19](#19-the-dashboard-m7), [DASHBOARD.md](DASHBOARD.md)).
+>
 > **What the deployed software is.** ATLAS serves research outputs. The forecast is an
 > unvalidated point forecast; the M3 prediction intervals have the status
 > **FAILED_CALIBRATION**; every M4 operational parameter is **HYPOTHETICAL**. The API says so
 > on every response (`integrity` block, `validated_recommendation: false` fixed by the
 > schema), and the deployment checks that it still does after every activation
-> ([section 8](#8-checking-health)). **A deployed ATLAS is not a validated NYC staffing or
+> ([section 8](#8-starting-stopping-and-checking-health)). **A deployed ATLAS is not a validated NYC staffing or
 > resource-allocation system** and must never be presented as one.
 
 Contents:
@@ -38,7 +42,7 @@ Contents:
 16. Testing
 17. Remaining limitations
 18. Authorising phase B
-19. Readiness for M7
+19. The dashboard (M7)
 20. Independent review
 
 ## 1. Architecture
@@ -73,12 +77,20 @@ Contents:
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+In the private and public-demo profiles nginx also serves the dashboard (M7): its pages and
+files by their exact names from a verified copy of the release's build, with the
+dashboard's own Content-Security-Policy, behind the same accounts and allow-list, with its
+own per-client limit (20 requests/s, burst 60) so that loading the page never uses up the
+API's; only its deployment descriptor, one small request per page load, counts against the
+API's read limit ([section 19](#19-the-dashboard-m7)).
+
 On disk (`src/atlas/deploy/layout.py`):
 
 | Path | Owner, mode | Content |
 |---|---|---|
 | `/opt/atlas/releases/<id>/` | root:atlas, files 0440/0550 | one immutable release: the exported commit (no `.git`), its `.venv`, `release.json` |
 | `/opt/atlas/current` | link | `releases/<id>`, replaced atomically on activation |
+| `/opt/atlas/dashboard/<id>/` | root:www-data, dirs 0750, files 0640 | (M7) the release's dashboard build as nginx serves it: a verified copy made at activation, one per release |
 | `/opt/atlas/tools/uv/` | root, 0755 | the hash-pinned uv (0.11.32) used by release builds |
 | `/etc/atlas/deploy.env` | root, 0644 | the deployment configuration ([section 6](#6-configuration)); no secret |
 | `/etc/atlas/atlas.env` | root, 0644 | the API's environment, rendered from `deploy.env`; no secret |
@@ -346,13 +358,14 @@ release itself, so the unit, the API environment and the nginx site cannot disag
 |---|---|---|---|
 | Exposure | nothing; SSH tunnel | HTTPS for one domain | HTTPS for one domain |
 | Authentication | SSH | HTTP Basic on **every** route, health included | none |
-| Routes | the API on loopback | every operation of the contract | precomputed GET endpoints (but `/api/v1/system`) and `/health/live` only |
+| Routes | the API on loopback (and the dashboard, M7) | every operation of the contract, and the dashboard (M7) | precomputed GET endpoints (but `/api/v1/system`), `/health/live` and the read-only dashboard (M7) only |
 | Simulations | with the key | yes; nginx adds the key; 30/min per client (`low`: 12/min) | **not routed** |
 | Operational detail (`/health/ready`, `/api/v1/system`), docs | yes / opt-in | yes; docs never | not routed |
 | Firewall | 22 | 22, 80, 443 | 22, 80, 443 |
 | Allowed without further review | yes | yes (phase B approval) | **no**: refused without `ATLAS_DEPLOY_SECURITY_REVIEW` |
 
-Access matrix (from `docs/api/openapi.json`; any other path is a JSON 404, answered after
+Access matrix (the API's operations from `docs/api/openapi.json`, the dashboard's paths from
+the release's verified build manifest (M7); any other path is a JSON 404, answered after
 the allow-list, authentication and rate limits, so 401 without an account; a wrong method
 on a route is a JSON 405):
 
@@ -363,6 +376,7 @@ on a route is a JSON 405):
 | `GET /api/v1/models`, `/forecasts`, `/forecasts/history`, `/forecasts/metrics`, `/uncertainty/status`, `/uncertainty/intervals`, `/scenarios`, `/scenarios/comparison`, `/scenarios/{id}`, `/simulations/parameters` | read (precomputed) | account | open |
 | `POST /api/v1/simulations` | compute | account + compute limit; nginx adds the key | 404 |
 | `/docs`, `/redoc`, `/openapi.json` | documentation | 404 | 404 |
+| `GET`/`HEAD` `/` and the other dashboard pages, `/assets/<exact name>`, `/favicon.svg`, `/atlas-deployment.json` | dashboard (M7, static: the pages, assets and favicon in their own limit `atlas_static`) | account | open (the descriptor says simulations are disabled) |
 
 Do not assume the M5 simulation key protects the GET endpoints: it does not. In the private
 profile nginx protects them; in the tunnel profile only SSH reaches them.
@@ -508,6 +522,21 @@ fingerprint (`5ab8b3a5...`); the SHA-256 of every research artifact (`snapshots/
 the API contract's SHA-256; the scientific status (`failed_calibration`, `HYPOTHETICAL`,
 `validated_recommendation: false`); the build time, uv version and checks passed.
 
+The manifest also records the dashboard (M7): its version, every file's SHA-256 and the
+build manifest's SHA-256; `plan-upgrade` says whether it changes.
+
+**From M6 to M7**, plan and activate with the new release's own tool, in every profile:
+`sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`, then
+`... activate <new id>`. In the private and public-demo profiles the M6 tool cannot render
+the M7 site template (it has new placeholders): its `plan-upgrade` fails with a
+`RenderError`, and its `activate` refuses before changing anything. In the tunnel profile
+(no nginx site) the M6 tool plans and activates the M7 release, but never runs the M7 check
+that the API serves the dashboard. The first activation in an exposed profile creates
+`/opt/atlas/dashboard` (root:www-data 0750) if the bootstrap was run from M6; nothing needs
+to be prepared by hand.
+Rolling back to an M6 release with the M7 tool works (an M6 release has no dashboard to
+publish).
+
 The downtime of an activation is the restart: about 3-6 s. The old release keeps serving
 while the new one is built and checked.
 
@@ -545,8 +574,16 @@ cd /opt/atlas && sudo ln -sfn releases/<good-id> current.new && sudo mv -T curre
 sudo systemctl restart atlas && curl -s http://127.0.0.1:8000/health/ready
 ```
 
-An explicit rollback restores the code, environment and research artifacts of the chosen
-release, with the current `deploy.env` re-rendered from that release's templates. No release
+This restores the API only: `atlas.env`, the units and the nginx site stay as rendered for
+the newer release, so in an exposed profile nginx keeps its routes and serves that release's
+dashboard (`/opt/atlas/dashboard/<newer id>`, M7) next to the older API. As soon as the
+tooling runs again, `sudo atlas-deploy rollback --to <good-id>` re-renders and verifies them.
+
+An explicit rollback (`atlas-deploy rollback`) restores the code, environment and research
+artifacts of the chosen release, with the current `deploy.env` re-rendered from that
+release's templates. The nginx site of the restored release points at that release's
+dashboard copy, so the browser always gets the dashboard built with the API it talks to
+(M7). No release
 is ever modified or deleted by an activation, so a failed deployment cannot alter the
 research outputs of any release; `prune` never removes the current release, the rollback
 target or the last verified state's release, and waits for a running build.
@@ -589,8 +626,8 @@ password is `secrets add-user NAME --generate` again.
 
 | Concern | Control | Residual risk |
 |---|---|---|
-| Unauthorised exposure | private-first profiles; the API binds 127.0.0.1 only (fixed in the unit) and systemd denies it any non-loopback address (`IPAddressDeny=any`); nginx reaches it through a Unix socket in the service's own runtime directory, so no other local account can stand in for it (and receive the key nginx adds) while it restarts; nginx routes only the contract's operations; returning to the tunnel profile removes the nginx site; ufw default deny; public-demo refused without a review and never shows operational detail | a local user on the server can reach the API on loopback: GET endpoints serve committed public research outputs; simulations need the key; while the API is down another local account could listen on port 8000 (only an operator sending the key there by hand is exposed: `verify` and nginx never are) |
-| Authentication | HTTP Basic over TLS on every route; SHA-512-crypt hashes (weak schemes refused); generated 192-bit passwords, chosen ones at least 20 characters; optional network allow-list | no MFA, no lockout (per-client rate limit instead); prefer `ALLOW_CIDRS` or a VPN for stronger protection |
+| Unauthorised exposure | private-first profiles; the API binds 127.0.0.1 only (fixed in the unit) and systemd denies it any non-loopback address (`IPAddressDeny=any`); nginx reaches it through a Unix socket in the service's own runtime directory, so no other local account can stand in for it (and receive the key nginx adds) while it restarts; nginx routes only the contract's operations and the exact files of the release's verified dashboard build (M7); returning to the tunnel profile removes the nginx site; ufw default deny; public-demo refused without a review and never shows operational detail | a local user on the server can reach the API on loopback: GET endpoints serve committed public research outputs; simulations need the key; while the API is down another local account could listen on port 8000 (only an operator sending the key there by hand is exposed: `verify` and nginx never are) |
+| Authentication | HTTP Basic over TLS on every route; SHA-512-crypt hashes (weak schemes refused); generated 192-bit passwords, chosen ones at least 20 characters; optional network allow-list | no MFA, no lockout (per-client rate limit instead: 10 requests/s on the API, 20 on the dashboard's files (M7), separate zones that add up to 30 per client, counted before authentication); prefer `ALLOW_CIDRS` or a VPN for stronger protection |
 | Secret leakage | the key is generated on the server, root-only, delivered as a systemd credential; never in the environment, the unit, `systemctl show`, logs, the repository or command output (tested); passwords go through stdin to openssl | root can read every secret (by design) |
 | Privilege escalation | user `atlas` without shell, home or capabilities; `NoNewPrivileges`, empty capability set, syscall filter, user namespace; releases root-owned and read-only; activation refuses a release with any file writable by group or others, set-id bits or links outside it; build checks run with `setpriv --no-new-privs` | root runs `atlas-deploy` from a root-owned release (no writable path in between) |
 | Proxy mistakes | a header allow-list: no client header is passed on but `Content-Type` and `Accept` (so `Authorization`, `Cookie`, every `X-Forwarded-*`, `Forwarded`, `X-Real-IP`, `Proxy-Authorization` and client keys never reach the API); a fixed upstream Host; the key added on simulations only; nginx's request id passed and logged; security headers set once (the API's copies hidden); encoded slashes, backslashes, dots, line breaks and NUL, empty and dot segments and fragments refused (JSON 400, unparsable request lines included); unknown paths answered after authentication and rate limits | path normalisation differences are neutralised by the allow-list and method rules, not eliminated; a wrong method (405) and an ambiguous path (400) are answered before authentication (they reveal only the public contract) |
@@ -667,14 +704,14 @@ A larger observability stack (Prometheus, Grafana) is deliberately not part of M
 | `test_m6_preflight.py` (39) | fake servers (directory trees) accepted or refused with actions: distributions, architectures, x86-64-v2, memory and swap against the estimate, disk, ports, exposed listeners, software, SSH/ufw/updates/clock, load and competing services, lock wheel tags; JSON and text; the standalone script with `python -I -S` (standard library only); a real run changes nothing |
 | `test_m6_config.py` (57) | `deploy.env`: defaults, profiles, every unsafe value refused, shell syntax and secrets refused, all problems reported together; the rendered environment accepted by the API's own parser for every profile; workers vs CPUs; `ATLAS_API_KEY_FILE`: read, newline handling, open modes (group read for the root group only), empty, oversized, non-ASCII, both variables, missing, errors never echo the content |
 | `test_m6_render.py` (31) | deterministic rendering; unsafe values and missing placeholders refused; the unit's least privilege, loopback bind, Unix socket in its runtime directory, sandbox, credential and restart policy; resource limits by profile; no secret rendered; the monitor and alert units; `systemd-analyze verify` (no unknown key); `systemd-analyze security --offline` exposure at most 1.5 for the service (0.9 measured), the monitor and the alert hook (1.3 each); routes equal the contract, `/api/v1/system` operational; unroutable or unsafe contract paths refused; the private and public-demo sites (header allow-list, socket upstream, catch-all after authentication); `nginx -t` on every profile and stage; atomic, idempotent writes; the site taken out |
-| `test_m6_proxy.py` (40) | the rendered site in a real nginx with TLS, its upstream a Unix socket as in production: authentication on every route, method and path allow-lists, ambiguous paths (line breaks, fragments included), unparsable request lines (JSON 400), unknown paths behind authentication and rate limits, the key added to simulations only and client keys dropped, only `Content-Type` and `Accept` of the client's headers passed on, a fixed Host, nginx's request id, security headers exactly once, 413, per-client and simulation rate limits (429 JSON), upstream down (503 JSON), unknown SNI and foreign Host (no answer), HTTP redirect and ACME, TLS 1.1 refused, the allow-list (403), the public-demo separation (no `/api/v1/system`), the access log without secrets or queries; the real API behind it |
+| `test_m6_proxy.py` (39; M7 removed the `/` case) | the rendered site in a real nginx with TLS, its upstream a Unix socket as in production: authentication on every route, method and path allow-lists, ambiguous paths (line breaks, fragments included), unparsable request lines (JSON 400), unknown paths behind authentication and rate limits, the key added to simulations only and client keys dropped, only `Content-Type` and `Accept` of the client's headers passed on, a fixed Host, nginx's request id, security headers exactly once, 413, per-client and simulation rate limits (429 JSON), upstream down (503 JSON), unknown SNI and foreign Host (no answer), HTTP redirect and ACME, TLS 1.1 refused, the allow-list (403), the public-demo separation (no `/api/v1/system`), the access log without secrets or queries; the real API behind it |
 | `test_m6_secrets.py` (20) | key generation, the nginx copy kept identical and repaired, rotation, open modes, links, foreign keys; users added, replaced, removed; openssl SHA-512-crypt verified; weak hashes refused; the CLI never prints the key; permission checks; release trees (writable files, set-id bits, escaping links including `..` after an allowed prefix, owners) |
 | `test_m6_manifest.py` (14) | identification and fingerprints; altered artifacts, lock, contract, code, environment, added and removed files refused; bytecode written later ignored, a planted source file not; manifest errors; the CLI; **every research artifact byte-identical to the M5 merge commit** |
 | `test_m6_releases.py` (38) | activation (monitor timer started, journald applied, the verified state kept); private activation with nginx; the tunnel profile taking the site out (and put back if nginx refuses); automatic restoration after failed verification or a failed start, to the last *verified* release; a failed configuration change restoring the verified configuration; a failed first deployment stopped and disabled; a failed restoration reported, stopped and disabled; an error inside the restoration; unsafe releases, configurations, directories and TLS keys refused without touching the service; nginx refusal before the switch (no dangling link); the lock; rollback; an interrupted activation blocking other changes until recovered; pruning (waits for builds); status and upgrade plans; the CLI; **real API processes**: a broken release detected over HTTP and the previous one restored and verified |
-| `test_m6_notify.py` (9) | the systemd notification protocol on a real socket; READY only after the bind, watchdog pings from the event loop, STOPPING; variables removed before the workers start; the readiness summary; workers' OOM preference on real processes |
+| `test_m6_notify.py` (10) | the systemd notification protocol on a real socket; READY only after the bind, watchdog pings from the event loop, STOPPING; variables removed before the workers start; the readiness summary; workers' OOM preference on real processes |
 | `test_m6_verify_monitor.py` (47) | verification against a real API (every check), explicit failures, a dead service, no proxy; each integrity label flipped one at a time (each one detected); malformed answers failing checks, never the verification; the key never sent to a listener that is not the service's or that does not require it; the proxy socket; every monitor finding and level, a slow crash loop critical; CPU deltas; state; the command; the real probes |
 | `test_m6_scripts.py` (22) | shellcheck; root-script rules (strict mode, no tracing, nothing piped to a shell); the bootstrap is a dry run by default and never touches the firewall; the build installs the lock and checks as the service user; argument errors; the tooling imports the standard library only; the console script; CI |
-| `test_m6_container.py` (20, CI job `deploy-e2e`) | **end to end on a disposable Ubuntu 24.04 server with systemd as PID 1** (below) |
+| `test_m6_container.py` (22: 20 for M6, 2 added by M7; CI job `deploy-e2e`) | **end to end on a disposable Ubuntu 24.04 server with systemd as PID 1** (below) |
 
 The container test runs the real package as an operator would: the bootstrap's dry run
 (nothing changed), apply and idempotent re-run (owners and modes checked); a release build
@@ -691,8 +728,15 @@ explicit rollback; an interrupted activation (other changes refused until it is 
 the monitor and the alert hook; a reboot (everything back and verified); memory and tasks
 within the limits; a return to the tunnel profile (the site gone, nginx still running).
 
+M7 adds `test_m7_deploy.py`, `test_m7_proxy.py` and two container tests for the dashboard
+([DASHBOARD.md](DASHBOARD.md) section 13), and changes two M6 tests where the dashboard is
+now intended: `test_m6_render.py` counts the API locations before the dashboard's, and
+`test_m6_proxy.py` no longer expects `/` to be a 404. The test nginx (`m6_helpers.py`) now
+runs each site inside an http block with the distribution's types by extension, as on
+Ubuntu.
+
 All earlier tests (M0-M5) run unchanged except one line: the version literal in
-`test_m5_endpoints.py` (0.6.0). CI runs the whole suite with
+`test_m5_endpoints.py` (now 0.7.0). CI runs the whole suite with
 `ATLAS_REQUIRE_DEPLOY_TOOLS=1` (a missing nginx, openssl, shellcheck or systemd-analyze
 fails instead of skipping), shellcheck, and the container job.
 
@@ -760,26 +804,40 @@ Phase B (a real deployment) needs, in writing:
 Not part of phase B without its own approval: the public-demo profile, any change to the
 research results, M7 and M8.
 
-## 19. Readiness for M7
+## 19. The dashboard (M7)
 
-The deployment is ready for a dashboard (M7):
-- **Same origin**: nginx can serve the dashboard's static files next to the API, so CORS
+M6 was built so the dashboard could be added without changing its model; M7 adds it
+([DASHBOARD.md](DASHBOARD.md)):
+
+- **Same origin.** nginx serves the dashboard's pages and files next to the API, so CORS
   stays off and the browser's Basic-auth session also covers the API calls.
+- **A static route class** (`atlas.deploy.routes.dashboard_routes`, rendered into the site
+  after the API's locations): the pages (answered with `index.html` through `try_files`),
+  each asset by its exact name, the favicon, and the deployment descriptor
+  `/atlas-deployment.json` (written into the site; served through the same authentication).
+  GET and HEAD only, `disable_symlinks on`; the pages, assets and favicon have their own
+  rate zone `atlas_static` (the descriptor counts against the API's read limit); a page path
+  can never shadow an API route. Anything else is the existing JSON 404, and nginx's own
+  answers are JSON whatever extension the path ends with (`types { }` at server level).
+- **A separate Content-Security-Policy for HTML** (`script-src 'self'`, Trusted Types, no
+  inline code; `atlas.dashboard.DASHBOARD_CSP`), set once; JSON keeps `default-src 'none'`.
+  Text answers are gzip-compressed; hashed assets are cached as immutable.
 - **Simulations from the browser** work in the private profile without exposing the key
-  (nginx adds it); in public-demo they are not available.
-- **The contract** stays `docs/api/openapi.json`; the routes follow it automatically.
-
-M7 must add:
-- a route class for the dashboard's static files in `atlas.deploy.routes` and the templates,
-  with a **separate Content-Security-Policy** for HTML (`script-src 'self'`; the API's
-  `default-src 'none'` stays on JSON);
-- the built assets in the release (committed or built from a locked toolchain) and their
-  fingerprints in the manifest;
-- the integrity labels on every chart (docs/API.md section 12), and a layout usable on
-  mobile browsers;
-- an end-to-end check of the dashboard through nginx in `test_m6_container.py`.
-
-Nothing in M6 blocks M7.
+  (nginx adds it); in public-demo the descriptor says they are disabled and the route does not
+  exist. In the tunnel profile the API serves the dashboard itself and disables simulations
+  in the browser (the API requires its key there).
+- **Releases.** The build (`web/dist`, committed) is checked by `build-release.sh` and recorded
+  in `release.json`; activation in an exposed profile copies it to
+  `/opt/atlas/dashboard/<release id>/`, verifies the copy, then writes the site that points
+  to it (a release with an altered build is refused before anything changes); `verify`
+  checks that the API serves it with its policy and that the copy is exactly the recorded
+  files; rollback restores the release's site and so its dashboard; `prune` removes copies of
+  pruned releases. `render --apply` publishes only an installed release whose build matches
+  its `release.json`.
+- **Tests**: `test_m7_deploy.py`, `test_m7_proxy.py` (real nginx), the browser tests against
+  both profiles, and `test_m6_container.py` (the dashboard through nginx after a real
+  activation; after the automatic and explicit rollbacks, the site's dashboard root, read
+  from the site file).
 
 ## 20. Independent review
 

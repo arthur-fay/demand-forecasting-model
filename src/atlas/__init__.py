@@ -29,6 +29,13 @@ Milestone M6 (phase A) adds a portable, verified deployment package (:mod:`atlas
 and ``deploy/``): a read-only server preflight, systemd units and an nginx site rendered
 from one validated configuration, immutable releases with fingerprinted manifests, and
 activation with health verification and automatic rollback. Nothing is deployed by it.
+
+Milestone M7 adds the interactive web dashboard (``web/``, React and TypeScript, built to the
+committed ``web/dist``): every view validated against the API contract, the scientific
+limitations next to the numbers they qualify, bounded HYPOTHETICAL simulations where the
+deployment allows them. :mod:`atlas.dashboard` verifies the build; the API serves it
+(:mod:`atlas.api.dashboard`) and nginx serves a verified per-release copy
+(:mod:`atlas.deploy.publish`).
 """
 
 import os
@@ -39,4 +46,4 @@ import os
 for _variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_variable, "1")
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

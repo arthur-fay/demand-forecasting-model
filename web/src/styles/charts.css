@@ -1,0 +1,246 @@
+.chart {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+  font-family: var(--font-sans);
+  touch-action: pan-y;
+}
+
+.chart[data-stale='true'] .chart-svg {
+  opacity: 0.45;
+  transition: opacity var(--duration-base) var(--ease);
+}
+
+.chart-surface:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.axis text,
+.axis-label {
+  fill: var(--ink-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.axis .domain,
+.axis-baseline {
+  stroke: var(--baseline);
+  stroke-width: 1;
+}
+
+.grid-line {
+  stroke: var(--hairline);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.series-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.series-line[data-style='dashed'] {
+  stroke-dasharray: 5 4;
+}
+
+.series-line[data-style='dotted'] {
+  stroke-dasharray: 1.5 3.5;
+}
+
+/* Under each line drawn over a band (LineChart): the line meets the surface, not its own
+   band's tint, on either side. */
+.series-halo {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.marker {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.rule-line {
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+}
+
+.rule-label {
+  fill: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 560;
+}
+
+/* A label over lines: a surface-coloured outline keeps it legible where a line crosses. */
+.halo {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.crosshair {
+  stroke: var(--ink-secondary);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.holiday-mark {
+  fill: var(--surface);
+  stroke: var(--ink-secondary);
+  stroke-width: 1.5;
+}
+
+.bar-label {
+  fill: var(--ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-category {
+  fill: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.bar-suffix {
+  fill: var(--ink-secondary);
+}
+
+.bar-hit {
+  fill: transparent;
+  cursor: default;
+}
+
+.bar-hit:focus-visible {
+  outline: none;
+  stroke: var(--focus);
+  stroke-width: 2;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+}
+
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-line {
+  width: 18px;
+  height: 0;
+  border-top: 2px solid var(--neutral-mark);
+}
+
+.legend-line[data-style='dashed'] {
+  border-top-style: dashed;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-diamond {
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  border: 1.5px solid var(--ink-secondary);
+  background: var(--surface);
+}
+
+.tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  min-width: 180px;
+  max-width: min(320px, 90vw);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  font-size: var(--text-xs);
+  display: grid;
+  gap: 3px;
+}
+
+.tooltip-title {
+  font-weight: 640;
+  color: var(--ink-secondary);
+}
+
+.tooltip-row {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip-row .key {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid;
+}
+
+.tooltip-row .key[data-style='dashed'] {
+  border-top-style: dashed;
+}
+
+.tooltip-row .value {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip-row .name {
+  color: var(--ink-secondary);
+}
+
+.tooltip-note {
+  color: var(--ink-muted);
+  border-top: 1px solid var(--hairline);
+  padding-top: 3px;
+}
+
+.chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart-title {
+  font-size: var(--text-sm);
+  font-weight: 560;
+  color: var(--ink-secondary);
+}
+
+@media (forced-colors: active) {
+  .series-halo {
+    stroke: Canvas;
+  }
+}

@@ -67,6 +67,7 @@ value stops startup with exit code 2; it is never replaced by a default.
 | `ATLAS_API_SIMULATION_TIMEOUT_SECONDS` | 10 | 1-120 |
 | `ATLAS_API_DOCS` | `true` | `true/false/1/0/yes/no/on/off`; `false` also hides `/openapi.json` |
 | `ATLAS_API_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `ATLAS_API_DASHBOARD` | `true` | (M7) `true/false/...`; serve the committed web dashboard (`web/dist`) at `/` next to the API ([DASHBOARD.md](DASHBOARD.md)) |
 
 `atlas api serve --host H --port P` binds to `127.0.0.1:8000` by default. It **refuses to bind
 to any non-loopback address unless `ATLAS_API_KEY` is set**. Remote clients also need their
@@ -797,6 +798,14 @@ The API inherits every limitation of M2-M4 and adds none of its own claims:
   adjust anything at request time, and it attaches the recorded status instead of improving it.
 
 ## 12. Integration requirements for M7
+
+> **M7** implements these requirements: see [DASHBOARD.md](DASHBOARD.md). It adds one thing to
+> the API: `atlas api serve` serves the verified dashboard build from memory at `/`, its
+> pages, its hashed files and `/atlas-deployment.json` (GET and HEAD only, the dashboard's
+> own Content-Security-Policy on HTML, gzip and ETags), before the API's routes; every other
+> path, every API response and the contract are unchanged. `ATLAS_API_DASHBOARD=false` turns
+> it off; a damaged build is logged (`dashboard_unavailable`) and not served. The section is
+> kept as written for M5.
 
 **Contract**
 - Generate the client from [`docs/api/openapi.json`](api/openapi.json). The operationIds are

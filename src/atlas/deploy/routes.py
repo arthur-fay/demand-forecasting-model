@@ -14,29 +14,52 @@ Each operation has an access class, from its ``x-atlas-cost``:
 ``read``       the other precomputed GET endpoints: committed research outputs.
 ``compute``    ``POST /api/v1/simulations``: one bounded simulation (CPU-bound).
 
+``dashboard`` (M7) the dashboard's static routes, from the release's verified build
+               (``web/dist/atlas-dashboard.json``), not from the contract: its pages
+               (each answered with ``index.html``), each built file at its exact path,
+               and the deployment descriptor (:func:`dashboard_routes`).
+
 The ``private`` profile routes every class behind authentication. The ``public-demo``
-profile routes ``liveness`` and ``read`` only: computation and operational detail stay
-private (:data:`PROFILE_ACCESS`).
+profile routes ``liveness``, ``read`` and ``dashboard`` only: computation and operational
+detail stay private (:data:`PROFILE_ACCESS`).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
+
+from atlas.dashboard import (
+    CACHE_REVALIDATE,
+    CONTENT_TYPES,
+    DESCRIPTOR_PATH,
+    DIST,
+    ENTRY,
+    MANIFEST_NAME,
+    DashboardBuild,
+    load_build,
+)
 
 LIVENESS: Final = "liveness"
 READINESS: Final = "readiness"
 READ: Final = "read"
 COMPUTE: Final = "compute"
+DASHBOARD: Final = "dashboard"
 
 PROFILE_ACCESS: Final[dict[str, frozenset[str]]] = {
-    "private": frozenset({LIVENESS, READINESS, READ, COMPUTE}),
-    "public-demo": frozenset({LIVENESS, READ}),
+    "private": frozenset({LIVENESS, READINESS, READ, COMPUTE, DASHBOARD}),
+    "public-demo": frozenset({LIVENESS, READ, DASHBOARD}),
 }
+#: Dashboard URLs nginx may embed: lowercase segments, a hashed asset name, nothing else.
+_SAFE_STATIC: Final = re.compile(
+    r"/(?:[a-z][a-z0-9-]{0,63}(?:\.[a-z0-9]{2,5})?|assets/[A-Za-z0-9_.-]{1,127})?"
+)
+#: Prefixes that belong to the API: no dashboard URL may use them.
+API_PREFIXES: Final = ("/api/", "/health/", "/docs", "/redoc", "/openapi.json")
 
 _PARAMETER: Final = re.compile(r"\{([a-z_]+)\}")
 #: A contract path nginx may embed: lowercase segments and named parameters, nothing else.
@@ -126,3 +149,57 @@ def routed(routes: list[Route], profile: str) -> list[Route]:
     """The routes ``profile`` exposes through nginx."""
     allowed = PROFILE_ACCESS[profile]
     return [route for route in routes if route.access in allowed]
+
+
+@dataclass(frozen=True)
+class StaticRoute:
+    """One exact dashboard URL: a page (``index.html``), a built file, or the descriptor."""
+
+    url: str
+    kind: str
+    #: The file below the published build that answers it (``None``: the descriptor).
+    file: str | None
+    content_type: str
+    cache_control: str
+
+    @property
+    def access(self) -> str:
+        return DASHBOARD
+
+
+def dashboard_build(release_dir: Path) -> DashboardBuild | None:
+    """The release's dashboard build, or ``None`` for a release without one (built before
+    M7). A release whose manifest records a dashboard must still have it: that is checked
+    against ``release.json`` (:func:`atlas.deploy.manifest.check_release`)."""
+    if not (release_dir / DIST / MANIFEST_NAME).exists():
+        return None
+    return load_build(release_dir / DIST)
+
+
+def dashboard_routes(build: DashboardBuild, api_routes: Sequence[Route] = ()) -> list[StaticRoute]:
+    """Every URL of the dashboard, sorted; refused if one could clash with the API or is
+    not a plain path nginx can embed."""
+    entry = build.entry
+    found = [
+        StaticRoute(route, "page", entry.path, entry.content_type, CACHE_REVALIDATE)
+        for route in build.routes
+    ]
+    found += [
+        StaticRoute(item.url, "file", item.path, item.content_type, item.cache_control)
+        for item in build.files
+        if item.path != ENTRY
+    ]
+    found.append(StaticRoute(DESCRIPTOR_PATH, "descriptor", None, "application/json", "no-store"))
+    api_paths = {route.path for route in api_routes}
+    seen: set[str] = set()
+    for route in found:
+        if not _SAFE_STATIC.fullmatch(route.url) or ".." in route.url:
+            raise RouteError(f"dashboard URL {route.url!r}: unexpected characters for nginx")
+        if route.url.startswith(API_PREFIXES) or route.url in api_paths:
+            raise RouteError(f"dashboard URL {route.url!r} would shadow the API")
+        if route.url in seen:
+            raise RouteError(f"dashboard URL {route.url!r} is listed twice")
+        if route.content_type not in (*CONTENT_TYPES.values(), "application/json"):
+            raise RouteError(f"dashboard URL {route.url!r}: unexpected content type")
+        seen.add(route.url)
+    return sorted(found, key=lambda r: r.url)
