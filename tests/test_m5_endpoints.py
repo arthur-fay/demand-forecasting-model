@@ -309,7 +309,8 @@ def test_the_selection_caveat_quotes_the_recorded_size_study(api: TestClient) ->
     assert "H1 is not significant" in notice
     assert holm[("H2", "gaussian")] == "0.045"
     assert f"(Holm-adjusted p {holm[('H2', 'gaussian')]}) is not robust to the" in notice
-    # With each HAC bandwidth corrected for its own size, H2 is above 0.05 under three of five.
+    # The study's bandwidth variants, each size-corrected under the same MA(29) null, are
+    # consistent with that clause: H2 is above 0.05 under three of the five.
     bandwidths = [v for t, v in corrected if t == "H2" and v != rule]
     assert len(bandwidths) == 5
     assert sum(float(corrected[("H2", v)]) > 0.05 for v in bandwidths) == 3

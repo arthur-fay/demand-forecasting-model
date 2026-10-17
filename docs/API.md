@@ -365,8 +365,13 @@ confirmatory tests, H1 is not significant, and H2's significance after the size 
 origin counts are those of the committed run. The other figures come from the audit's
 recorded size study, `docs/audit/scripts/dm_size_study_output.md` (Gaussian shocks;
 [M8-04](audit/M8_FINDINGS_REGISTER.md#m8-04)): the size of the rule with 486 and 336
-origins, the size-corrected selection p-value and H2's size-corrected Holm-adjusted p. In
-the same study, with each HAC bandwidth corrected for its own size, H2's p-value is above
+origins, the size-corrected selection p-value and H2's size-corrected Holm-adjusted p. The
+study corrects for size under one assumed error dependence, the test's own MA(29) null, and
+the real distortion can differ
+([BACKTESTING.md, section 12](BACKTESTING.md#12-m8-erratum-the-size-of-the-diebold-mariano-test)):
+hence the notice's last clause on H2, whose corrected Holm-adjusted p is narrowly below 0.05.
+Within the study, H2's significance also depends on how far the variance estimator lets the
+dependence extend: with each HAC bandwidth corrected for its own size, its p-value is above
 0.05 under three of the five. Tests tie every figure to its source. No other string the API
 sends states or implies that the selection is significant or robust.
 
@@ -851,7 +856,7 @@ uv run pytest tests/test_m5_*.py --no-cov              # the M5 tests only
 
 | Module | What it checks |
 |---|---|
-| `test_m5_endpoints.py` | every GET endpoint against the committed files (read independently with `json`/`csv`); exact values; holiday flags; H1 notice and Holm flags; the selection-evidence notice next to the recorded selection, tied to the committed p-value and origin counts; sources and fingerprints; comparison rules (DIAGNOSTIC rows, no differences unless both plans are strict); the endpoint inventory equals the OpenAPI document; filters; windows; errors; determinism |
+| `test_m5_endpoints.py` | every GET endpoint against the committed files (read independently with `json`/`csv`); exact values; holiday flags; H1 notice and Holm flags; the selection-evidence notice next to the recorded selection, tied to the committed p-value and origin counts and its size figures to the recorded size study (`docs/audit/scripts/dm_size_study_output.md`); sources and fingerprints; comparison rules (DIAGNOSTIC rows, no differences unless both plans are strict); the endpoint inventory equals the OpenAPI document; filters; windows; errors; determinism |
 | `test_m5_simulation.py` | request semantics; neutral wording of reference defaults; limitations computed from the request; reproduction of six reference scenarios exactly; property-based invariants (balance, capacity, limits, budget, target, cost arithmetic, labels) on random bounded inputs; one field-naming rule for every error layer; HTTP validation of hostile bodies |
 | `test_m5_security.py` | hosts (IPv6, ports, wildcards), CORS (JSON rejections, headers on middleware errors), security headers, the documentation pages (exact pinned files, their SRI values and each page's own policy; the JSON policy on anything else on their paths), body limits (declared and streamed), JSON-only, duplicate keys in linear time, deep nesting, strict and non-repeating query parameters, history dates far out of range, the in-flight cap, HEAD probes, API key, generic 500 with a logged traceback, bind policy |
 | `test_m5_concurrency.py` | a real uvicorn server and worker processes: parallel reads, bounded parallel simulations with identical results, metadata latency while every worker computes, idle and slow connections closed, deadline kill and replacement (logged), busy refusal, crashes counted and reported by readiness, recovery after failed restarts, a replaced worker taken last (also after sequential use, when no other worker has answered), `warm_up` pinging every worker, Ctrl+C and SIGTERM, the HTTP mapping of uncertified and unexpected worker results (the worker's own fail-closed rule is in `test_m5_guards.py`), the API key checked before a slow body |
@@ -879,7 +884,8 @@ The API inherits every limitation of M2-M4 and adds none of its own claims:
   p 0.044), but it over-rejects at this horizon (7.6-9.1 % false rejections at a nominal
   5 %). After a size correction the selection p-value is 0.069, above the gate: a correctly
   sized test would most likely have kept the same-weekday median baseline. H2's
-  size-corrected Holm-adjusted p (0.045) is not robust to the assumed error dependence.
+  significance after the size correction (Holm-adjusted p 0.045) is not robust to the
+  assumed error dependence.
   `/models` says so next to the selection.
 - The M3 intervals **failed** their pre-registered calibration criteria. No interval,
   quantile or probability the API serves is decision-grade. Quantile stress paths are marginal

@@ -110,9 +110,12 @@ INTERVALS_LABEL: Final = (
 #: counts are those of the committed M2 run. Every other figure comes from the M8 audit's
 #: recorded size study, docs/audit/scripts/dm_size_study_output.md (Gaussian shocks): the
 #: size of the rule (7.6 % with 486 origins, 9.1 % with 336), the size-corrected selection
-#: p-value and H2's size-corrected Holm p. The last clause rests on the same study: with each
-#: HAC bandwidth corrected for its own size, H2's p-value is above 0.05 under three of the
-#: five. tests/test_m5_endpoints.py ties every figure to its source.
+#: p-value and H2's size-corrected Holm p. That study corrects for size under one assumed
+#: error dependence, the test's own MA(29) null, and the real distortion can differ
+#: (docs/BACKTESTING.md section 12, "Limits of the correction"): hence the last clause. The
+#: study's bandwidth variants are consistent with it, but they change the variance
+#: estimator, not the null: with each HAC bandwidth size-corrected, H2's p-value is above
+#: 0.05 under three of the five. tests/test_m5_endpoints.py ties every figure to its source.
 SELECTION_EVIDENCE_NOTICE: Final = (
     "M2 SELECTION EVIDENCE: the pre-registered development selection test (HLN-DM, "
     "conservative p 0.044) passed its 5 % gate as computed, but at a 30-day horizon with "
