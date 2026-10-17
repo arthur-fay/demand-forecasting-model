@@ -47,8 +47,14 @@ HLN and Bartlett 60 p-values) is at most the committed one, as in ``dm_size_stud
    MA(29) size-corrected p-value. A null-imposed bootstrap resamples the demeaned series, so
    the resamples of a series do not depend on its mean, and the bootstrap p-value of a series
    shifted to the committed statistic needs no further draws.
+5. The same calibration for the tapered Gaussian nulls of section 2: the first MA(29) series of
+   section 4, each tested with a Gaussian null built from its own Bartlett-tapered sample
+   autocovariance (which, like the bootstrap, does not depend on the series' mean).
 
-The report ends with "What this shows": statements generated from the numbers above.
+The report ends with "What this shows", statements generated from the numbers above, and
+"Limitations". A size-corrected p-value within two Monte Carlo standard errors of 0.05 is
+printed with five decimals and named wherever values are counted against 0.05: which side of
+0.05 it falls on is within Monte Carlo error.
 
 The simulations use a vectorised version of the pre-registered rule (autocovariances up to lag
 60, the rectangular 29 variance with its Bartlett fallback, the HLN factor and ``t(T - 1)``
@@ -56,36 +62,33 @@ p-values from SciPy). The script checks it against ``atlas.stats.diebold_mariano
 on the observed series and on the first draws of every simulated setting, and stops if they
 disagree. The results are deterministic for a given seed and configuration: every setting
 draws from its own ``numpy.random.default_rng`` stream. Monte Carlo standard errors are
-binomial: ``sqrt(p (1 - p) / N)``.
+binomial: ``sqrt(p (1 - p) / N)``; that of a Holm-adjusted value is the standard error of the
+p-value it equals, or twice that of the p-value it doubles.
 
-Limitations. The analyses are post hoc: the nulls and the long-lag statistic were chosen after
-the M2 results and a first look at the autocorrelations were known, and they do not replace
-the pre-registered decision. A demeaned sample autocovariance is biased downward at long lags,
-and with 336-486 origins its long-lag values are noisy (section 1 gives their spread under
-MA(29)); a Gaussian null built from it takes that noise and bias as the truth, and the Bartlett
-taper shrinks it further, so such a null has less dependence near its taper lag than the sample
-and none beyond it. A circular block bootstrap keeps dependence only within a block, weakened by
-the joins, and a resample of 336 origins holds only four 90-day blocks; a bootstrap p-value
-from one series of 336-486 overlapping observations is itself noisy (section 4 measures how
-noisy). None of the nulls models level shifts or other non-stationarity.
+The analyses are post hoc: the nulls and the long-lag statistic were chosen after the M2
+results and a first look at the autocorrelations were known, and they do not replace the
+pre-registered decision. The report states this and the other limitations at its end
+(``limitations_lines``).
 
 Nothing here changes a committed result: the script reads the committed metrics and the
 committed differentials and writes only to standard output (and, with ``--rebuild --write``,
 the differentials CSV).
 
-Usage, from the repository root (about three minutes on one core with the defaults)::
+Usage, from the repository root (about four minutes on one core with the defaults)::
 
     uv run python docs/audit/scripts/dm_dependence_sensitivity.py \\
         > docs/audit/scripts/dm_dependence_sensitivity_output.md
 
 Options: ``--replications N`` per null setting (default 20000), ``--calibration-series M``
-(default 1000) and ``--calibration-draws B`` (default 1000) for section 4, ``--seed S``
-(default 20261016). ``--rebuild FORECASTS_CSV`` rebuilds the differentials from the
-``forecasts.csv`` of a full M2 run (``uv run atlas backtest run --period development --period
-confirmation --period legacy_window --sealed-selection
+(default 1000) for section 4, ``--gaussian-calibration-series G`` (default 200) for section
+5, ``--calibration-draws B`` (default 1000) for both, ``--seed S`` (default 20261016).
+``--rebuild FORECASTS_CSV`` rebuilds the differentials from the ``forecasts.csv`` of a full M2
+run (``uv run atlas backtest run --period development --period confirmation --period
+legacy_window --sealed-selection
 docs/results/atlas-m2-rolling-origin-v1/development/selection.json --output-dir DIR``, about
 six CPU-minutes), refuses a file whose SHA-256 differs from the manifest's, and checks that the
-result equals the committed CSV; ``--write`` writes it instead.
+result equals the committed CSV; ``--write`` writes it instead, after checking that it
+reproduces the committed statistics.
 """
 
 from __future__ import annotations
@@ -132,6 +135,8 @@ BLOCKS: Final = (30, 45, 60, 90)
 TAPERS: Final = (29, 60, 90, 120)
 #: A null "with dependence beyond about a month": blocks or tapers from this many days.
 LONG_DEPENDENCE: Final = 45
+#: A value within this many Monte Carlo standard errors of 0.05 is at the boundary.
+BOUNDARY_SE: Final = 2.0
 CHUNK: Final = 1000  # rows per vectorised block; keeps the arrays small
 CHECK_ROWS: Final = 3  # draws per simulated setting checked against atlas.stats
 
@@ -142,6 +147,7 @@ class Config:
     calibration_series: int = 1_000
     calibration_draws: int = 1_000
     seed: int = 20261016
+    gaussian_calibration_series: int = 200
 
 
 def _fail(message: str) -> NoReturn:
@@ -478,6 +484,8 @@ class Study:
     settings: list[Setting]
     #: ``(origins, block)`` -> bootstrap p-values of the calibration series (section 4).
     calibration: dict[tuple[int, int], dict[str, np.ndarray]] = field(default_factory=dict)
+    #: ``(origins, taper)`` -> Gaussian-null p-values of the calibration series (section 5).
+    gaussian_calibration: dict[tuple[int, int], dict[str, np.ndarray]] = field(default_factory=dict)
 
     def test(self, name: str) -> Differentials:
         return next(t for t in self.tests if t.name == name)
@@ -548,32 +556,74 @@ def calibrate(study: Study, origins: int, block: int) -> dict[str, np.ndarray]:
     p-value of the same series shifted so that its pre-registered p-value is the committed one
     (the share of resamples whose p-value is at most the committed p-value).
     """
-    config = study.config
-    members = [t for t in study.tests if t.values.size == origins]
-    series = ma29_draws(np.random.default_rng([config.seed, 4, origins]), origins)(
-        config.calibration_series
+    out = _calibration_cell(
+        study,
+        origins,
+        study.config.calibration_series,
+        lambda rng, row: block_bootstrap_draws(rng, row, block),
+        np.random.default_rng([study.config.seed, 5, origins, block]),
+        f"calibration bootstrap {block}",
     )
-    observed = rule_p_values(series)
-    study.check(series[:CHECK_ROWS], observed[:CHECK_ROWS], f"calibration, T = {origins}")
-    rng = np.random.default_rng([config.seed, 5, origins, block])
-    out = {name: np.empty(len(series)) for name in ("null", *(t.name for t in members))}
-    for i, row in enumerate(series):
-        resamples = block_bootstrap_draws(rng, row, block)(config.calibration_draws)
-        p_values = rule_p_values(resamples)
-        if i == 0:
-            label = f"calibration bootstrap {block}, T = {origins}"
-            study.check(resamples[:CHECK_ROWS], p_values[:CHECK_ROWS], label)
-        out["null"][i] = np.mean(p_values <= observed[i])
-        for t in members:
-            out[t.name][i] = np.mean(p_values <= t.rule_p)
     study.calibration[(origins, block)] = out
     return out
 
 
+def calibrate_gaussian(study: Study, origins: int, taper: int) -> dict[str, np.ndarray]:
+    """Section 5, one cell: the tapered Gaussian null applied to MA(29) series.
+
+    The first ``gaussian_calibration_series`` MA(29) series of section 4, each with
+    ``calibration_draws`` draws from the Gaussian null built from its own Bartlett-tapered
+    sample autocovariance. That null is built from the demeaned series, so, as in section 4,
+    the p-value of the series shifted to a committed statistic needs no further draws.
+    Returned (and stored) as in ``calibrate``.
+    """
+    out = _calibration_cell(
+        study,
+        origins,
+        study.config.gaussian_calibration_series,
+        lambda rng, row: gaussian_draws(rng, row, taper),
+        np.random.default_rng([study.config.seed, 6, origins, taper]),
+        f"calibration Gaussian taper {taper}",
+    )
+    study.gaussian_calibration[(origins, taper)] = out
+    return out
+
+
+def _calibration_cell(
+    study: Study,
+    origins: int,
+    count: int,
+    null: Callable[[np.random.Generator, np.ndarray], Callable[[int], np.ndarray]],
+    rng: np.random.Generator,
+    label: str,
+) -> dict[str, np.ndarray]:
+    """Applies one null-building method to the first ``count`` MA(29) series of section 4."""
+    config = study.config
+    members = [t for t in study.tests if t.values.size == origins]
+    # Stream [seed, 4, origins]: any count draws the first rows of the same series.
+    series = ma29_draws(np.random.default_rng([config.seed, 4, origins]), origins)(count)
+    observed = rule_p_values(series)
+    study.check(series[:CHECK_ROWS], observed[:CHECK_ROWS], f"calibration, T = {origins}")
+    out = {name: np.empty(len(series)) for name in ("null", *(t.name for t in members))}
+    for i, row in enumerate(series):
+        draws = null(rng, row)(config.calibration_draws)
+        p_values = rule_p_values(draws)
+        if i == 0:
+            study.check(draws[:CHECK_ROWS], p_values[:CHECK_ROWS], f"{label}, T = {origins}")
+        out["null"][i] = np.mean(p_values <= observed[i])
+        for t in members:
+            out[t.name][i] = np.mean(p_values <= t.rule_p)
+    return out
+
+
 def run_calibration(study: Study) -> None:
+    """Sections 4 and 5."""
     for origins in sorted({t.values.size for t in study.tests}, reverse=True):
         for block in BLOCKS:
             calibrate(study, origins, block)
+    for origins in sorted({t.values.size for t in study.tests}, reverse=True):
+        for taper in TAPERS:
+            calibrate_gaussian(study, origins, taper)
 
 
 # --- Report helpers -------------------------------------------------------------------------
@@ -616,6 +666,42 @@ def _corrected(study: Study, setting: Setting) -> dict[str, float]:
     return out
 
 
+def _errors(study: Study, values: dict[str, float]) -> dict[str, float]:
+    """MC SE of each value of ``_corrected``.
+
+    With two p-values, Holm doubles the smaller one and keeps the larger one unless the doubled
+    value exceeds it, so a Holm value has the standard error of the p-value it equals, or twice
+    that of the p-value it doubles.
+    """
+    out = {name: binomial_se(values[name], study.config.replications) for name in TESTS}
+    small, large = sorted(("H1", "H2"), key=lambda name: (values[name], name))  # holm's order
+    out[f"{small}, Holm"] = 2.0 * out[small]
+    kept = values[large] > 2.0 * values[small]
+    out[f"{large}, Holm"] = out[large] if kept else 2.0 * out[small]
+    return out
+
+
+def _near(value: float, error: float) -> bool:
+    """Whether ``value`` is within ``BOUNDARY_SE`` Monte Carlo standard errors of 0.05."""
+    return abs(value - NOMINAL) <= BOUNDARY_SE * error
+
+
+def _p(value: float, error: float) -> str:
+    """Three decimals, or five at the boundary, where the side of 0.05 must show."""
+    return f"{value:.5f}" if _near(value, error) else f"{value:.3f}"
+
+
+def _near_note(values: Sequence[float], errors: Sequence[float]) -> str:
+    """For example ``; 0.04805 and 0.04995 within 2 MC SE of 0.05``, or nothing."""
+    near = [f"{p:.5f}" for p, e in zip(values, errors, strict=True) if _near(p, e)]
+    return f"; {_listed(near)} within {BOUNDARY_SE:g} MC SE of 0.05" if near else ""
+
+
+def _count(values: Sequence[float], errors: Sequence[float], unit: str = "") -> str:
+    """For example ``7 below; 0.04805 and 0.04995 within 2 MC SE of 0.05``."""
+    return f"{sum(p < NOMINAL for p in values)} below{unit}{_near_note(values, errors)}"
+
+
 def long_lag_statistic(gamma: np.ndarray) -> np.ndarray:
     """Mean sample autocorrelation over lags 30-120, per row of autocovariances."""
     first, last = LONG_LAGS
@@ -636,17 +722,22 @@ def calibration_size_cell(values: dict[str, np.ndarray]) -> str:
 
 
 def calibration_row(
-    test: Differentials, block: int, values: np.ndarray, exact: float, observed: float
+    test: Differentials,
+    setting: str,
+    values: np.ndarray,
+    exact: float,
+    observed: float,
+    *,
+    below: bool = False,
 ) -> list[str]:
+    """A row of the second table of section 4 (``below``: and of section 5)."""
     q1, median, q3 = np.quantile(values, [0.25, 0.5, 0.75])
-    return [
-        test.name,
-        f"{block} days",
-        f"{exact:.3f}",
-        f"{median:.3f} [{q1:.3f}, {q3:.3f}]",
-        f"{observed:.3f}",
-        f"{float(np.mean(values >= observed)):.3f}",
-    ]
+    row = [test.name, setting, f"{exact:.3f}", f"{median:.3f} [{q1:.3f}, {q3:.3f}]"]
+    row.append(f"{observed:.3f}")
+    if below:
+        row.append(f"{float(np.mean(values <= observed)):.3f}")
+    row.append(f"{float(np.mean(values >= observed)):.3f}")
+    return row
 
 
 # --- The report -----------------------------------------------------------------------------
@@ -664,7 +755,9 @@ def header_lines(study: Study) -> Iterator[str]:
         f"({expected_forecasts_sha256()}). Overlap h = {H}; {config.replications:,} "
         "replications per null setting; section 4: "
         f"{config.calibration_series:,} MA(29) series per number of origins, "
-        f"{config.calibration_draws:,} bootstrap resamples each; seed {config.seed}; Python "
+        f"{config.calibration_draws:,} bootstrap resamples each; section 5: the first "
+        f"{config.gaussian_calibration_series:,} of those series, {config.calibration_draws:,} "
+        f"Gaussian draws each per taper; seed {config.seed}; Python "
         f"{platform.python_version()}, NumPy {np.__version__}, SciPy {scipy.__version__}, "
         f"pandas {pd.__version__}. Monte Carlo standard errors (MC SE) are binomial. A "
         "size-corrected p-value is the share of simulated null series whose pre-registered "
@@ -762,15 +855,16 @@ def acf_lines(study: Study) -> Iterator[str]:
 
 
 def nulls_lines(study: Study) -> Iterator[str]:
-    n = study.config.replications
     yield "## 2. Size-corrected p-values under nulls calibrated to the observed dependence"
     yield ""
     yield (
         "First row: the committed nominal p-values (Holm as committed for H1 and H2). Every other "
         "row: the size-corrected p-value under that null, with its MC SE; Holm: `atlas.stats.holm` "
-        "over the size-corrected H1 and H2 p-values (the MC SE of a Holm value is at most twice "
-        "that of the p-value it comes from). The block bootstrap and Gaussian nulls are built "
-        "from each test's own differential."
+        "over the size-corrected H1 and H2 p-values (the MC SE of a Holm value is that of the "
+        "p-value it equals, or twice that of the p-value it doubles). The block bootstrap and "
+        f"Gaussian nulls are built from each test's own differential. A value within "
+        f"{BOUNDARY_SE:g} MC SE of 0.05 is printed with five decimals: which side of 0.05 it "
+        "falls on is within Monte Carlo error, and another seed could put it on the other side."
     )
     yield ""
     h1, h2 = study.test("H1"), study.test("H2")
@@ -784,15 +878,13 @@ def nulls_lines(study: Study) -> Iterator[str]:
     ]
     for setting in study.settings:
         values = _corrected(study, setting)
+        errors = _errors(study, values)
         rows.append(
             [
                 setting.label,
-                *(
-                    f"{values[name]:.3f} (MC SE {binomial_se(values[name], n):.3f})"
-                    for name in TESTS
-                ),
-                f"{values['H1, Holm']:.3f}",
-                f"{values['H2, Holm']:.3f}",
+                *(f"{_p(values[name], errors[name])} (MC SE {errors[name]:.3f})" for name in TESTS),
+                _p(values["H1, Holm"], errors["H1, Holm"]),
+                _p(values["H2, Holm"], errors["H2, Holm"]),
             ]
         )
     yield _table(
@@ -800,17 +892,21 @@ def nulls_lines(study: Study) -> Iterator[str]:
         rows,
     )
     yield ""
-    yield "Ranges over the nulls built from the observed series, and how many are below 0.05:"
+    yield (
+        "Ranges over the nulls built from the observed series, how many are below 0.05, and "
+        f"which values lie within {BOUNDARY_SE:g} MC SE of 0.05:"
+    )
     yield ""
     calibrated = study.calibrated()
     for family in ("block bootstrap", "Gaussian", None):
         chosen = [s for s in calibrated if family is None or s.family == family]
         corrected = [_corrected(study, s) for s in chosen]
+        errors_by_null = [_errors(study, c) for c in corrected]
         parts = []
         for name in (*TESTS, "H1, Holm", "H2, Holm"):
             column = [c[name] for c in corrected]
-            below = sum(p < NOMINAL for p in column)
-            parts.append(f"{name} {_range(column)} ({below} below)")
+            column_errors = [e[name] for e in errors_by_null]
+            parts.append(f"{name} {_range(column)} ({_count(column, column_errors)})")
         label = f"all {len(chosen)}" if family is None else f"{family} ({len(chosen)})"
         yield f"- {label}: " + "; ".join(parts) + "."
 
@@ -832,12 +928,12 @@ def size_lines(study: Study) -> Iterator[str]:
     yield _table(["null", "selection (T = 486)", "H1 (T = 336)", "H2 (T = 336)"], rows)
 
 
-def observed_bootstrap_p(study: Study) -> dict[tuple[str, int], float]:
-    """Section 2's block-bootstrap p-value of each test, keyed by ``(test, block)``."""
+def observed_p(study: Study, family: str) -> dict[tuple[str, int], float]:
+    """Section 2's p-value of each test under ``family``, keyed by ``(test, block or taper)``."""
     return {
         (t.name, s.parameter): s.corrected(t)
         for s in study.settings
-        if s.family == "block bootstrap"
+        if s.family == family
         for t in study.tests
     }
 
@@ -845,7 +941,7 @@ def observed_bootstrap_p(study: Study) -> dict[tuple[str, int], float]:
 def calibration_lines(study: Study) -> Iterator[str]:
     config = study.config
     exact = {t.name: study.settings[0].corrected(t) for t in study.tests}
-    observed = observed_bootstrap_p(study)
+    observed = observed_p(study, "block bootstrap")
     yield "## 4. Calibration of the block bootstrap when MA(29) is true"
     yield ""
     yield (
@@ -875,7 +971,7 @@ def calibration_lines(study: Study) -> Iterator[str]:
     rows = [
         calibration_row(
             t,
-            b,
+            f"{b} days",
             study.calibration[(t.values.size, b)][t.name],
             exact[t.name],
             observed[(t.name, b)],
@@ -896,7 +992,64 @@ def calibration_lines(study: Study) -> Iterator[str]:
     )
 
 
-def _listed(values: Sequence[int]) -> str:
+def gaussian_calibration_lines(study: Study) -> Iterator[str]:
+    config = study.config
+    exact = {t.name: study.settings[0].corrected(t) for t in study.tests}
+    observed = observed_p(study, "Gaussian")
+    yield "## 5. Calibration of the Gaussian nulls when MA(29) is true"
+    yield ""
+    yield (
+        f"The first {config.gaussian_calibration_series:,} MA(29) series of section 4 per number "
+        "of origins, each tested with a Gaussian null built, as in section 2, from its own "
+        f"Bartlett-tapered sample autocovariance ({config.calibration_draws:,} draws per series "
+        "and taper). Size: how often that p-value is below 0.05; a calibrated method rejects 5 %."
+    )
+    yield ""
+    origins_list = sorted({t.values.size for t in study.tests}, reverse=True)
+    rows = [
+        [
+            f"T = {o}",
+            *(calibration_size_cell(study.gaussian_calibration[(o, k)]) for k in TAPERS),
+        ]
+        for o in origins_list
+    ]
+    yield _table(["origins", *(f"taper {k}" for k in TAPERS)], rows)
+    yield ""
+    yield (
+        "The same MA(29) series shifted so that their pre-registered p-value equals the "
+        "committed one, as in section 4. Gaussian p under MA(29): the median and quartiles of "
+        "their p-values under their own Gaussian null. Observed Gaussian p: that of the real "
+        "differential (section 2). Last two columns: the share of the MA(29) series whose "
+        "Gaussian p-value is at most, and at least, the observed one."
+    )
+    yield ""
+    rows = [
+        calibration_row(
+            t,
+            f"taper {k}",
+            study.gaussian_calibration[(t.values.size, k)][t.name],
+            exact[t.name],
+            observed[(t.name, k)],
+            below=True,
+        )
+        for t in study.tests
+        for k in TAPERS
+    ]
+    yield _table(
+        [
+            "test",
+            "taper",
+            "exact MA(29) p",
+            "Gaussian p under MA(29): median [quartiles]",
+            "observed Gaussian p",
+            "share of MA(29) series at or below observed",
+            "share at or above observed",
+        ],
+        rows,
+    )
+
+
+def _listed(values: Sequence[object]) -> str:
     words = [str(v) for v in values]
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
@@ -916,18 +1069,26 @@ def _describe(settings: Sequence[Setting]) -> str:
 
 
 def summary_lines(study: Study) -> Iterator[str]:
-    """'What this shows', from sections 0-3; ``calibration_summary_lines`` adds section 4's."""
+    """'What this shows', from sections 0-3; ``calibration_summary_lines`` adds sections 4-5."""
     config = study.config
     ma29 = _corrected(study, study.settings[0])
+    ma29_errors = _errors(study, ma29)
     calibrated = study.calibrated()
     values = {s.label: _corrected(study, s) for s in calibrated}
+    errors = {s.label: _errors(study, values[s.label]) for s in calibrated}
+    defaults = Config()
     yield "## What this shows"
     yield ""
     yield (
         f"- Under the MA(29) null, with the first {config.replications:,} draws of "
         f"`dm_size_study.py` (seed {config.seed}): the selection {ma29['selection']:.3f}, H1 "
-        f"{ma29['H1']:.3f}, H2 {ma29['H2']:.3f}, and H2 {ma29['H2, Holm']:.3f} after Holm. With "
-        "20,000 replications and seed 20261016 these are the erratum's values."
+        f"{ma29['H1']:.3f}, H2 {ma29['H2']:.3f}, and H2 {ma29['H2, Holm']:.3f} after Holm. "
+        + (
+            "These are the erratum's values."
+            if (config.replications, config.seed) == (defaults.replications, defaults.seed)
+            else "The erratum's values come from the default configuration "
+            f"({defaults.replications:,} replications, seed {defaults.seed})."
+        )
     )
     parts = []
     for t in study.tests:
@@ -952,53 +1113,111 @@ def summary_lines(study: Study) -> Iterator[str]:
         f"{_pct(low)} ({PROSE[low_test]}, {low_null}) to {_pct(high)} ({PROSE[high_test]}, "
         f"{high_null})."
     )
-    h1 = [v["H1"] for v in values.values()]
-    h1_below = sum(p < NOMINAL for p in h1)
-    yield (
+    yield _h1_bullet(ma29, calibrated, values, errors)
+    yield _h2_bullet(ma29, ma29_errors, calibrated, values, errors)
+    yield _selection_bullet(study, ma29, calibrated, values, errors)
+
+
+def _column(
+    name: str, settings: Sequence[Setting], table: dict[str, dict[str, float]]
+) -> list[float]:
+    """``table[setting][name]`` for each setting."""
+    return [table[s.label][name] for s in settings]
+
+
+def _h1_bullet(
+    ma29: dict[str, float],
+    calibrated: Sequence[Setting],
+    values: dict[str, dict[str, float]],
+    errors: dict[str, dict[str, float]],
+) -> str:
+    h1, h1_errors = _column("H1", calibrated, values), _column("H1", calibrated, errors)
+    none = all(p >= NOMINAL and not _near(p, e) for p, e in zip(h1, h1_errors, strict=True))
+    return (
         f"- H1: {_range(h1)} under the {len(h1)} nulls built from the observed series "
-        f"({h1_below} below 0.05; MA(29) {ma29['H1']:.3f})"
-        + (": not significant under any of them." if h1_below == 0 else ".")
+        f"({_count(h1, h1_errors, ' 0.05')}; MA(29) {ma29['H1']:.3f})"
+        + (": not significant under any of them." if none else ".")
     )
+
+
+def _h2_bullet(
+    ma29: dict[str, float],
+    ma29_errors: dict[str, float],
+    calibrated: Sequence[Setting],
+    values: dict[str, dict[str, float]],
+    errors: dict[str, dict[str, float]],
+) -> str:
     short = [s for s in calibrated if s.parameter < LONG_DEPENDENCE]
     long = [s for s in calibrated if s.parameter >= LONG_DEPENDENCE]
-    h2 = [v["H2"] for v in values.values()]
-    h2_long = [values[s.label]["H2, Holm"] for s in long]
-    long_below = sum(p < NOMINAL for p in h2_long)
-    holm_se = max(2.0 * binomial_se(p, config.replications) for p in [*h2, ma29["H2"]])
-    yield (
+    h2, h2_errors = _column("H2", calibrated, values), _column("H2", calibrated, errors)
+    long_holm = _column("H2, Holm", long, values)
+    holm_se = max([ma29_errors["H2, Holm"], *_column("H2, Holm", calibrated, errors)])
+    text = (
         f"- H2: {_range(h2)} under the {len(h2)} nulls built from the observed series "
-        f"({sum(p < NOMINAL for p in h2)} below 0.05). After Holm (MC SE at most "
-        f"{holm_se:.3f}): {ma29['H2, Holm']:.3f} under MA(29); "
-        + " and ".join(f"{values[s.label]['H2, Holm']:.3f} under {_describe([s])}" for s in short)
-        + f", the nulls with dependence up to about a month; and {_range(h2_long)} under the "
-        f"{len(long)} nulls with dependence over {LONG_DEPENDENCE} days or more ({long_below} "
-        "below 0.05)."
-        + (
-            " Its significance after the size correction and Holm therefore holds only if the "
-            "differential has no material dependence beyond about a month."
-            if long_below == 0 and ma29["H2, Holm"] < NOMINAL
-            else ""
+        f"({_count(h2, h2_errors, ' 0.05')}). After Holm (MC SE at most {holm_se:.3f}): "
+        f"{_p(ma29['H2, Holm'], ma29_errors['H2, Holm'])} under MA(29); "
+        + " and ".join(
+            f"{_p(values[s.label]['H2, Holm'], errors[s.label]['H2, Holm'])} under {_describe([s])}"
+            for s in short
         )
+        + ", the nulls built from the observed series with dependence up to about a month; and "
+        f"{_range(long_holm)} under the {len(long)} nulls with dependence of "
+        f"{LONG_DEPENDENCE} days or more "
+        f"({_count(long_holm, _column('H2, Holm', long, errors), ' 0.05')})."
     )
-    selection = {s.label: values[s.label]["selection"] for s in calibrated}
-    passing = [s for s in calibrated if selection[s.label] < NOMINAL]
-    failing = [s for s in calibrated if selection[s.label] >= NOMINAL]
+    if all(p >= NOMINAL for p in long_holm) and ma29["H2, Holm"] < NOMINAL:
+        month = [("MA(29)", ma29["H2, Holm"], ma29_errors["H2, Holm"])]
+        month += [
+            (_describe([s]), values[s.label]["H2, Holm"], errors[s.label]["H2, Holm"])
+            for s in short
+        ]
+        clear = [name for name, p, e in month if p < NOMINAL and not _near(p, e)]
+        near = [name for name, p, e in month if _near(p, e)]
+        above = [name for name, p, e in month if p >= NOMINAL and not _near(p, e)]
+        text += (
+            " Its significance after the size correction and Holm therefore holds only if the "
+            "differential has no material dependence beyond about a month"
+        )
+        if near or above:
+            sides = [f"below 0.05 under {_listed(clear)}"] if clear else []
+            if near:
+                sides.append(f"within {BOUNDARY_SE:g} MC SE of 0.05 under {_listed(near)}")
+            if above:
+                sides.append(f"above 0.05 under {_listed(above)}")
+            last = ", and " if len(sides) == 2 else "; and "
+            joined = "; ".join(sides[:-1]) + last + sides[-1] if len(sides) > 1 else sides[0]
+            text += ", and even then not clearly under every such null: it is " + joined
+        text += "."
+    return text
+
+
+def _selection_bullet(
+    study: Study,
+    ma29: dict[str, float],
+    calibrated: Sequence[Setting],
+    values: dict[str, dict[str, float]],
+    errors: dict[str, dict[str, float]],
+) -> str:
+    passing = [s for s in calibrated if values[s.label]["selection"] < NOMINAL]
+    failing = [s for s in calibrated if values[s.label]["selection"] >= NOMINAL]
     family_ranges = " and ".join(
-        f"{_range([selection[s.label] for s in calibrated if s.family == family])} under the "
-        f"{family} nulls"
+        f"{_range(_column('selection', [s for s in calibrated if s.family == family], values))}"
+        f" under the {family} nulls"
         for family in ("block bootstrap", "Gaussian")
     )
+    fail, fail_errors = _column("selection", failing, values), _column("selection", failing, errors)
     text = (
         f"- The selection: {family_ranges}. A correctly sized gate fails under MA(29) "
         f"({ma29['selection']:.3f}) and under {len(failing)} of the {len(calibrated)} nulls "
-        f"built from the observed series ({_range([selection[s.label] for s in failing])})"
+        f"built from the observed series ({_range(fail)}{_near_note(fail, fail_errors)})"
     )
     if passing:
         observed, null_mean, _ = long_lag(study, study.test("selection"))
+        chosen = _column("selection", passing, values)
         text += (
-            f", and passes under {_describe(passing)} "
-            f"({_range([selection[s.label] for s in passing])}). Under these the rule rejects "
-            f"only {_pct_range([s.size('selection') for s in passing])} of the null series"
+            f", and passes under {_describe(passing)} ({_range(chosen)}"
+            f"{_near_note(chosen, _column('selection', passing, errors))}). Under these the rule "
+            f"rejects only {_pct_range([s.size('selection') for s in passing])} of the null series"
             + (
                 ": they carry the development differential's negative autocorrelation beyond "
                 "lag 29 (section 1) into the null."
@@ -1008,16 +1227,18 @@ def summary_lines(study: Study) -> Iterator[str]:
         )
     else:
         text += "."
-    yield text
+    return text
 
 
 def calibration_summary_lines(study: Study) -> Iterator[str]:
-    """The bullets of 'What this shows' that need section 4."""
+    """The bullets of 'What this shows' that need sections 4 and 5."""
+    config = study.config
     exact = {t.name: study.settings[0].corrected(t) for t in study.tests}
-    observed = observed_bootstrap_p(study)
+    observed = observed_p(study, "block bootstrap")
+    origins_list = sorted({t.values.size for t in study.tests}, reverse=True)
     sizes = {
         o: [float(np.mean(study.calibration[(o, b)]["null"] < NOMINAL)) for b in BLOCKS]
-        for o in sorted({t.values.size for t in study.tests}, reverse=True)
+        for o in origins_list
     }
     medians = {
         t.name: [float(np.median(study.calibration[(t.values.size, b)][t.name])) for b in BLOCKS]
@@ -1031,11 +1252,30 @@ def calibration_summary_lines(study: Study) -> Iterator[str]:
         for t in study.tests
         for b in BLOCKS
     }
+    # How far each size lies from 5 %, in MC SE.
+    margin = {
+        (o, b): (size - NOMINAL) / binomial_se(size, config.calibration_series)
+        for o, column in sizes.items()
+        for b, size in zip(BLOCKS, column, strict=True)
+    }
+    high = [cell for cell, m in margin.items() if m > BOUNDARY_SE]
+    liberal = ""
+    if high and all(m >= -BOUNDARY_SE for m in margin.values()):
+        cells = ", ".join(
+            f"blocks of {_listed([b for p, b in high if p == o])} days with {o} origins"
+            for o in origins_list
+            if any(p == o for p, _ in high)
+        )
+        liberal = (
+            f"; none is more than {BOUNDARY_SE:g} MC SE below 5 %, and {len(high)} of the "
+            f"{len(margin)} are more than {BOUNDARY_SE:g} MC SE above it ({cells}), so where the "
+            "method errs it rejects too often, and its p-values are, if anything, too small"
+        )
     yield (
         "- When MA(29) is true the block bootstrap rejects "
         + " and ".join(f"{_pct_range(v)} of the series with {o} origins" for o, v in sizes.items())
-        + " at a nominal 5 %. For MA(29) series with the committed statistic its median p-value "
-        "is "
+        + f" at a nominal 5 %{liberal}. For MA(29) series with the committed statistic its median "
+        "p-value is "
         + ", ".join(
             f"{_range(medians[name])} for {PROSE[name]} (exact {exact[name]:.3f})" for name in TESTS
         )
@@ -1068,6 +1308,131 @@ def calibration_summary_lines(study: Study) -> Iterator[str]:
             "and Gaussian nulls are symmetric; this study does not separate that from the other "
             "explanations (the shape of the dependence within a month, level shifts)."
         )
+    yield from _gaussian_summary_lines(study, exact)
+
+
+def _gaussian_summary_lines(study: Study, exact: dict[str, float]) -> Iterator[str]:
+    """The bullets of 'What this shows' that need section 5."""
+    config = study.config
+    observed = observed_p(study, "Gaussian")
+    cells = study.gaussian_calibration
+    origins_list = sorted({t.values.size for t in study.tests}, reverse=True)
+    sizes = {
+        o: [float(np.mean(cells[(o, k)]["null"] < NOMINAL)) for k in TAPERS] for o in origins_list
+    }
+    size_se = max(
+        binomial_se(v, config.gaussian_calibration_series)
+        for column in sizes.values()
+        for v in column
+    )
+    medians = {
+        t.name: [float(np.median(cells[(t.values.size, k)][t.name])) for k in TAPERS]
+        for t in study.tests
+    }
+    rising = all(np.all(np.diff(column) >= 0) for column in sizes.values())
+    falling = all(np.all(np.diff(column) <= 0) for column in medians.values())
+    lowers = falling and all(medians[name][-1] < exact[name] for name in TESTS)
+    yield (
+        "- When MA(29) is true the Gaussian nulls reject "
+        + " and ".join(f"{_pct_range(v)} of the series with {o} origins" for o, v in sizes.items())
+        + f" at a nominal 5 % (MC SE at most {100 * size_se:.1f} points)"
+        + (", more the longer the taper" if rising else "")
+        + ". For MA(29) series with the committed statistic their median p-value is "
+        + ", ".join(
+            f"{_range(medians[name])} for {PROSE[name]} (exact {exact[name]:.3f})" for name in TESTS
+        )
+        + (
+            ", falling as the taper grows: with long tapers the method gives p-values below the "
+            "exact ones when MA(29) holds, as the downward bias of the demeaned sample "
+            "autocovariance at long lags (section 1), which these nulls take as the truth, leads "
+            "one to expect."
+            if lowers
+            else "."
+        )
+    )
+
+    def share(name: str, taper: int, *, below: bool) -> float:
+        """Share of the MA(29) series at or below (or above) the observed Gaussian p-value."""
+        values = cells[(study.test(name).values.size, taper)][name]
+        point = observed[(name, taper)]
+        return float(np.mean(values <= point if below else values >= point))
+
+    passing = [k for k in TAPERS if observed[("selection", k)] < NOMINAL]
+    if passing and exact["selection"] >= NOMINAL:
+        shares = [share("selection", k, below=True) for k in passing]
+        yield (
+            f"- Under the Gaussian nulls with tapers {_listed(passing)}, where the selection gate "
+            f"passes ({_range([observed[('selection', k)] for k in passing])}), "
+            f"{_range(shares)} of the MA(29) series with the committed statistic get a p-value "
+            "at or below the selection's"
+            + (
+                ": a pass under these nulls is not unusual when MA(29) holds, and under MA(29) a "
+                f"correctly sized gate fails ({exact['selection']:.3f})."
+                if min(shares) >= NOMINAL
+                else "."
+            )
+        )
+    long = [k for k in TAPERS if k >= LONG_DEPENDENCE]
+    reach = {name: [share(name, k, below=False) for k in long] for name in ("H2", "H1")}
+    if max(max(column) for column in reach.values()) < 0.5:
+        short = [k for k in TAPERS if k < LONG_DEPENDENCE]
+        ordinary = all(
+            NOMINAL <= share(name, k, below=False) <= 1 - NOMINAL
+            for name in ("H2", "H1")
+            for k in short
+        )
+        yield (
+            f"- With tapers {_listed(long)} the Gaussian p-values of H2 "
+            f"({_range([observed[('H2', k)] for k in long])}) and H1 "
+            f"({_range([observed[('H1', k)] for k in long])}) are larger than the method gives "
+            f"most MA(29) series with the committed statistic: {_range(reach['H2'])} of them "
+            f"reach H2's and {_range(reach['H1'])} H1's"
+            + (
+                f", while with taper {_listed(short)} both are within the range MA(29) series "
+                "give. As the method lowers p-values when MA(29) holds, it is the confirmation "
+                "differentials' own autocovariance beyond lag 29 that raises them."
+                if ordinary and lowers
+                else "."
+            )
+        )
+
+
+def limitations_lines(study: Study) -> Iterator[str]:
+    """The limitations of the study, with the numbers of sections 0-1 they cite."""
+    means = {t.values.size: long_lag(study, t)[1] for t in study.tests}
+    shortest, longest, block = min(means), max(means), max(BLOCKS)
+    yield "## Limitations"
+    yield ""
+    yield (
+        "- The analyses are post hoc: the nulls and the long-lag statistic were chosen after the "
+        "M2 results and a first look at the autocorrelations were known. They do not replace the "
+        "pre-registered decision, and the data cannot show which null is right."
+    )
+    yield (
+        "- The Gaussian nulls take the demeaned sample autocovariance as the truth. It is noisy "
+        "and biased downward at long lags (section 1: under MA(29) the mean autocorrelation over "
+        f"lags {LONG_LAGS[0]}-{LONG_LAGS[1]} averages "
+        + " and ".join(f"{m:.3f} with {o} origins" for o, m in sorted(means.items(), reverse=True))
+        + "), and the Bartlett taper shrinks it further, so a null with a long taper carries "
+        "that bias and has no dependence beyond its taper. Section 5 measures the effect when "
+        "MA(29) is true."
+    )
+    yield (
+        "- The circular block bootstrap keeps dependence only within a block, weakened at the "
+        f"joins; a resample of {shortest} origins holds only {-(-shortest // block)} blocks of "
+        f"{block} days. It keeps the skewed marginal distribution of the selection and H2 "
+        "differentials (section 0), which the MA(29) and Gaussian nulls do not; the study does not "
+        "separate the effect of the skewness from that of the dependence."
+    )
+    yield (
+        "- Every size-corrected p-value carries Monte Carlo error (section 2): a value within "
+        f"{BOUNDARY_SE:g} MC SE of 0.05 could fall on the other side of it with another seed, "
+        "and the ends of a range are its least precise values. A bootstrap or Gaussian p-value "
+        f"of a single series of {shortest}-{longest} overlapping observations is itself noisy: "
+        "sections 4 and 5 show how much it varies when MA(29) is true."
+    )
+    yield "- None of the nulls models level shifts or other non-stationarity."
+    yield "- M3 uses the same rule on the same grid; this study does not cover its tests."
 
 
 def report(study: Study, emit: Callable[[str], None]) -> None:
@@ -1078,6 +1443,7 @@ def report(study: Study, emit: Callable[[str], None]) -> None:
         nulls_lines(study),
         size_lines(study),
         calibration_lines(study),
+        gaussian_calibration_lines(study),
     ]
     for lines in sections:
         for line in lines:
@@ -1086,6 +1452,9 @@ def report(study: Study, emit: Callable[[str], None]) -> None:
     for line in summary_lines(study):
         emit(line)
     for line in calibration_summary_lines(study):
+        emit(line)
+    emit("")
+    for line in limitations_lines(study):
         emit(line)
 
 
@@ -1096,8 +1465,15 @@ def rebuild(forecasts: Path, *, write: bool) -> int:
     text = differentials_csv(rebuild_differentials(forecasts), expected_forecasts_sha256())
     name = DIFFERENTIALS.relative_to(REPO_ROOT)
     if write:
-        DIFFERENTIALS.write_text(text, encoding="utf-8")
-        committed_differentials()  # the written file must reproduce the committed metrics
+        # The new file must reproduce the committed metrics before it replaces the old one.
+        staged = DIFFERENTIALS.with_name(f".{DIFFERENTIALS.name}.new")
+        staged.write_text(text, encoding="utf-8")
+        try:
+            committed_differentials(staged)
+        except BaseException:
+            staged.unlink()
+            raise
+        staged.replace(DIFFERENTIALS)
         print(f"wrote {name}")
         return 0
     if DIFFERENTIALS.read_text(encoding="utf-8") != text:
@@ -1113,6 +1489,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--replications", type=int, default=defaults.replications)
     parser.add_argument("--calibration-series", type=int, default=defaults.calibration_series)
     parser.add_argument("--calibration-draws", type=int, default=defaults.calibration_draws)
+    parser.add_argument(
+        "--gaussian-calibration-series", type=int, default=defaults.gaussian_calibration_series
+    )
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--rebuild", type=Path, metavar="FORECASTS_CSV")
     parser.add_argument("--write", action="store_true", help="with --rebuild: write the CSV")
@@ -1121,9 +1500,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--write needs --rebuild")
     if args.rebuild is not None:
         return rebuild(args.rebuild, write=args.write)
-    if args.replications < 1000 or min(args.calibration_series, args.calibration_draws) < 100:
+    calibration = (args.calibration_series, args.gaussian_calibration_series)
+    if args.replications < 1000 or min(*calibration, args.calibration_draws) < 100:
         parser.error("use at least 1000 replications and 100 calibration series and draws")
-    config = Config(args.replications, args.calibration_series, args.calibration_draws, args.seed)
+    config = Config(
+        replications=args.replications,
+        calibration_series=args.calibration_series,
+        calibration_draws=args.calibration_draws,
+        seed=args.seed,
+        gaussian_calibration_series=args.gaussian_calibration_series,
+    )
     started = time.perf_counter()
     study = run_nulls(config, *committed_differentials())
     print(f"sections 1-3 took {time.perf_counter() - started:.0f} s", file=sys.stderr)
