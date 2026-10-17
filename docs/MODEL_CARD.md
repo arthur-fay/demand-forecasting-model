@@ -129,17 +129,18 @@ What the evidence supports:
   p 0.044 against a 5 % gate) over-rejects at a 30-day horizon with a few hundred overlapping
   origins. Under its own assumptions the pre-registered rule rejects a true null 7.6 % of the time
   with 486 origins and 9.1 % with 336, instead of 5 %. After a size correction:
-  - the selection p-value is 0.069, so the gate would not have been passed, and a correctly
-    sized test would most likely have kept B\*;
+  - the selection p-value is 0.069, above the 5 % gate, so a correctly sized test would most
+    likely not have passed it, and step 4 of the selection rule would then have kept B\*;
   - H1 becomes 0.095, and H2 0.022 (Holm 0.045).
 
   These corrected values assume the test's own short-memory dependence (an MA(29) differential).
   A post hoc study repeats the correction under nulls built from the loss differentials
   themselves. H2 is significant after the size correction and Holm only under MA(29) (0.045)
-  and the one null that keeps about a month's dependence (0.036). Under 30-day blocks it is at
-  the threshold (0.050). Under the six nulls with dependence of 45 days or more it is
-  0.068-0.155. So H2's significance is not robust to the dependence the confirmation errors
-  show, and H1 is not significant under any of the nulls
+  and the Gaussian null with taper 29 (0.036), one of the two nulls that keep about a month's
+  dependence. Under the other, 30-day blocks, it is at the threshold (0.050, within Monte Carlo
+  error of 0.05). Under the six nulls with dependence of 45 days or more it is 0.068-0.155. So
+  H2's significance is not robust to the dependence assumption, and H1 is not significant
+  under any of the nulls
   ([audit/scripts/dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md)).
   The pre-registered choice stands, because changing it after the fact would be worse science,
   but its statistical support is weak. Details: [BACKTESTING.md](BACKTESTING.md), M8 erratum, and

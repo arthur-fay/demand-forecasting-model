@@ -157,7 +157,8 @@ it (M8-05).
   other directives are not checked beyond nginx-safe characters, and `release.json` is not
   authenticated: only root writes it.
 - Operating-system packages (Python, OpenSSL, nginx) are not pinned; updates arrive through
-  `unattended-upgrades` and a release must be rebuilt after a Python update.
+  `unattended-upgrades`. After a Python update, restart the service and re-run the M4
+  reproduction as the service user ([../DEPLOYMENT.md](../DEPLOYMENT.md) section 17).
 - Commits are not signed; builds trust GitHub for the commit content and PyPI for the wheels
   (both hash-checked).
 - Playwright's browser downloads in CI are not checksum-verified (CI only; nothing ships).

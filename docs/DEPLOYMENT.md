@@ -885,8 +885,11 @@ fingerprint of two builds (`test_m6_manifest.py`); IPv6 off by default
 (`test_m7_deploy.py`). The container test's explicit rollback now switches between two
 releases (it re-activated the current one before).
 
-All earlier tests (M0-M5) run unchanged except one line: the version literal in
-`test_m5_endpoints.py` (now 1.0.0). CI runs the whole suite with
+M6 and M7 ran all earlier tests (M0-M5) unchanged except one line: the version literal in
+`test_m5_endpoints.py` (now 1.0.0). M8 adds regression tests for its API and line-ending
+corrections to the M5 test files and to `test_snapshot.py` (M0), and replaces
+`test_m5_security.py`'s docs-page test with a stricter one
+([audit/M8_CORRECTIONS.md](audit/M8_CORRECTIONS.md) section 5). CI runs the whole suite with
 `ATLAS_REQUIRE_DEPLOY_TOOLS=1` (a missing nginx, openssl, shellcheck or systemd-analyze
 fails instead of skipping), shellcheck, and the container job.
 
@@ -945,8 +948,12 @@ Phase B (a real deployment) needs, in writing:
 2. **The server**: provider, plan (vCPU, memory, disk), region, Ubuntu 24.04 LTS image, an
    administrator account with SSH key access and sudo; confirmation that it is dedicated to
    ATLAS.
-3. **The preflight report** from that server (`--json`, with `--probe-dependencies`): no
-   `fail`; the warnings acknowledged; the resource profile chosen.
+3. **The preflight reports** from that server:
+   - before the bootstrap: `--before-bootstrap --json`, with no `fail`, the warnings
+     acknowledged and the resource profile chosen. This is what item 5 authorises;
+   - after the bootstrap and before the build: the preflight without `--before-bootstrap`,
+     and `--probe-dependencies`, both with no `fail`. On a fresh server the probe cannot pass
+     earlier, because it needs `python3.12-venv`, which the bootstrap installs (section 4).
 4. **The exposure decision**: tunnel only, or private. For private: the domain name, who
    controls its DNS, the certificate method (HTTP-01 with port 80 open, or DNS-01), the HSTS
    duration, and optionally the networks allowed (`ALLOW_CIDRS`) or a VPN.

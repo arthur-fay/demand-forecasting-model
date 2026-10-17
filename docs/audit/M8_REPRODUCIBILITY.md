@@ -58,9 +58,11 @@ The measured run on the candidate commit is in [M8_CORRECTIONS.md](M8_CORRECTION
   adds a manual workflow (`reproduce-research.yml`) that regenerates every committed run and
   records the CPU and OpenBLAS core it ran on (M8-38). GitHub can dispatch it only once the
   workflow is on the default branch, so its first run is an owner action after the merge.
-- **Python patch version.** The release environment fingerprint includes the interpreter; a
-  release must be rebuilt after a `python3.12` update on the server (the build re-verifies the M4
-  reproduction).
+- **Python patch version.** The release's environment runs on the system `python3.12`. Its
+  fingerprint records the interpreter link, not the interpreter's bytes. A rebuild of the same
+  commit only checks the release's files against its manifest; it does not run the M4
+  reproduction again. After a `python3.12` update, restart the service and re-run the M4
+  reproduction as the service user ([../DEPLOYMENT.md](../DEPLOYMENT.md) section 17).
 - **Source data.** The snapshot cannot be re-derived from NYC Open Data: the extraction time
   was not recorded and the live dataset can be revised.
 

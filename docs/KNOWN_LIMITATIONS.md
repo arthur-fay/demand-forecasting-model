@@ -61,8 +61,8 @@ is listed in section 10.
   capability.
 - The evidence is too thin for any calibration claim either way. There are about 8-9 effective
   independent observations, and the 95 % HAC interval of the 80 % coverage spans 65 to 95 %. That
-  interval uses `t(335)` critical values, so a reference with 8-9 degrees of freedom would make it
-  wider still **(M8)**.
+  interval uses `t(335)` critical values; a `t(ESS − 1)` reference (about 7-8 degrees of
+  freedom) would make it wider still, ±17.5 instead of ±14.6 points **(M8)**.
 - The interval construction itself (empirical type-7 quantiles without a finite-sample
   correction) lowers the expected coverage of a 95 % interval by about half a point at the
   calibration sizes used, which is more than the margin by which the two failing buckets missed

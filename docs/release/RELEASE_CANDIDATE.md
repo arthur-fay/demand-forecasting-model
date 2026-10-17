@@ -132,7 +132,7 @@ uv run atlas api openapi | diff - docs/api/openapi.json
 #  one simulation)
 
 # deploy-e2e: the deployment package end to end in a disposable Ubuntu 24.04 systemd container
-uv run pytest tests/test_m6_container.py --no-cov
+ATLAS_E2E_CONTAINER=1 uv run pytest tests/test_m6_container.py --no-cov -v -s   # needs Docker; without the variable all 22 tests skip
 
 # dashboard: the committed build is reproduced byte for byte from the lock
 cd web && npm ci && npm audit --audit-level=high
@@ -208,8 +208,10 @@ Merging and tagging:
 
 Before tagging `v1.0.0`:
 
-- [ ] Dispatch `reproduce-research.yml` on the merge commit, and record the date, the commit,
-  the CPU, the OpenBLAS core and the outcome ([DEVELOPMENT.md](../DEVELOPMENT.md)).
+- [ ] Dispatch `reproduce-research.yml` on the merge commit; every job must pass. A failure on a
+  runner whose OpenBLAS core is not SkylakeX is inconclusive: re-run the job, or run its
+  commands on a SkylakeX machine ([DEVELOPMENT.md](../DEVELOPMENT.md)). Record the date, the
+  commit, the CPU, the OpenBLAS core and the outcome.
 - [ ] Confirm that `dependency-audit.yml` is enabled, and run it once by hand; it must be green.
 - [ ] Tag `v1.0.0` on the same commit (owner only). Any change to the content makes a new
   candidate, `1.0.0-rc.2`, with a regenerated manifest.

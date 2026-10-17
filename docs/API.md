@@ -377,7 +377,9 @@ final review
 ([audit/scripts/dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md)).
 Under nulls built from the loss differentials themselves, H2's Holm-adjusted p-value is
 0.068-0.155 wherever the null keeps dependence of 45 days or more, and 0.036-0.050 where it
-keeps about a month. Tests tie every figure to its source. No other string the API sends
+keeps about a month. Tests tie the notice's figures to the committed run and the size study
+(`test_m5_endpoints.py`), and the dependence-study figures, as BACKTESTING section 12 quotes
+them, to the study's recorded output (`test_m8_dm_dependence.py`). No other string the API sends
 states or implies that the selection is significant or robust.
 
 ### `GET /api/v1/forecasts?horizon_days=1..30`

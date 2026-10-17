@@ -72,8 +72,10 @@ than trusting the package, and what the checks showed. The full evidence of each
   section 12). A test (`tests/test_m8_dm_size.py`) pins the over-rejection and the recorded study.
 
   These corrected values assume the test's own null: no dependence beyond lag 29. The final
-  independent review showed that the confirmation differentials are positively autocorrelated
-  beyond it. A post hoc study ([scripts/dm_dependence_sensitivity.py](scripts/dm_dependence_sensitivity.py),
+  independent review found the confirmation differentials autocorrelated beyond it. The
+  committed study bears this out for H1: its mean autocorrelation over lags 30-120 is 0.126,
+  and only 1.5 % of MA(29) series reach it. H2's (0.042) is in the same direction but within
+  the MA(29) range (8.0 % reach it), and the data cannot show which null is right. A post hoc study ([scripts/dm_dependence_sensitivity.py](scripts/dm_dependence_sensitivity.py),
   with its [recorded output](scripts/dm_dependence_sensitivity_output.md) and
   `tests/test_m8_dm_dependence.py`) repeats the correction under eight nulls built from the
   committed loss differentials: circular block bootstraps with blocks of 30-90 days, and

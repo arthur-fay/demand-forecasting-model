@@ -69,6 +69,18 @@ sudo python3 -I src/atlas/deploy/preflight.py --resources low --release-dir . --
 python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --before-bootstrap --json > ~/preflight.json
 ```
 
+If the owner has made the repository private (release gate, section 1, condition 3 (b)), the
+anonymous download above fails, and git asks for credentials. Do not put a token in a command
+line or URL. Copy the approved commit to the server instead:
+
+- for this preflight, an archive of it into `~/atlas`, for example
+  `git archive <approved commit SHA> | ssh admin@server 'mkdir ~/atlas && tar -x -C ~/atlas'`;
+- for the build, a bare clone into a root-owned directory (`sudo chown -R root:root
+  /srv/atlas.git`). Then run section 4, step 3 as
+  `sudo deploy/scripts/build-release.sh <SHA> --repo file:///srv/atlas.git`
+  ([DEPLOYMENT.md](../DEPLOYMENT.md) section 5.3). The container test builds from a local
+  repository the same way.
+
 The verdict must not be `UNSUITABLE` (any `[FAIL]`). With `--before-bootstrap`, missing
 `python3.12-venv`, `git` and `nginx` are reported as information, because the bootstrap installs
 them. Without the option they are failures, so a fresh server would always be `UNSUITABLE`.
@@ -77,7 +89,9 @@ The bootstrap cannot fix the CPU instruction set, memory, disk or a busy server.
 warns above 0.7 × CPUs and fails above 1.5 × CPUs (five-minute load average).
 
 Send the JSON report to the owner; the warnings must be acknowledged in writing. The definitive
-checks come after the bootstrap (section 4, step 2):
+checks come after the bootstrap (section 4, step 2). Both must report no `[FAIL]` before the
+build, and their reports go to the owner ([DEPLOYMENT.md](../DEPLOYMENT.md) section 18,
+item 3):
 
 - the same preflight without `--before-bootstrap`;
 - the dependency probe, as an ordinary user:
@@ -212,7 +226,10 @@ The M6 package was tested end to end in a disposable Ubuntu 24.04 systemd contai
 [../audit/M8_CORRECTIONS.md](../audit/M8_CORRECTIONS.md) section 1. That test covers the
 bootstrap, builds, activation, upgrade, rollback, recovery and monitoring. It does not cover:
 
-- the pre-bootstrap preflight on a fresh server (it copies the checkout in);
+- the operator's pre-bootstrap preflight of section 2. The test copies the checkout in instead
+  of downloading it, and runs that preflight only inside the bootstrap, as root and with
+  `--offline`, where it passes on the fresh image. The outbound HTTPS check, the run as an
+  ordinary user and the JSON report are not exercised;
 - SSH hardening, ufw and swap (section 4, step 1);
 - certbot and certificate issuance (it installs a self-signed certificate);
 - the encrypted backup.

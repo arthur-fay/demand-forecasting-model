@@ -65,9 +65,9 @@ forecast is a re-forecast of days that were already in the data.
    p = 0.069 (nominal 0.044), above its 5 % gate, so its statistical support is weak. H2
    keeps p = 0.022 (Holm 0.045) under the pre-registered rule and the test's own MA(29)
    dependence, but not under three of the five HAC bandwidths, so "stays significant under
-   every HAC bandwidth tried" no longer holds. Nor is it robust to the dependence the
-   confirmation differentials show: Holm 0.068-0.155 under nulls with dependence of 45 days
-   or more (section 12). H1 becomes 0.095. The pre-registered choice stands.
+   every HAC bandwidth tried" no longer holds. Nor is it robust to the dependence
+   assumption: Holm 0.068-0.155 under nulls with dependence of 45 days or more
+   (section 12). H1 becomes 0.095. The pre-registered choice stands.
 4. **In the confirmation period, almost all of the error growth with horizon comes from
    recursion.** Applying the same fitted regressions to *observed* previous days keeps their
    confirmation MAE nearly flat across horizons (686-749); feeding their own

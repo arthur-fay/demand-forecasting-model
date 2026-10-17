@@ -35,10 +35,10 @@ give the protocols and the full tables.
      requests per day, includes zero, and the Holm-adjusted p-value is 0.054: **not
      significant**.
    - Against seasonal naive it is 28.2 % lower. The Holm-adjusted p-value is 0.007 nominal,
-     and 0.045 after the M8 size correction below. It rises above 0.05 under three of the five
-     HAC bandwidths once each is size-corrected, and the correction itself assumes no error
-     dependence beyond 29 days. Under nulls that keep dependence of 45 days or more, it is
-     0.068-0.155
+     and 0.045 after the M8 size correction below. With each HAC bandwidth size-corrected, the
+     unadjusted p-value is above 0.05 under three of the five and the Holm-adjusted one under
+     four. The correction itself assumes no error dependence beyond 29 days. Under nulls that
+     keep dependence of 45 days or more, the Holm-adjusted p-value is 0.068-0.155
      ([dependence study](docs/audit/scripts/dm_dependence_sensitivity_output.md)). So this
      advantage, too, is borderline rather than established.
    - These are re-forecasts of days already in the data, not a prospective validation.
