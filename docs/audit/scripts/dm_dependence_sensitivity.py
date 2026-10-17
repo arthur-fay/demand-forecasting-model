@@ -809,8 +809,9 @@ def inputs_lines(study: Study) -> Iterator[str]:
     yield (
         "- The vectorised rule used for the simulations agrees with "
         f"`atlas.stats.diebold_mariano` on the {study.checked[0]} series checked in sections 1-3 "
-        "(the observed series and the first draws of every simulated setting; section 4 checks "
-        "its own draws the same way); largest absolute difference of the pre-registered p-value "
+        "(the observed series and the first draws of every simulated setting; sections 4 and 5 "
+        "check their own draws the same way); largest absolute difference of the pre-registered "
+        "p-value "
         f"{study.checked[1]:.1e} (tolerance {TOLERANCE:g})."
     )
     yield (
