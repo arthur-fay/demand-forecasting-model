@@ -22,7 +22,16 @@ from typing import TYPE_CHECKING
 import pytest
 
 from atlas.api.middleware import API_CSP
-from atlas.dashboard import DASHBOARD_CSP, DESCRIPTOR_PATH, DIST, MANIFEST_NAME, load_build
+from atlas.dashboard import (
+    DASHBOARD_CSP,
+    DASHBOARD_HEADERS,
+    DASHBOARD_TEXT_CSP,
+    DESCRIPTOR_PATH,
+    DIST,
+    MANIFEST_NAME,
+    is_text,
+    load_build,
+)
 from tests.m7_helpers import BUILD
 from tests.m7_stack import DOMAIN, PASSWORD, USER, Stack, stack
 from tests.test_m6_proxy import Reply, Site
@@ -94,7 +103,11 @@ def test_every_page_is_the_index_with_the_dashboard_policy(private: tuple[Site, 
 
 
 def test_every_file_is_served_as_built(private: tuple[Site, Stack]) -> None:
+    """Each file with its type and cache policy, and the dashboard's headers: its policy for
+    HTML on every file but the plain-text licence notices, which get its policy for text
+    (M8 final review: the browser's text viewer needs an inline style)."""
     site, _ = private
+    others = {k: v for k, v in DASHBOARD_HEADERS.items() if k != "Content-Security-Policy"}
     for item in BUILT.files:
         if item.path == "index.html":
             continue
@@ -103,7 +116,13 @@ def test_every_file_is_served_as_built(private: tuple[Site, Stack]) -> None:
         assert hashlib.sha256(reply.body).hexdigest() == item.sha256, item.path
         assert once(reply, "Content-Type") == item.content_type, item.path
         assert once(reply, "Cache-Control") == item.cache_control, item.path
-        assert once(reply, "Content-Security-Policy") == DASHBOARD_CSP
+        policy = DASHBOARD_TEXT_CSP if is_text(item.content_type) else DASHBOARD_CSP
+        assert once(reply, "Content-Security-Policy") == policy, item.path
+        for name, value in others.items():
+            assert once(reply, name) == value, (item.path, name)
+        assert once(reply, "X-Content-Type-Options") == "nosniff"
+        assert once(reply, "X-Frame-Options") == "DENY"
+    assert sum(is_text(item.content_type) for item in BUILT.files) == 2
 
 
 def test_text_is_compressed_for_clients_that_ask(private: tuple[Site, Stack]) -> None:

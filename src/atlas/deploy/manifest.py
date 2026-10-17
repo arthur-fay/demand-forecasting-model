@@ -15,10 +15,12 @@ later step. It identifies:
   commit with the same lock, uv, Python, platform and path (:func:`environment_fingerprint`);
 * the API contract (SHA-256 of ``docs/api/openapi.json``);
 * (M7) the dashboard build (``web/dist``): its version, manifest hash, fingerprint, every
-  file's SHA-256, its routes and its Content-Security-Policy; (M8) its other response
-  headers and the deployment descriptor of each exposed profile, with its format, so that
-  a later tool restoring or rolling back to the release serves and verifies its dashboard
-  as the release's own code does (:func:`dashboard_record`);
+  file's SHA-256, its routes and its Content-Security-Policy; (M8) the
+  Content-Security-Policy of its plain-text files, its other response headers and the
+  deployment descriptor of each exposed profile, with its format, so that a later tool
+  restoring or rolling back to the release serves and verifies its dashboard as the
+  release's own code does (:func:`dashboard_record`; a record below the floor of
+  :func:`atlas.dashboard.recorded_policy_problems` is refused);
 * the scientific-integrity status: the M3 interval status (``failed_calibration``), the M4
   parameter provenance (``HYPOTHETICAL``) and ``validated_recommendation: false``;
 * the build: when, with which uv, and which checks passed.
@@ -41,11 +43,13 @@ from typing import Any, Final
 
 from atlas.dashboard import (
     DASHBOARD_HEADERS,
+    DASHBOARD_TEXT_CSP,
     DESCRIPTOR_FORMAT,
     DIST,
     MANIFEST_NAME,
     DashboardError,
     manifest_record,
+    recorded_policy_problems,
 )
 from atlas.deploy.layout import RELEASE_MANIFEST, valid_release_id
 from atlas.deploy.routes import PROFILE_ACCESS, descriptor_for
@@ -225,16 +229,18 @@ def scientific_status(release_dir: Path) -> dict[str, Any]:
 def dashboard_record(release_dir: Path) -> dict[str, Any] | None:
     """The release's dashboard, verified against its own build manifest (``None``: the
     release has no dashboard build), and (M8) what the release's code sends with it: its
-    response headers and the deployment descriptor of each exposed profile, with its
-    format. A later tool serving this release (a rollback, a restoration) renders nginx's
-    dashboard headers and descriptor from here and verifies the API against them
-    (:mod:`atlas.deploy.render`, :mod:`atlas.deploy.verify`)."""
+    response headers, the Content-Security-Policy of its plain-text files (``text_csp``)
+    and the deployment descriptor of each exposed profile, with its format. A later tool
+    serving this release (a rollback, a restoration) renders nginx's dashboard headers and
+    descriptor from here and verifies the API against them (:mod:`atlas.deploy.render`,
+    :mod:`atlas.deploy.verify`)."""
     if not (release_dir / DIST / MANIFEST_NAME).exists():
         return None
     try:
         record = manifest_record(release_dir / DIST)
     except DashboardError as exc:
         raise ManifestError(f"the dashboard build does not verify: {exc}") from exc
+    record["text_csp"] = DASHBOARD_TEXT_CSP
     record["headers"] = dict(DASHBOARD_HEADERS)
     record["descriptor_format"] = DESCRIPTOR_FORMAT
     record["descriptors"] = {profile: descriptor_for(profile) for profile in PROFILE_ACCESS}
@@ -242,7 +248,9 @@ def dashboard_record(release_dir: Path) -> dict[str, Any] | None:
 
 
 def check_dashboard(release_dir: Path, recorded: Mapping[str, Any] | None) -> list[str]:
-    """Differences between the release's dashboard and what ``release.json`` recorded."""
+    """Differences between the release's dashboard and what ``release.json`` recorded, and
+    (M8) what in the recorded policy no tool may send (:func:`recorded_policy_problems`):
+    such a release is refused before anything changes, in every profile."""
     present = (release_dir / DIST / MANIFEST_NAME).exists()
     if recorded is None:
         return (
@@ -260,6 +268,9 @@ def check_dashboard(release_dir: Path, recorded: Mapping[str, Any] | None) -> li
         f"dashboard {key} differs from the manifest"
         for key in ("manifest_sha256", "fingerprint", "files", "routes")
         if current.get(key) != recorded.get(key)
+    ]
+    problems += [
+        f"recorded dashboard policy refused: {p}" for p in recorded_policy_problems(recorded)
     ]
     return problems
 
