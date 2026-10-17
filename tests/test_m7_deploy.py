@@ -215,9 +215,20 @@ def test_the_licence_notices_get_the_policy_for_text() -> None:
     assert f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;' in favicon
 
 
-def test_a_text_asset_gets_its_own_location_with_the_policy_for_text() -> None:
+@pytest.mark.parametrize(
+    ("record", "text_policy"),
+    [
+        pytest.param(None, DASHBOARD_TEXT_CSP, id="this tool's policy"),
+        # A record without a policy for text (before 1.0.0) sends its csp with every file.
+        pytest.param({"csp": DASHBOARD_CSP}, DASHBOARD_CSP, id="a record with csp only"),
+    ],
+)
+def test_a_text_asset_gets_its_own_location_with_the_policy_for_text(
+    record: dict[str, str] | None, text_policy: str
+) -> None:
     """The policy follows the type, as in the API: a plain-text asset would be served from a
-    location of its own (the committed build has none)."""
+    location of its own, with the charset of text (the committed build has none). The
+    location of the other assets is as before."""
     import dataclasses
 
     from atlas.dashboard import parse_manifest
@@ -225,17 +236,20 @@ def test_a_text_asset_gets_its_own_location_with_the_policy_for_text() -> None:
     document = json.loads((BUILD / MANIFEST_NAME).read_text("utf-8"))
     document["files"]["assets/notes-0123456789.txt"] = {"sha256": "0" * 64, "bytes": 1}
     build = parse_manifest(json.dumps(document).encode())
-    part = dashboard_part(dataclasses.replace(renderer(), dashboard=build).nginx())
+    policy = DashboardPolicy.of(record)
+    part = dashboard_part(dataclasses.replace(renderer(), dashboard=build, policy=policy).nginx())
     assets = re.findall(r'    location ~ "\^/assets/.*?\n    \}', part, re.DOTALL)
     assert len(assets) == 2
     text = next(block for block in assets if "notes-0123456789" in block)
     assert 'location ~ "^/assets/(?:notes-0123456789\\.txt)$" {' in text
     assert "            text/plain txt;" in text
-    assert "        charset_types text/javascript text/css text/plain;" in text
-    assert f'add_header Content-Security-Policy "{DASHBOARD_TEXT_CSP}" always;' in text
+    assert "        charset_types text/plain;" in text
+    assert f'add_header Content-Security-Policy "{text_policy}" always;' in text
     code = next(block for block in assets if block is not text)
+    assert "        charset_types text/javascript text/css;" in code
     assert f'add_header Content-Security-Policy "{DASHBOARD_CSP}" always;' in code
     assert "notes-0123456789" not in code
+    assert "text/plain" not in code
 
 
 def test_every_asset_is_listed_by_name_and_immutable() -> None:
@@ -810,6 +824,8 @@ BELOW_THE_FLOOR = [
     ),
     pytest.param("csp", DASHBOARD_CSP + "; script-src-elem https:", id="script-src-elem"),
     pytest.param("csp", DASHBOARD_CSP + "; worker-src *", id="worker-src"),
+    # Without worker-src, child-src decides which scripts a worker may run (CSP Level 3).
+    pytest.param("csp", DASHBOARD_CSP + "; child-src blob:", id="child-src"),
     pytest.param(
         "csp",
         DASHBOARD_CSP.replace("require-trusted-types-for 'script'; ", ""),
@@ -818,6 +834,7 @@ BELOW_THE_FLOOR = [
     pytest.param("csp", "script-src *; " + DASHBOARD_CSP, id="script-src twice"),
     pytest.param("csp", DASHBOARD_CSP + ", script-src *", id="two policies"),
     pytest.param("text_csp", DASHBOARD_TEXT_CSP + "; script-src 'self'", id="text script-src"),
+    pytest.param("text_csp", DASHBOARD_TEXT_CSP + "; child-src 'self'", id="text child-src"),
     pytest.param(
         "text_csp",
         DASHBOARD_TEXT_CSP.replace("default-src 'none'", "default-src 'self'"),
@@ -862,16 +879,21 @@ def test_a_policy_among_the_recorded_headers_is_replaced_by_the_recorded_one(
     tmp_path: Path, header: str
 ) -> None:
     """Each location sends one Content-Security-Policy, the one the release records (``csp``,
-    or ``text_csp`` for text), whatever the case or value of one among its headers."""
+    or ``text_csp`` for text), whatever the case or value of one among its headers, and in
+    its place among them (as before M8: a location's headers are in the recorded order)."""
     release = make_dashboard_release(tmp_path)
     others = {k: v for k, v in DASHBOARD_HEADERS.items() if k != "Content-Security-Policy"}
-    rewrite_dashboard_record(release, headers={**others, header: "default-src *"})
+    record = rewrite_dashboard_record(release, headers={header: "default-src *", **others})
+    assert [name for name, _ in DashboardPolicy.of(record).headers] == list(DASHBOARD_HEADERS)
     site = Renderer.for_release(load_config(DEPLOY_ENV_PRIVATE), Layout(), release).nginx()
     part = dashboard_part(site)
     assert "default-src *" not in site
     assert part.lower().count("add_header content-security-policy") == static_locations() + 1
     assert part.count(f'"{DASHBOARD_CSP}"') == static_locations() - text_locations()
     assert part.count(f'"{DASHBOARD_TEXT_CSP}"') == text_locations()
+    for policy in (DASHBOARD_CSP, DASHBOARD_TEXT_CSP):  # first of the recorded headers
+        line = f'add_header Content-Security-Policy "{policy}" always;'
+        assert part.count(f'"no-referrer" always;\n        {line}') == part.count(line) > 0
 
 
 #: The Content-Security-Policy 0.7.0 (M7) records, as src/atlas/dashboard.py had it at
@@ -893,6 +915,10 @@ def test_every_release_so_far_meets_the_floor(tmp_path: Path) -> None:
     record = load_manifest(make_dashboard_release(tmp_path))["dashboard"]  # as 1.0.0 writes it
     assert recorded_policy_problems(record) == []
     assert DashboardPolicy.of(record).text_csp == DASHBOARD_TEXT_CSP
+    # Their headers are sent as before the floor, in the same order (POLICY_0_7_0 is
+    # DASHBOARD_CSP), and so is a checkout's.
+    for each in ({"csp": POLICY_0_7_0}, record, None):
+        assert DashboardPolicy.of(each).headers == tuple(DASHBOARD_HEADERS.items())
     assert policy_problems(DASHBOARD_CSP) == []
     assert policy_problems(DASHBOARD_TEXT_CSP, text=True) == []
     assert policy_problems(DASHBOARD_CSP, text=True) == ["allows scripts (script-src 'self')"]

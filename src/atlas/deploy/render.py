@@ -24,8 +24,11 @@ configuration or from constants, and is checked against a character set without
 whitespace, quotes, braces, semicolons or ``$``: no value can add a directive (a release's
 recorded dashboard headers and descriptors are checked against character sets of their
 own, narrow enough that no value can leave its quoted string or add a directive; and its
-headers against an allow-list and its policies against a floor, so that no record can
-loosen the site). An unknown placeholder is an error, never an empty string.
+header names against an allow-list and its policies against a floor, so that no record can
+add a header the dashboard does not send or one a location sets itself, nor loosen which
+scripts run, the default source or framing. The values of its other headers, and the
+other directives of its policies, are checked for those character sets only). An unknown
+placeholder is an error, never an empty string.
 
 Writing (:func:`write_files`) is atomic per file and idempotent: unchanged files are not
 touched, and the result lists what changed, so the operator knows what to reload.
@@ -251,12 +254,13 @@ class DashboardPolicy:
             raise RenderError("the release's dashboard policy is refused: " + "; ".join(problems))
         csp = record.get("csp", DASHBOARD_CSP)
         text_csp = record.get("text_csp", csp if record else DASHBOARD_TEXT_CSP)
-        # One Content-Security-Policy, the one verification expects (atlas.deploy.verify).
-        csp_named = {name for name in headers if name.lower() == "content-security-policy"}
+        # One Content-Security-Policy, the one verification expects (atlas.deploy.verify):
+        # in place of one among the headers (the floor admits it once, in any case), or last.
         headers = {
-            **{name: value for name, value in headers.items() if name not in csp_named},
-            "Content-Security-Policy": csp,
+            "Content-Security-Policy" if name.lower() == "content-security-policy" else name: value
+            for name, value in headers.items()
         }
+        headers["Content-Security-Policy"] = csp
         for name, value in [*headers.items(), ("Content-Security-Policy", text_csp)]:
             if not (
                 isinstance(name, str)
@@ -538,12 +542,12 @@ class Renderer:
                     ]
                 )
             )
-        # One location for the assets of each policy (a plain-text asset would get the
-        # policy for text; the committed build has none).
-        groups: dict[tuple[tuple[str, str], ...], list[StaticRoute]] = {}
+        # Plain-text assets in a location of their own, with the policy and charset of text
+        # (the committed build has none).
+        groups: dict[bool, list[StaticRoute]] = {}
         for route in assets:
-            groups.setdefault(policy.headers_for(route.content_type), []).append(route)
-        for headers, group in groups.items():
+            groups.setdefault(is_text(route.content_type), []).append(route)
+        for text, group in groups.items():
             # Names are [A-Za-z0-9_.-] only (atlas.dashboard): '.' is the one regex character.
             names = "|".join(
                 safe("dashboard_asset", r.url.removeprefix("/assets/")).replace(".", r"\.")
@@ -552,6 +556,8 @@ class Renderer:
             types = sorted(
                 {r.content_type.split(";")[0]: r.url.rsplit(".", 1)[-1] for r in group}.items()
             )
+            headers = policy.headers_for(group[0].content_type)
+            charset_types = "text/plain" if text else "text/javascript text/css"
             blocks.append(
                 "\n".join(
                     [
@@ -564,7 +570,7 @@ class Renderer:
                         "        }",
                         "        default_type application/octet-stream;",
                         "        charset utf-8;",
-                        "        charset_types text/javascript text/css text/plain;",
+                        f"        charset_types {charset_types};",
                         *dashboard_headers(8, hsts, group[0].cache_control, headers),
                         "    }",
                     ]

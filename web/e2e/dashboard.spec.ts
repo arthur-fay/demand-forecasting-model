@@ -11,6 +11,10 @@ const manifest = JSON.parse(
   files: Record<string, { sha256: string }>;
 };
 
+/** atlas.dashboard.DASHBOARD_TEXT_CSP: the licence notices are plain text. */
+const TEXT_POLICY =
+  "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
 test('every page loads from the API, same origin, with no error or CSP violation', async ({
   page,
   baseURL,
@@ -116,7 +120,7 @@ test('invalid input is refused before anything is sent', async ({ page }) => {
   expect(posted).toBe(0);
 });
 
-test('the served files are the build, byte for byte, with the dashboard policy', async ({
+test("the served files are the build, byte for byte, with the dashboard's policies", async ({
   request,
 }) => {
   for (const [path, { sha256 }] of Object.entries(manifest.files)) {
@@ -128,7 +132,9 @@ test('the served files are the build, byte for byte, with the dashboard policy',
         .digest('hex'),
       path,
     ).toBe(sha256);
-    expect(response.headers()['content-security-policy']).toContain("script-src 'self'");
+    const policy = response.headers()['content-security-policy'];
+    if (path.endsWith('.txt')) expect(policy, path).toBe(TEXT_POLICY);
+    else expect(policy, path).toContain("script-src 'self'");
   }
   expect((await request.get('/atlas-dashboard.json')).status()).toBe(404);
 });

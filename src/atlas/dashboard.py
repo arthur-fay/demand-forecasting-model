@@ -24,7 +24,8 @@ nginx site rendered by ``atlas-deploy``):
   notices get a policy for text (:data:`DASHBOARD_TEXT_CSP`), which loads and runs nothing;
 * (M8) a policy a release records for its dashboard (``release.json``), which a later tool
   sends and verifies, must meet a floor (:func:`recorded_policy_problems`): a record can
-  neither loosen what may run nor add a header the dashboard does not send.
+  neither add a header the dashboard does not send nor loosen which scripts may run, the
+  default source or framing.
 
 The dashboard learns what a deployment allows from a small descriptor served next to it
 (:data:`DESCRIPTOR_PATH`, :func:`descriptor`): its profile, whether a browser may run
@@ -125,8 +126,17 @@ MAX_BUILD_BYTES: Final = 16 * 1024 * 1024
 PROFILES: Final = ("local", "private", "public-demo")
 SIMULATIONS: Final = ("enabled", "disabled_public_demo", "disabled_api_key")
 
-#: (M8) The directives that decide which scripts run, in the page and in its workers.
-SCRIPT_DIRECTIVES: Final = ("script-src", "script-src-elem", "script-src-attr", "worker-src")
+#: (M8) The directives that decide which scripts run, in the page and in its workers. A
+#: worker's script is checked against ``worker-src`` or, without it, ``child-src``, then
+#: ``script-src`` (CSP Level 3): every release so far names neither, so ``script-src``
+#: decides, but a record naming ``child-src`` would decide for workers.
+SCRIPT_DIRECTIVES: Final = (
+    "script-src",
+    "script-src-elem",
+    "script-src-attr",
+    "worker-src",
+    "child-src",
+)
 #: The script sources a recorded HTML policy may name: the origin's own files, a hash of one
 #: inline script, ``'none'`` and ``'report-sample'``. Never ``'unsafe-inline'``,
 #: ``'unsafe-eval'``, ``'unsafe-hashes'``, ``'wasm-unsafe-eval'``, ``'strict-dynamic'``, a
@@ -442,6 +452,11 @@ def recorded_policy_problems(record: Mapping[str, Any]) -> list[str]:
     each once. (A Content-Security-Policy among them is replaced by ``csp`` where they are
     sent.) What a record leaves out is this tool's (a release built before 1.0.0 records
     only ``csp``).
+
+    Not held to the floor: the values of the other headers (Cross-Origin-Opener-Policy,
+    Cross-Origin-Resource-Policy, Permissions-Policy) and whether they are recorded at all,
+    and the directives of a policy other than those :func:`policy_problems` names. Rendering
+    checks them only for characters nginx embeds safely.
     """
     csp = record.get("csp", DASHBOARD_CSP)
     problems = [f"Content-Security-Policy: {p}" for p in policy_problems(csp)]
