@@ -13,7 +13,7 @@ const manifest = JSON.parse(
 
 /** atlas.dashboard.DASHBOARD_TEXT_CSP: the licence notices are plain text. */
 const TEXT_POLICY =
-  "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 test('every page loads from the API, same origin, with no error or CSP violation', async ({
   page,

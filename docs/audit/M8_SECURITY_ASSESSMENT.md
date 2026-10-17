@@ -106,8 +106,10 @@ from the same origin only, no inline code, `require-trusted-types-for 'script'`,
 cross-origin isolation headers and a `Permissions-Policy`. Every page loads with no CSP or
 Trusted Types violation, and since the final review so do both licence notices. The notices
 are plain text shown in the browser's own viewer. They now get a policy for text
-(`default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';
-frame-ancestors 'none'`) with the other dashboard headers. The HTML policy had refused the
+(`default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none';
+form-action 'none'; frame-ancestors 'none'`) with the other dashboard headers. `img-src 'self'`
+is there only for Firefox's own `/favicon.ico` request: a plain-text document cannot name an
+icon, and nothing in it can load an image. The HTML policy had refused the
 viewer's inline style, so every visit raised a violation and long lines did not wrap. The
 browser never holds a credential: the private profile relies on the
 browser's Basic session and nginx adds the key. The build is verified at startup (a tampered file

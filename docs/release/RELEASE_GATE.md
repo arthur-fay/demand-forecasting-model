@@ -89,6 +89,8 @@ during the audit, on code the corrections did not change, or were re-checked as 
 The full record, with the commands, is in
 [../audit/M8_CORRECTIONS.md](../audit/M8_CORRECTIONS.md) section 1. The runs used the
 candidate's code at `298d58b`, on the reference CPU class (OpenBLAS `SkylakeX`), on 2026-10-17.
+One code change followed them: `img-src 'self'` in the licence notices' policy, for Firefox's own
+icon request. Its affected suites were re-run, and CI runs everything on the final head.
 
 | Check | Result |
 |---|---|

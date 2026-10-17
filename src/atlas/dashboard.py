@@ -79,6 +79,10 @@ DASHBOARD_HEADERS: Final = {
 #: * ``default-src 'none'``: nothing is loaded; with no ``script-src``, no script runs;
 #: * ``style-src 'unsafe-inline'``: only for the viewer's own style attribute, as the
 #:   document has no markup of its own that could carry another;
+#: * ``img-src 'self'``: only for the browser's own request for the site icon. A plain-text
+#:   document cannot name one, so Firefox asks for ``/favicon.ico``, which ``default-src
+#:   'none'`` refused with a violation on every visit (the answer is a 404; nothing in the
+#:   document can load an image);
 #: * ``base-uri 'none'``, ``form-action 'none'``: not covered by ``default-src``; as in the
 #:   HTML policy, so that this one allows nothing more than it beyond the viewer's style;
 #: * ``frame-ancestors 'none'``: never framed, as ``X-Frame-Options: DENY`` says.
@@ -88,8 +92,8 @@ DASHBOARD_HEADERS: Final = {
 #: document, so a violation there would show only as a console message, unlike on every
 #: page.
 DASHBOARD_TEXT_CSP: Final = (
-    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
-    "frame-ancestors 'none'"
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; "
+    "form-action 'none'; frame-ancestors 'none'"
 )
 TEXT_TYPE: Final = "text/plain"
 #: Cache policies: content-hashed assets never change; everything else is revalidated. Not

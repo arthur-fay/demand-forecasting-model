@@ -310,16 +310,19 @@ final review). The API and nginx send it to the two `text/plain` files only, in 
 HTML policy and with every other header below:
 
 ```
-default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';
-frame-ancestors 'none'
+default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none';
+form-action 'none'; frame-ancestors 'none'
 ```
 
 A browser shows plain text in its own viewer and, with `nosniff`, never parses it as HTML.
 Chromium's viewer wraps long lines with an inline `style` attribute on its `<pre>`. The HTML
 policy's `style-src 'self'` refused that attribute, so every visit raised a violation, and at
 320 px `inter-licence.txt` scrolled 1050 px sideways and `third-party-licences.txt` 314 px.
-The policy for text allows that inline style and nothing else: no script runs and nothing
-loads. It has no `sandbox`. With no script and nothing loaded, sandbox adds no protection, and
+The policy for text allows that inline style, and the browser's own request for the site icon:
+a plain-text document cannot name one, so Firefox asks for `/favicon.ico` (the answer is a
+404). CI's first Firefox run showed `default-src 'none'` refusing that request with a
+violation. Nothing else is allowed: no script runs, and nothing in the document can load. It
+has no `sandbox`. With no script and nothing loaded, sandbox adds no protection, and
 in Chromium it stops the browser tests' listener for violation reports from running in the
 document. A release records this policy in its `release.json` as `text_csp`, and the
 deployment tool holds it to a floor: one policy, `default-src 'none'`,
