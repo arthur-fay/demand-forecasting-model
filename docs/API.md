@@ -305,7 +305,7 @@ Abbreviated real responses are shown; the complete schemas are in the OpenAPI do
 ### `GET /health/live`, `GET /health/ready`
 
 ```json
-{"status": "alive", "atlas_version": "0.6.0"}
+{"status": "alive", "atlas_version": "1.0.0"}
 {"status": "ready", "components": [{"component": "snapshot", "ready": true, "detail": null}, ...,
                                    {"component": "simulation_workers", "ready": true, "detail": null}]}
 ```
@@ -354,14 +354,21 @@ also carry M2's backtest label and the legacy 4.93 % MAPE note.
 is significant at 0.05: the development selection test passed its pre-registered gate, as M2
 recorded it. The M8 audit found that this test is oversized at this horizon, so `/models`
 serves it with a second notice: *"M2 SELECTION EVIDENCE: the pre-registered development
-selection test (HLN-DM, conservative p 0.044) passed its 5 % gate, but at a 30-day horizon
-with 336-486 overlapping origins this test over-rejects under its own assumptions (roughly
-7-10 % false rejections at a nominal 5 %); after a size correction the selection evidence is
-borderline (p roughly 0.06-0.09). The pre-registered choice stands, but its statistical
-support is weak."* The p-value and the origin counts are those of the committed run (a test
-ties them to it); the size figures are the audit's rounded Monte Carlo results
-([M8-04](audit/M8_FINDINGS_REGISTER.md#m8-04)). No other string the API sends states or
-implies that the selection is significant or robust.
+selection test (HLN-DM, conservative p 0.044) passed its 5 % gate as computed, but at a
+30-day horizon with 336-486 overlapping origins this test over-rejects under its own
+assumptions (7.6-9.1 % false rejections at a nominal 5 % in the M8 audit's simulation). After
+a size correction the selection p-value is 0.069, above the gate: a correctly sized test
+would most likely have kept the same-weekday median baseline. The recommendation stands only
+under the pre-registered rule as computed, and its statistical support is weak. Of the
+confirmatory tests, H1 is not significant, and H2's significance after the size correction
+(Holm-adjusted p 0.045) is not robust to the assumed error dependence."* The p-value and the
+origin counts are those of the committed run. The other figures come from the audit's
+recorded size study, `docs/audit/scripts/dm_size_study_output.md` (Gaussian shocks;
+[M8-04](audit/M8_FINDINGS_REGISTER.md#m8-04)): the size of the rule with 486 and 336
+origins, the size-corrected selection p-value and H2's size-corrected Holm-adjusted p. In
+the same study, with each HAC bandwidth corrected for its own size, H2's p-value is above
+0.05 under three of the five. Tests tie every figure to its source. No other string the API
+sends states or implies that the selection is significant or robust.
 
 ### `GET /api/v1/forecasts?horizon_days=1..30`
 
@@ -868,9 +875,12 @@ The API inherits every limitation of M2-M4 and adds none of its own claims:
   confirmation period, already used to confirm the model), not prospective. The recommended
   model's lead over the best baseline is not significant after the Holm adjustment
   (p = 0.054); every response that serves M2 numbers says so in its notices. The
-  development selection test passed its pre-registered gate (conservative p 0.044), but it
-  over-rejects at this horizon; after a size correction the selection evidence is
-  borderline (p roughly 0.06-0.09), and `/models` says so next to the selection.
+  development selection test passed its pre-registered gate as computed (conservative
+  p 0.044), but it over-rejects at this horizon (7.6-9.1 % false rejections at a nominal
+  5 %). After a size correction the selection p-value is 0.069, above the gate: a correctly
+  sized test would most likely have kept the same-weekday median baseline. H2's
+  size-corrected Holm-adjusted p (0.045) is not robust to the assumed error dependence.
+  `/models` says so next to the selection.
 - The M3 intervals **failed** their pre-registered calibration criteria. No interval,
   quantile or probability the API serves is decision-grade. Quantile stress paths are marginal
   per day, not joint, and carry no probability.

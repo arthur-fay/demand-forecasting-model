@@ -243,6 +243,8 @@ ALLOWED_RECOMMENDATION = (
     "confirmation tests behind the recommendation",
     "m2 run that recommended the projected model",
     "recommended_model",
+    # The M2 selection caveat (views.SELECTION_EVIDENCE_NOTICE): the model recommendation.
+    "the recommendation stands only under the pre-registered rule",
 )
 #: "guarantee" only in the negated disclaimer.
 ALLOWED_GUARANTEE = ("no chance constraint, service-level guarantee",)
