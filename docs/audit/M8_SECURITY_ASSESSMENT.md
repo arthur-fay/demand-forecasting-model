@@ -13,8 +13,8 @@ assessment reports what was tested and what was found; it is not a certification
 | Area | Result |
 |---|---|
 | API (M5) | no exploitable defect found; three LOW issues corrected (M8-20, M8-21, M8-23) |
-| Deployment (M6) | no exposure found; two MEDIUM consistency defects and three LOW issues corrected (M8-02, M8-03, M8-24 to M8-26) |
-| Dashboard (M7) | strict CSP with Trusted Types verified in a browser; no credential in the browser; notices for shipped code added (M8-05) |
+| Deployment (M6) | no exposure found; two MEDIUM consistency defects and three LOW issues corrected (M8-02, M8-03, M8-24 to M8-26); in the final review, a floor for the dashboard policy a release records |
+| Dashboard (M7) | strict CSP with Trusted Types verified in a browser; no credential in the browser; notices for shipped code added (M8-05), served since the final review with a policy for text |
 | Dependencies | 0 known vulnerabilities (pip-audit, npm audit, all severities); lockfiles complete and hash-checked; no install script runs on Linux; monitoring added (M8-06) |
 | CI | read-only permissions, actions pinned to verified SHAs, now on Node.js 24 (M8-32) |
 | Secrets | none in the 1,228 blobs reachable from every ref of the candidate (979 at the baseline); secrets never in the environment, argv, logs or unit properties |
@@ -68,8 +68,35 @@ Tested against live servers on loopback (no key, with a key and CORS, with a 1 s
   dashboard policy differed (M8-03); the environment fingerprint was not reproducible (M8-24);
   IPv6 was on by default although per-client limits count each address (M8-25);
   `render --apply` could install a site for a non-current release without the lock or a record
-  (M8-26). The release's recorded dashboard headers are now rendered into nginx, so they are
-  validated against strict character sets first; a crafted record is refused.
+  (M8-26).
+- **The recorded dashboard policy (final review).** The policy a release records in
+  `release.json` is rendered into nginx and verified against the API, so every tool holds it
+  to a floor before using it. The release check refuses a record below the floor before
+  anything changes, in every profile; rendering refuses it; and verification refuses it even
+  when the API sends what the record says. The floor has four parts:
+  - Recorded header names must be among those the dashboard sends (Content-Security-Policy,
+    Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy, Permissions-Policy; compared
+    without regard to case), each once. They are never one that a dashboard location sets
+    itself (Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options,
+    Referrer-Policy, X-Robots-Tag, Cache-Control). Names and values must be in character sets
+    nginx embeds safely.
+  - The recorded HTML policy must be one policy naming each directive once, with
+    `default-src 'none'`, `frame-ancestors 'none'`, `require-trusted-types-for 'script'` and
+    a `script-src`.
+  - In it, `script-src`, `script-src-elem`, `script-src-attr`, `worker-src` and `child-src`
+    may name only `'self'`, hashes, `'none'` and `'report-sample'`: never `'unsafe-inline'`,
+    `'unsafe-eval'`, `'strict-dynamic'`, a nonce, `*`, a scheme or a host.
+  - A recorded policy for plain text (from 1.0.0) must likewise be one policy naming each
+    directive once, with `default-src 'none'` and `frame-ancestors 'none'`, and no script
+    source.
+
+  0.7.0's record and 1.0.0's meet the floor. Before this correction the record was checked
+  for characters only, and verification compared the API's policy with the record alone. A
+  release whose code and record agreed on a permissive policy therefore verified, a weaker
+  control than M7's. What the floor leaves open: the values of Cross-Origin-Opener-Policy,
+  Cross-Origin-Resource-Policy and Permissions-Policy, and whether they are recorded at all,
+  are checked only for characters nginx embeds safely, and directives other than those named
+  are sent as recorded.
 
 ## 4. Dashboard
 
@@ -77,7 +104,12 @@ The API and nginx send a strict policy for the HTML (`default-src 'none'`, scrip
 from the same origin only, no inline code, `require-trusted-types-for 'script'`,
 `frame-ancestors 'none'`) plus `X-Frame-Options`, `Referrer-Policy: no-referrer`, `nosniff`,
 cross-origin isolation headers and a `Permissions-Policy`. Every page loads with no CSP or
-Trusted Types violation. The browser never holds a credential: the private profile relies on the
+Trusted Types violation, and since the final review so do both licence notices. The notices
+are plain text shown in the browser's own viewer. They now get a policy for text
+(`default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'`) with the other dashboard headers. The HTML policy had refused the
+viewer's inline style, so every visit raised a violation and long lines did not wrap. The
+browser never holds a credential: the private profile relies on the
 browser's Basic session and nginx adds the key. The build is verified at startup (a tampered file
 is refused) and reproduced byte for byte in CI. The shipped code's licence notices now ship with
 it (M8-05).
@@ -120,6 +152,10 @@ it (M8-05).
   adequate for a private demonstration, not for a public service.
 - `public-demo` is refused by the tool until a security review, DDoS protection and a
   log-retention decision.
+- A release's recorded dashboard policy is held to a floor on the headers it names, the
+  default source, framing and which scripts run. The values of its other headers and its
+  other directives are not checked beyond nginx-safe characters, and `release.json` is not
+  authenticated: only root writes it.
 - Operating-system packages (Python, OpenSSL, nginx) are not pinned; updates arrive through
   `unattended-upgrades` and a release must be rebuilt after a Python update.
 - Commits are not signed; builds trust GitHub for the commit content and PyPI for the wheels

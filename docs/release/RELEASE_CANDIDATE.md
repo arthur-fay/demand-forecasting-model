@@ -13,35 +13,75 @@ the acceptance matrix are in [RELEASE_GATE.md](RELEASE_GATE.md); the audit that 
 
 ## 1. What the manifest pins
 
-[`atlas-1.0.0-rc.1.json`](atlas-1.0.0-rc.1.json) records:
+[`atlas-1.0.0-rc.1.json`](atlas-1.0.0-rc.1.json) records the committed content of the
+candidate. Everything is read through git (`git ls-files -s` and `git cat-file`), not from the
+files on disk, so line-ending conversion at checkout does not affect it. It records:
 
-- **source**: a SHA-256 fingerprint of every tracked file (and one per area: package, tests,
-  dashboard sources and build, deployment, configurations, snapshot, research results, contract,
-  CI, legacy artifacts);
-- **dependency locks**: `uv.lock`, `pyproject.toml`, `.python-version`, `web/package-lock.json`,
-  `web/package.json`, `web/.npmrc` and the hash-pinned uv bootstrap `.github/ci-requirements.txt`;
-- **toolchain and environment requirements**: Python 3.12 (uv 0.11.32), Node.js only to build and
-  test the dashboard, and the server requirements;
+- **source**: the mode and the SHA-256 of the committed content of every tracked file except
+  the manifest itself, a tree fingerprint over them, and one fingerprint per area (package,
+  tests, dashboard sources and build, deployment, configurations, snapshot, research results,
+  contract, CI, legacy artifacts);
+- **dependency locks**: `uv.lock`, `pyproject.toml`, `.python-version`,
+  `web/package-lock.json`, `web/package.json`, `web/.npmrc` and the hash-pinned uv bootstrap
+  `.github/ci-requirements.txt`;
+- **toolchain and environment requirements**: Python 3.12 (uv 0.11.32), Node.js only to build
+  and test the dashboard, and the server requirements;
 - **snapshot provenance**: `legacy-v0`, its manifest hash, the data fingerprint, the source, the
-  window, and the recorded gaps (extraction time unknown, terms of use unverified);
-- **research artifacts**: every committed run under `docs/results/` with its manifest hash, run id,
-  record type, configuration and result fingerprints, and every output file's hash;
-- **build artifacts**: the committed dashboard build `web/dist` (every file, and its own manifest);
+  window, and the recorded gaps (extraction time unknown, terms of use unverified). The data
+  fingerprint is the one that the M2, M3 and M4 results share; the tool refuses to write or
+  check a manifest when they disagree, or when a run names another snapshot manifest;
+- **research artifacts**: every committed run under `docs/results/`, with its manifest hash,
+  run id, record type, configuration and result fingerprints, and every output file's hash;
+- **build artifacts**: the committed dashboard build `web/dist` (every file, and its own
+  manifest);
 - **API contract**: `docs/api/openapi.json`, its hash, `info.version` and operation count;
-- **scientific status**: the M2 primary tests (H1 not significant after Holm), the weak selection
-  evidence (M8 erratum), `failed_calibration` for M3, `HYPOTHETICAL` for M4, the archived
-  projection, `validated_recommendation: false`.
+- **scientific status**, in two parts:
+  - what the committed results record: the M2 recommendation and primary tests (H1 not
+    significant after Holm); the archived M2 projection (origin, last data date, target dates);
+    `failed_calibration` for M3; `HYPOTHETICAL` provenance in every one of the 33 provenance
+    declarations of the M4 configuration (16 base quantities, 11 scenario adjustments,
+    6 sensitivity sweeps); and the M4 manifest's `validated_recommendation: false`;
+  - what the release declares: the weak selection evidence of the M8 erratum, that the
+    projection has never been scored, `validated_recommendation: false`, and the candidate's
+    own status.
 
-A server release adds its own `release.json` at build time (the exact commit, the installed wheels
-and the environment fingerprint on that machine; [DEPLOYMENT.md](../DEPLOYMENT.md) section 10).
+The manifest also names the commit it was generated from, for information only: the content
+identifies the candidate. A server release adds its own `release.json` at build time (the exact
+commit, the installed wheels and the environment fingerprint on that machine;
+[DEPLOYMENT.md](../DEPLOYMENT.md) section 10).
 
 ## 2. Verify a checkout against the candidate
 
 ```bash
 git clone https://github.com/arthur-fay/demand-forecasting-model.git atlas && cd atlas
 git checkout <candidate commit>
-python3 docs/release/rc_manifest.py --check        # standard library only; exit 0 = identical
+python3 docs/release/rc_manifest.py --check        # Python 3.11 or later and git; standard library only
 ```
+
+How `--check` works:
+
+1. **Clean checkout.** `git status` must list nothing apart from the manifest. Otherwise the
+   tool names the paths (the first 50, then the total) and exits 1. Ignored files such as
+   `.venv` are neither checked nor refused, so verify in a fresh clone.
+2. **Comparison.** It recomputes the manifest from the content git has committed and compares
+   the two:
+   - exit 0 prints the tree fingerprint and the number of files it covers. Compare it with the
+     fingerprint published for the candidate in the pull request (and in the annotation of its
+     tag). It cannot be written into the repository, because every tracked file but the
+     manifest is part of it.
+   - exit 1 names the added, removed or changed files and the mode changes (the first 50, then
+     the total).
+   - exit 2 means the tool could not run: for example no git, Python older than 3.11, or
+     committed results that disagree on the data fingerprint.
+
+A checkout made with `core.autocrlf=true`, the Git for Windows default, verifies like any
+other. A shallow clone is enough.
+
+The manifest is generated last, in a clean checkout of the final tree, and committed alone:
+`--write`, then `--check` (which notes that the manifest is not yet committed), then the
+commit, then `--check` in a fresh clone. **Any later change to the content makes the check
+fail**, so a change after the manifest means regenerating it, and a change after approval means
+a new candidate (section 4).
 
 ## 3. Reproducible build and verification
 
@@ -65,9 +105,9 @@ Byte-identical results have two further conditions:
   in the audit: it also reproduced with OpenBLAS's AVX2 (Haswell) kernels.
 - **Line endings.** The dashboard build reproduces byte for byte from a checkout with LF line
   endings. On Windows, clone with `git clone -c core.autocrlf=false`, because the build's HTML
-  entry file is otherwise converted. The result files are protected by `.gitattributes`
-  whatever the setting, and the manifest check (section 2) compares committed content, so it is
-  not affected either.
+  entry file, `web/index.html`, is otherwise converted. The result files, the build and the
+  fixtures are protected by `.gitattributes` whatever the setting. The manifest check
+  (section 2) compares committed content, so it is not affected either.
 
 These are the checks CI runs (`.github/workflows/ci.yml`), job by job:
 

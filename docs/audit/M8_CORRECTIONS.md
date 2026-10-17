@@ -734,3 +734,83 @@ The new step's job summary renders as a one-row table.
 - **Before and after.** Before: '2.3e-16'. After: '2.35e-16'.
 - **Residual.** The file stays lossy and unpinned (lead decision, handoff).
 
+## 7. Final independent review of the candidate
+
+After the corrections were integrated, two rounds of independent review examined the
+candidate (`e79e66d` and `537563c`). Six reviewer roles took part:
+
+- science;
+- release assessment;
+- security;
+- infrastructure and deployment;
+- frontend;
+- release engineering.
+
+Every finding was reproduced by a separate verifier, and every MEDIUM finding was also
+challenged by a skeptic. None was CRITICAL or HIGH. Overlapping findings are grouped below,
+and each row names the reviews that raised it. The code corrections were made the same way as
+the first round: work packages in isolated worktrees, each reviewed by a verification
+reviewer and a skeptic, with a fix-up round. The packages were:
+
+- `m8/final-rcmanifest`;
+- `m8/final-dmdependence`;
+- `m8/final-deploy`;
+- `m8/final-web`.
+
+The lead corrected the documents.
+
+| Finding | Severity (finder; verifiers) | Resolution | Regression test or check |
+|---|---|---|---|
+| The release-candidate manifest tool hashed working-tree bytes and built paths with the platform's separator, so `--check` failed on an unmodified Windows (`core.autocrlf=true`) checkout (R2-release#1, R2-infra#3, R1-assessment#3) | MEDIUM; MEDIUM, MEDIUM | `docs/release/rc_manifest.py` fingerprints the committed content through git (`git ls-files -s`, `git cat-file --batch`), with git's own paths and the file modes, and requires a clean checkout | `tests/test_m8_rc_manifest.py::test_a_crlf_checkout_matches_the_manifest` (fails with the `537563c` tool: "MISMATCH in: locks, source") |
+| The manifest tool's blind spots: untracked files read from disk, modes not fingerprinted, unnamed mismatches, status fields written as literals, no test, a traceback outside git (R2-release#3) | LOW; LOW | every section reads committed blobs; an unclean checkout is refused with each path named; per-file map with named differences; status read from the committed results, declared policy under `declared`; one-line errors | `tests/test_m8_rc_manifest.py` (7 tests; 13 of 13 single mutations of the tool caught) |
+| The `.gitattributes` rules for `web/dist`, `web/public` and the dashboard fixtures were untested (R2-release#2) | LOW; LOW | the line-ending tests cover them | `tests/test_snapshot.py::test_results_configs_and_contract_are_protected_from_line_ending_conversion`, `::test_a_crlf_checkout_writes_every_byte_verified_file_unchanged` (removing any of the three rules makes the attribute test fail; the export test fails for `web/dist` and `web/public`, while the fixtures are single-line JSON, which conversion leaves unchanged) |
+| The erratum's "H2 remains significant after the size correction and Holm (0.045)" rests on the MA(29) null; the confirmation differentials are autocorrelated beyond lag 29 (R1-science#1) | MEDIUM; MEDIUM, LOW | a committed post hoc study, [scripts/dm_dependence_sensitivity.py](scripts/dm_dependence_sensitivity.py), with its [output](scripts/dm_dependence_sensitivity_output.md) and the differentials it uses: H2's Holm p is 0.068-0.155 under the six nulls with dependence of 45 days or more, so its significance is not robust; H1 is not significant under any null; the selection gate fails under MA(29) and every block bootstrap. BACKTESTING section 12, finding 3, the model card, README, known limitations and the validation report say so | `tests/test_m8_dm_dependence.py` (the committed differentials reproduce the committed statistics; the recorded output is the script's; BACKTESTING quotes it); `ATLAS_M8_FULL_STUDY=1` reruns the whole study |
+| The licence and data-terms condition, the runbook, README, RC checklist and data card assumed the repository was not yet public; it has been public since 2026-07-18 (R1-assessment#1, R2-infra#5) | MEDIUM; MEDIUM, LOW | the release gate's condition 3 now applies before the `v1.0.0-rc.1` tag: decide the licence (or record that none is granted) and confirm the NYC Open Data terms, or make the repository private; every document states the repository's actual visibility | documentation; GitHub reports the repository public |
+| The served selection notice gave rough ranges (7-10 %, 0.06-0.09), and the release gate, README and notice understated the erratum's consequence (R1-science#3, R1-assessment#2) | LOW, MEDIUM; LOW | the notice gives the recorded figures (7.6-9.1 %, 0.069) and the consequence (a correctly sized test would most likely have kept the same-weekday median); gate B and README say the recommendation stands only under the pre-registered rule as computed; the contract description of `selection.significant` aligned | `tests/test_m5_endpoints.py::test_the_selection_test_is_served_with_its_size_caveat`, `::test_the_selection_caveat_quotes_the_recorded_size_study` |
+| The dashboard's confirmation tests panel showed "significant at 0.05" and H2 "Yes" without the size caveat (R1-science#4) | LOW; LOW | the panel shows the API's notices, the selection caveat directly under the selection | `web/src/views/m8-audit.test.tsx` "M8 final review: the confirmation tests panel" |
+| The licence notices were served with the HTML policy: a CSP violation on every visit and no line wrapping (up to 1,050 px of sideways scroll at 320 px) (R2-frontend#1) | LOW; LOW | a policy for text (`DASHBOARD_TEXT_CSP`) on the notices, in the API and nginx, recorded in `release.json` | `tests/test_m7_dashboard.py::test_plain_text_gets_the_policy_for_text_and_every_other_file_the_html_one`; `tests/test_m7_deploy.py::test_the_licence_notices_get_the_policy_for_text`; e2e footer-licence test (violations, console errors, overflow at 375 px) |
+| A release's recorded dashboard policy was checked for characters only, and verification accepted any policy the record agreed with (R1-security#1) | LOW; LOW | a floor on header names and on the HTML and text policies, applied by the release check, rendering and verification | `tests/test_m7_deploy.py::test_a_recorded_policy_below_the_floor_is_refused` (30 cases), `::test_verification_refuses_a_permissive_policy_its_record_agrees_with`, `::test_every_release_so_far_meets_the_floor` |
+| No browser test injected the rate-limited failure that the browser report claimed (R2-frontend#3) | LOW; LOW | `failures.spec.ts` injects a 429 with `Retry-After`, in Chromium, Firefox and WebKit | e2e "a simulation rate_limited is explained" (fails when the explanation is removed) |
+| The Firefox/WebKit CI step also started both nginx stacks, which none of its tests use (R2-frontend#4) | LOW; LOW | `ATLAS_E2E_API_ONLY=1` starts the API alone; the CI step sets it | `tests/test_m8_release.py::test_the_other_engines_run_against_the_api_alone_in_ci` |
+| Browser-coverage statements still said "Chromium only" (R1-science#6, R1-assessment#4, R2-frontend#2) | LOW; LOW | known limitations, DASHBOARD.md, RELEASE_CANDIDATE.md and DEVELOPMENT.md state what runs where | documentation |
+| The model card described the M3 intervals as pooled by bucket over 365 days; the construction's finite-sample bias and the t(335) degrees of freedom were disclosed only in the audit report (R1-science#2, R1-assessment#5) | LOW; LOW | the model card describes the per-horizon construction (153-182 residuals in the selection period); both properties are disclosed in the model card and UNCERTAINTY.md section 11 | documentation |
+| BACKTESTING section 10 said the flagged-target sensitivity removes 44 target days; 31 are in the backtest's target range (R1-science#5) | LOW; LOW | corrected; the figures script reproduces the count | [scripts/m8_doc_figures_output.md](scripts/m8_doc_figures_output.md) section 4 |
+| Overstated readiness reasons, unqualified byte-for-byte claims and a pointer to a deferred list that did not exist (R1-assessment#6, R2-release#4) | LOW; LOW | the release gate counts 29 corrections with a regression test and 10 in documentation; every byte-for-byte claim names the CPU class and the own-commit condition; the known limitations point to section 4 | documentation |
+| Baseline-only evidence in the post-correction column, and the container result without a committed record (R1-assessment#7) | LOW; LOW | baseline evidence marked; the measured runs recorded in section 1 | section 1 |
+| The secret-scan scope (979 blobs) was the baseline's (R1-security#2) | LOW; LOW | re-run on the candidate: 1,228 blobs reachable from every ref, no credential | the scan (section 1) |
+| Runbook: the pre-bootstrap preflight returns UNSUITABLE on every fresh server without `--before-bootstrap`; wrong load threshold; missing steps (R2-infra#1) | LOW; LOW (partly) | `--before-bootstrap` before the bootstrap, the definitive preflight after it; load warns above 0.7 and fails above 1.5 × CPUs; the `atlas-deploy` link, ufw and certbot steps; gate N names what the container test does not exercise | documentation (the option and both verdicts were checked by the verifier) |
+| "Rebuild the current release after a python3.12 update" re-verifies nothing (R2-infra#2) | LOW; LOW | the runbook and DEPLOYMENT.md give the build's own reproduction command, run as the service user | the command, run on the candidate: exit 0, 8 of 8 M4 files identical |
+| DEPLOYMENT.md section 10 misdescribed how the 0.7.0 tool fails on a 1.0.0 release, and omitted the roll-forward and IPv6 consequences (R2-infra#4) | LOW; LOW | corrected | documentation |
+| RELEASE_CANDIDATE.md's command list and owner checklist were incomplete; API.md showed version 0.6.0 (R2-release#5) | LOW; LOW | every CI check listed by job; the checklist adds the research reproduction and the dependency audit before `v1.0.0`; API.md shows 1.0.0 | `tests/test_m5_endpoints.py::test_live_and_ready` (the served version) |
+| The measured-results sections were placeholders and the manifest did not exist (R2-release#6) | LOW; LOW | section 1 and the release gate's section 4 filled with the final runs; the manifest generated last | `python3 docs/release/rc_manifest.py --check` |
+
+**What the final review supersedes in the preserved baseline documents.** The baseline
+documents are kept as they were written, so two pieces of their M8-04 evidence are corrected
+here instead:
+
+- **Evidence (3)** in [M8_FINDINGS_REGISTER.md](M8_FINDINGS_REGISTER.md). Its block-bootstrap
+  figures came from scratch scripts with 4,000 resamples. The committed study, with 20,000,
+  gives, for blocks of 30, 60 and 90 days:
+
+  | | 30 days | 60 days | 90 days |
+  |---|---:|---:|---:|
+  | selection | 0.128 | 0.115 | 0.083 |
+  | H1 | 0.103 | 0.123 | 0.141 |
+  | H2 | 0.025 | 0.048 | 0.077 |
+  | H2 after Holm | 0.050 | 0.096 | 0.155 |
+
+- **Evidence (4)** in the register, and the M2 claims in
+  [M8_AUDIT_EVIDENCE.md](M8_AUDIT_EVIDENCE.md). These quote the H1 differential's
+  autocorrelation as 0.37 at lag 29 and 0.27 at lag 90. Those are lag-pair Pearson
+  correlations. The study and the HAC variance use the demeaned autocorrelation divided by T,
+  which gives 0.291, 0.136, 0.087 and 0.100 at lags 29, 45, 60 and 90.
+  - H1's mean autocorrelation over lags 30-120 (0.126) is more than MA(29) produces: 1.5 % of
+    MA(29) series reach it.
+  - H2's (0.042) is in the same direction but within the MA(29) range: 8.0 % reach it.
+
+Two residuals recorded in section 6 change:
+
+- **M8-04's residual** "the rounded figures are literals" no longer holds. The notice's figures
+  are tied to the recorded size study by
+  `tests/test_m5_endpoints.py::test_the_selection_caveat_quotes_the_recorded_size_study`.
+- **M8-04's residual on the MA(29) assumption** is now quantified by the dependence study.

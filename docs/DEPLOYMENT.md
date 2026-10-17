@@ -79,7 +79,7 @@ Contents:
 
 In the private and public-demo profiles nginx also serves the dashboard (M7): its pages and
 files by their exact names from a verified copy of the release's build, with the
-dashboard's own Content-Security-Policy, behind the same accounts and allow-list, with its
+dashboard's own Content-Security-Policy (its policy for text on the two licence notices), behind the same accounts and allow-list, with its
 own per-client limit (20 requests/s, burst 60) so that loading the page never uses up the
 API's; only its deployment descriptor, one small request per page load, counts against the
 API's read limit ([section 19](#19-the-dashboard-m7)).
@@ -492,7 +492,10 @@ first activation on, and at every boot.
    `index.html` with the Content-Security-Policy the release records, and the deployment
    descriptor in the format it records; in the private and public-demo profiles, the copy
    published for nginx (`/opt/atlas/dashboard/<release id>/`) holds exactly the recorded
-   files.
+   files. From 1.0.0, where the release records a policy for its plain-text files,
+   `/inter-licence.txt` must be the recorded file, served with that policy. The policy the
+   release records must meet the floor (section 10), so a release whose code and record agree
+   on a weaker policy is refused.
 
 Every answer is treated as untrusted: a malformed body fails a check, not the verification.
 Verification reaches the API directly and reads the published copy: it does not see what
@@ -565,13 +568,47 @@ fingerprint version: its fingerprint counts every file and is checked that way.
 The manifest also records the dashboard (M7): its version, every file's SHA-256 and the
 build manifest's SHA-256; `plan-upgrade` says whether it changes. From 1.0.0 it also
 records what the release's code sends with its dashboard: its response headers
-(Content-Security-Policy, Permissions-Policy, ...) and the deployment descriptor of each
-exposed profile, with its format. Whatever tool activates, restores or rolls back to the
+(Content-Security-Policy, Permissions-Policy, ...), the Content-Security-Policy of its
+plain-text files (`text_csp`), and the deployment descriptor of each exposed profile, with its
+format. Whatever tool activates, restores or rolls back to the
 release renders the dashboard part of its nginx site from that record and verifies the
 API's Content-Security-Policy and descriptor format against it, so an older release is
 served and verified with its own policy. A release built by 0.7.0 records only its
 Content-Security-Policy; its other headers and its descriptors are taken from the tool,
-which are the same as in 0.7.0 until a release changes them.
+which are the same as in 0.7.0 until a release changes them. (0.7.0 has no plain-text file;
+a record without a policy for text keeps its one policy for every file, as its code did.)
+
+Since the final review of M8, every tool holds the recorded dashboard policy to a floor
+before using it:
+
+- **Header names.** Recorded header names must be among those the dashboard sends
+  (Content-Security-Policy, Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy,
+  Permissions-Policy; compared without regard to case), each once. They are never one that a
+  dashboard location sets itself (Strict-Transport-Security, X-Content-Type-Options,
+  X-Frame-Options, Referrer-Policy, X-Robots-Tag, Cache-Control). Names and values must be in
+  character sets that nginx embeds safely.
+- **The HTML policy** must be one policy naming each directive once, with
+  `default-src 'none'`, `frame-ancestors 'none'`, `require-trusted-types-for 'script'` and a
+  `script-src`. In it, `script-src`, `script-src-elem`, `script-src-attr`, `worker-src` and
+  `child-src` may name only `'self'`, hashes, `'none'` and `'report-sample'`: never
+  `'unsafe-inline'`, `'unsafe-eval'`, `'strict-dynamic'`, a nonce, `*`, a scheme or a host.
+- **The policy for plain text**, if recorded, must be one policy with `default-src 'none'`
+  and `frame-ancestors 'none'`, and no script source.
+
+0.7.0's record and 1.0.0's meet the floor. The floor leaves two things open: the values of
+the other recorded headers are checked only for safe characters, and directives other than
+those named are sent as recorded. Only root writes `release.json`.
+
+A release below the floor is refused before anything changes, by `atlas-deploy manifest
+check`, by `plan-upgrade` (as a blocking problem), by every activation and by
+`render --apply`. Rendering and verification refuse it too.
+
+The floor is the running tool's own. An older tool refuses, before anything changes, a newer
+release whose dashboard sends a header or allows a script source that the older tool does
+not know. Plan and activate such a release with its own tool, as below:
+`sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`, then
+`... activate <new id>`. No release so far is affected: 0.7.0's record and 1.0.0's meet the
+1.0.0 floor.
 
 **From 0.7.0 (M7) to 1.0.0**, plan and activate with the new release's own tool, as from M6
 to M7: `sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`,
@@ -839,7 +876,8 @@ service restarted and nginx loading the new release's site only once the service
 (`test_m7_deploy.py`), and its configuration (`test_m6_releases.py`); a later tool
 restoring and rolling back to an older release with that release's dashboard policy (its
 Content-Security-Policy, Permissions-Policy and descriptor), and recorded policies that
-could alter the site refused (`test_m7_deploy.py`); HEAD where the API answers it
+could alter the site, or that fall below the floor, refused by the release check, rendering
+and verification (`test_m7_deploy.py`); HEAD where the API answers it
 (`test_m6_render.py`, and against the real API in `test_m6_proxy.py`); the environment
 fingerprint of two builds (`test_m6_manifest.py`); IPv6 off by default
 (`test_m6_config.py`, `test_m6_render.py`); `render --apply` of the current release only
@@ -940,14 +978,17 @@ M6 was built so the dashboard could be added without changing its model; M7 adds
   after the API's locations): the pages (answered with `index.html` through `try_files`),
   each asset by its exact name, every other top-level file of the build by its exact name
   (the favicon and, since M8, the licence notices `/third-party-licences.txt` and
-  `/inter-licence.txt`, sent as `text/plain; charset=utf-8`), and the deployment descriptor
+  `/inter-licence.txt`, sent as `text/plain; charset=utf-8` with the dashboard's policy for
+  text), and the deployment descriptor
   `/atlas-deployment.json` (written into the site; served through the same authentication).
   GET and HEAD only, `disable_symlinks on`; the pages, assets and other files have their own
   rate zone `atlas_static` (the descriptor counts against the API's read limit); a page path
   can never shadow an API route. Anything else is the existing JSON 404, and nginx's own
   answers are JSON whatever extension the path ends with (`types { }` at server level).
 - **A separate Content-Security-Policy for HTML** (`script-src 'self'`, Trusted Types, no
-  inline code; `atlas.dashboard.DASHBOARD_CSP`), set once; JSON keeps `default-src 'none'`.
+  inline code; `atlas.dashboard.DASHBOARD_CSP`), set once; JSON keeps `default-src 'none'`;
+  plain text (the licence notices) gets `atlas.dashboard.DASHBOARD_TEXT_CSP`, which lets the
+  browser's text viewer wrap lines and runs nothing.
   Text answers are gzip-compressed; hashed assets are cached as immutable.
 - **Simulations from the browser** work in the private profile without exposing the key
   (nginx adds it); in public-demo the descriptor says they are disabled and the route does not

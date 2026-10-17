@@ -10,6 +10,7 @@ for testing with people and with assistive technology, which has not been done.*
 | Check | How | Result |
 |---|---|---|
 | Every page loads with no console error and no CSP or Trusted Types violation | Playwright (committed suite) and the audit's own scripts, at 1280 and 375 CSS px | pass |
+| The licence notices load without a violation and wrap at a phone width | final review: they were served with the HTML policy, which refused the browser text viewer's inline style (a violation on every visit; at 320 px up to 1050 px of sideways scroll). They now get a policy for text, and the footer-licence test watches for violations and console errors and checks for no sideways scrolling at 375 px | pass after the correction (Chromium locally; Firefox and WebKit in CI) |
 | axe, WCAG 2.0-2.2 A and AA rules | committed suite: every page, light and dark, with tables and disclosures open, a simulation result, a failed run, the phone layout, and (M8) the error summary with several invalid fields; audit: the public-demo simulator, an error state, the legacy window, a DIAGNOSTIC scenario at 375 px | no violation |
 | Target size (2.5.8) | M8-27: the simulator's error-summary links were 16 px high with two or more field errors; now 24 px, checked by axe and by measuring each link | pass after the correction |
 | Keyboard | tab order through all six pages (16 to 51 stops each), focus always visible, skip link first and into the main content, no keyboard trap, charts operable as sliders (Home, End, arrows) with a spoken reading | pass |
@@ -32,8 +33,10 @@ for testing with people and with assistive technology, which has not been done.*
 
 The Firefox and WebKit runs cover page loading, the scientific labels, the scenarios, the
 simulator against the real M4 engine, the served files, the licence notices, the time zones and
-every injected failure (slow, unavailable, network, timeout, refused integrity, busy, rate
-limited). The keyboard, axe, reflow and phone specs run in Chromium only.
+every injected failure: slow, unavailable, network, timeout, refused integrity, busy, and rate
+limited (since the final review, which found that no browser test injected a rate-limited
+answer). CI's Firefox and WebKit step starts the API server alone (`ATLAS_E2E_API_ONLY=1`).
+The keyboard, axe, reflow and phone specs run in Chromium only.
 
 ## 3. Not verified
 

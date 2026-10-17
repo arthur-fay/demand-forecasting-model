@@ -35,9 +35,12 @@ The measured run on the candidate commit is in [M8_CORRECTIONS.md](M8_CORRECTION
   dependence studies fix their seeds, and tests check their recorded output.
 - **Line endings (M8-07).** Every byte-verified file (results, configurations, the contract,
   the snapshot, the build, the dashboard fixtures and `web/public`) is excluded from line-ending
-  conversion, and a test exports the committed files with `core.autocrlf=true` (as a checkout
-  would convert them, with an unprotected file as a positive control) and checks every hash.
-  Before M8, such a checkout (the Git for Windows default) broke 29 of 40 result hashes.
+  conversion. Tests check the attribute of every such file. One test exports the committed
+  files with `core.autocrlf=true`, as a checkout would convert them, with an unprotected file as
+  a positive control, and checks every hash and byte. Before M8, such a checkout (the Git for
+  Windows default) broke 29 of 40 result hashes. The final review extended the tests to the
+  build, `web/public` and the fixtures. One build input, `web/index.html`, is still converted on
+  such a checkout, so rebuilding the dashboard byte for byte needs an LF checkout.
 - **Versions tied together (M8-36).** One test requires the eight version declarations (Python
   package, lock, dashboard package and lock, build manifest, contract) to be equal.
 - **Documented commands that work (M8-12).** The first M2 verify command in the documentation
@@ -63,7 +66,11 @@ The measured run on the candidate commit is in [M8_CORRECTIONS.md](M8_CORRECTION
 
 ## 4. The candidate as a whole
 
-[`../release/rc_manifest.py`](../release/rc_manifest.py) fingerprints every tracked file of the
-candidate together with the locks, the snapshot, the research artifacts, the dashboard build and
-the contract, in [`../release/atlas-1.0.0-rc.1.json`](../release/atlas-1.0.0-rc.1.json); `--check`
-compares a checkout with it ([../release/RELEASE_CANDIDATE.md](../release/RELEASE_CANDIDATE.md)).
+[`../release/rc_manifest.py`](../release/rc_manifest.py) fingerprints the committed content of
+the candidate in [`../release/atlas-1.0.0-rc.1.json`](../release/atlas-1.0.0-rc.1.json): the mode
+and SHA-256 of every tracked file, read through git, so a CRLF checkout verifies too, and the
+locks, the snapshot, the research artifacts, the dashboard build and the contract. `--check`
+refuses a checkout that git does not call clean, and otherwise names the files that differ from
+the manifest ([../release/RELEASE_CANDIDATE.md](../release/RELEASE_CANDIDATE.md) section 2). The
+final review found that the first version of the tool hashed working-tree bytes and failed on
+an unmodified Windows checkout; `tests/test_m8_rc_manifest.py` now covers that case.

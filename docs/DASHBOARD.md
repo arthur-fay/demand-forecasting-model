@@ -118,11 +118,12 @@ licence). Every build ships them next to the code:
   which Vite's notices do not cover (it is a CSS asset).
 
 Both are files of the build, listed in its manifest and served by the API and nginx like
-every other file, as `text/plain; charset=utf-8` (the one type added for them; the policy is
-unchanged), and the footer of every page links to them. `web/build/notices.test.ts` fails if
+every other file, as `text/plain; charset=utf-8` (the one type added for them), with the
+dashboard's other headers and its Content-Security-Policy for text (section 7), and the footer
+of every page links to them. `web/build/notices.test.ts` fails if
 a runtime package of the lock is missing from the notices or a development package is in
 them, or if the font's file differs from its package's; `tests/test_m7_dashboard.py` checks
-that the API serves both. This inventory covers the third-party code only: it does not choose
+that the API serves both, with that policy. This inventory covers the third-party code only: it does not choose
 the project's own licence.
 
 | Package | Version | Licence | Copyright | Shipped as |
@@ -256,6 +257,7 @@ parameters have none: their ranges (up to 0-100,000,000) are too wide for a usef
 | Statement | Where it appears | Source |
 |---|---|---|
 | M2: not significant after Holm | Overview status (tag "Not significant after Holm"); Forecasting confirmation tests (each test's adjusted p and "No"); every panel serving M2 numbers via its notices | `models`, `forecasts/metrics` (`h1`, tests), `integrity.notices` |
+| M2 selection test oversized (M8 erratum) | Forecasting: in the confirmation tests panel ("Is the model better than the baselines?"), directly under the selection and next to the verdicts (final review), and in "Models against baselines"; the API's M2 SELECTION EVIDENCE notice, verbatim | `models` `integrity.notices` |
 | M3: FAILED_CALIBRATION | Overview status; Uncertainty header callout (critical); next to every band and coverage chart; holiday-related days marked | `uncertainty/status`, `integrity.uncertainty_interval_status` |
 | M4: HYPOTHETICAL, not a recommendation | Overview scenario panel; Decisions page header and every scenario; each simulation result; every parameter row | `integrity.parameter_provenance`, `label`, `assumption` fields |
 | No real NYC staffing or cost data | Decisions and Simulator callouts; the parameters' assumptions | API `notes`, `limitations` |
@@ -301,7 +303,41 @@ trusted-types 'none'
 
 No inline script or style (colours are set through the CSSOM, which CSP allows), no
 third-party origin, no `eval`, and Trusted Types with no policy, so no string can ever reach
-an HTML sink. The browser tests record every CSP violation report and require none. Other
+an HTML sink.
+
+**Content-Security-Policy for the licence notices** (`atlas.dashboard.DASHBOARD_TEXT_CSP`,
+final review). The API and nginx send it to the two `text/plain` files only, in place of the
+HTML policy and with every other header below:
+
+```
+default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'
+```
+
+A browser shows plain text in its own viewer and, with `nosniff`, never parses it as HTML.
+Chromium's viewer wraps long lines with an inline `style` attribute on its `<pre>`. The HTML
+policy's `style-src 'self'` refused that attribute, so every visit raised a violation, and at
+320 px `inter-licence.txt` scrolled 1050 px sideways and `third-party-licences.txt` 314 px.
+The policy for text allows that inline style and nothing else: no script runs and nothing
+loads. It has no `sandbox`. With no script and nothing loaded, sandbox adds no protection, and
+in Chromium it stops the browser tests' listener for violation reports from running in the
+document. A release records this policy in its `release.json` as `text_csp`, and the
+deployment tool holds it to a floor: one policy, `default-src 'none'`,
+`frame-ancestors 'none'`, no script source ([DEPLOYMENT.md](DEPLOYMENT.md) section 10).
+
+Seven browser tests record every CSP violation report and console error, and require none.
+They cover:
+
+- every page through the API;
+- a simulation run;
+- an answer that breaks the contract;
+- every page and a simulation run through the private nginx site;
+- every page of the public demo;
+- since the final review, both licence notices, opened at a 375 px viewport, where they must
+  not scroll sideways.
+
+The four of these tests in `dashboard.spec.ts` and `failures.spec.ts` also run in Firefox and
+WebKit in CI. The other browser tests do not watch for violations. Other
 headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
 no-referrer`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, a
 `Permissions-Policy` denying camera, microphone, geolocation, payment and USB, and HSTS
@@ -459,7 +495,9 @@ By default the browser tests use Chromium: `npx playwright install chromium` dow
 a bare Debian or Ubuntu host `--with-deps` also installs its system libraries, with sudo), or
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` names a local one. With `ATLAS_E2E_ALL_BROWSERS=1`, the
 API-backed pages and the failure states also run in Playwright's Firefox and WebKit
-(`npx playwright install firefox webkit` first), as CI does (M8; [DEVELOPMENT.md](DEVELOPMENT.md)). They also need uv, nginx and openssl on
+(`npx playwright install firefox webkit` first), as CI does. `ATLAS_E2E_API_ONLY=1` starts the
+API server alone, without the nginx stacks; CI's Firefox and WebKit step sets both (M8;
+[DEVELOPMENT.md](DEVELOPMENT.md)). They also need uv, nginx and openssl on
 `PATH` (on Debian or Ubuntu `sudo apt-get install nginx`, add `/usr/sbin` to `PATH` and stop
 the nginx service, as CI does) and the ports 8766, 8443, 8444, 8081 and 8082 free.
 
@@ -522,13 +560,13 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) section 19 for how this fits the M6 package.
 
 | Suite | What it checks |
 |---|---|
-| Vitest (`web/src/**/*.test.ts(x)` and `web/build`, 191 tests, run in the America/Los_Angeles time zone; queries wait up to 5 s; coverage gates 85 % statements, functions and lines, 75 % branches) | the client: validation, integrity refusal, every error kind, timeouts, aborts, `Retry-After`; formatting (dates in UTC, also with the module loaded in UTC−11, UTC−7 and UTC+14; units, signs); the simulator form (ranges, integers, the money rule, minimal requests, API errors mapped onto fields); the cache; every view rendered from the real fixtures (warnings present next to their numbers, DIAGNOSTIC handling, disabled simulations in each profile, error states without numbers); charts (keyboard, readings, tables, markers, ticks, labels, halos, no line rebuilt when the reading moves); the colour tokens (contrast in both themes, colour-vision deficiency); the shell (menu, Escape, deployment badge); the source free of storage, cookies, `eval` and HTML injection; the build plugin and the licence notices of the committed build; the reviews' findings (`review.test.tsx`, the `round2-*.test.ts(x)` files and `m8-audit.test.tsx`) |
+| Vitest (`web/src/**/*.test.ts(x)` and `web/build`, 192 tests, run in the America/Los_Angeles time zone; queries wait up to 5 s; coverage gates 85 % statements, functions and lines, 75 % branches) | the client: validation, integrity refusal, every error kind, timeouts, aborts, `Retry-After`; formatting (dates in UTC, also with the module loaded in UTC−11, UTC−7 and UTC+14; units, signs); the simulator form (ranges, integers, the money rule, minimal requests, API errors mapped onto fields); the cache; every view rendered from the real fixtures (warnings present next to their numbers, DIAGNOSTIC handling, disabled simulations in each profile, error states without numbers); charts (keyboard, readings, tables, markers, ticks, labels, halos, no line rebuilt when the reading moves); the colour tokens (contrast in both themes, colour-vision deficiency); the shell (menu, Escape, deployment badge); the source free of storage, cookies, `eval` and HTML injection; the build plugin and the licence notices of the committed build; the reviews' findings (`review.test.tsx`, the `round2-*.test.ts(x)` files and `m8-audit.test.tsx`) |
 | `tests/test_m7_fixtures.py` (15) | each fixture is byte for byte the API's answer |
-| `tests/test_m7_dashboard.py` (94) | the build manifest, verification and tamper detection; the licence notices listed and served; the API mount: exact paths (also as raw request paths, which the test client would normalise), methods, HEAD, ETag/304, gzip, cache policies, the CSP once, the descriptor by key setting, a damaged build not served, the API unchanged |
-| `tests/test_m7_deploy.py` (57) | the static route class (exact names, no shadowing of the API), both exposed profiles, `nginx -t` without a warning; the static rate (at most twice the API's read rate); compression and types (nothing typed by the requested extension); publication (modes, verification, altered copies replaced, planted files removed); the release manifest; activation order, tunnel, rollback, explicit rollback, prune, status, upgrade plans; verification of the served and published dashboard (links refused); `render --apply` (only the current installed release, as recorded, also through `current`; the ACME site before the first activation; M8-26); a malformed build manifest an error, not a crash; M8: recovery of an activation interrupted during the restart (M8-02), a later tool restoring and rolling back to an older release with its own CSP, Permissions-Policy and descriptor, and unsafe recorded policies refused (M8-03) |
+| `tests/test_m7_dashboard.py` (95) | the build manifest, verification and tamper detection; the licence notices listed and served, with the policy for text (GET, HEAD, 304), and the HTML policy on index.html, an asset and the favicon; the API mount: exact paths (also as raw request paths, which the test client would normalise), methods, HEAD, ETag/304, gzip, cache policies, the CSP once, the descriptor by key setting, a damaged build not served, the API unchanged |
+| `tests/test_m7_deploy.py` (103) | the static route class (exact names, no shadowing of the API), both exposed profiles, `nginx -t` without a warning; the static rate (at most twice the API's read rate); compression and types (nothing typed by the requested extension); publication (modes, verification, altered copies replaced, planted files removed); the release manifest; activation order, tunnel, rollback, explicit rollback, prune, status, upgrade plans; verification of the served and published dashboard (links refused); `render --apply` (only the current installed release, as recorded, also through `current`; the ACME site before the first activation; M8-26); a malformed build manifest an error, not a crash; M8: recovery of an activation interrupted during the restart (M8-02), a later tool restoring and rolling back to an older release with its own CSP, Permissions-Policy and descriptor, and unsafe recorded policies refused (M8-03); final review: the policy for text in the notices' locations, recorded in `release.json` and kept by a later tool, and verified on a notice; recorded policies with headers the dashboard does not send, or below the floor, refused by the release check, rendering and verification (30 cases); 0.7.0's and 1.0.0's records meet the floor and keep their header order |
 | `tests/test_m7_proxy.py` (32) | real nginx with TLS and the real API, inside an http block with the distribution's types by extension (as on Ubuntu): accounts, every page and file with its bytes, types, cache and policy; nginx's own 400, 401 and 404 answers in JSON whatever the extension; compression, pages included; methods; unlisted files, links and traversal; the API's own policy beside it; a simulation without a key in the browser; the public demo; the access log; rate limits (static never 429, the API still) |
 | `tests/test_m6_container.py` (+2) | on a disposable Ubuntu 24.04 server with systemd: the dashboard through nginx after a real activation; after the automatic rollback and an explicit rollback from a second verified release to the first (M8-37), the site's dashboard root (the restored release's copy), read from the site file |
-| Playwright (`web/e2e`, 4 Chromium projects; in CI also Firefox and WebKit for `dashboard.spec.ts` and `failures.spec.ts`) | every page in Chromium against the real API, with no error panel; every reference scenario opened; the simulator against the real M4 engine; reflow at 320 px (every disclosure open, a simulation result shown); failures injected at the network layer (a slow answer, an unavailable component, a network failure, a contract violation and an integrity violation, a simulation stopped at its deadline or refused for lack of a worker, a page whose code fails to load); keyboard-only use (every simulator field by Tab and Shift+Tab against both sticky bars); axe's WCAG 2.2 A/AA rules on every page in both themes, with tables and disclosures open, on a simulation result, a failed run, the error summary of two invalid fields and the phone layout; the current page in forced colours; no CSP violation; a phone viewport; the Forecasting page's dates in the Pacific/Kiritimati and America/Los_Angeles time zones; the footer's licence notices; the private and public-demo nginx sites (accounts, simulations, the read-only demo) |
+| Playwright (`web/e2e`, 4 Chromium projects; in CI also Firefox and WebKit for `dashboard.spec.ts` and `failures.spec.ts`) | every page in Chromium against the real API, with no error panel; every reference scenario opened; the simulator against the real M4 engine; reflow at 320 px (every disclosure open, a simulation result shown); failures injected at the network layer (a slow answer, an unavailable component, a network failure, a contract violation and an integrity violation, a simulation stopped at its deadline, refused for lack of a worker or refused by the proxy's rate limit (with `Retry-After`), a page whose code fails to load); keyboard-only use (every simulator field by Tab and Shift+Tab against both sticky bars); axe's WCAG 2.2 A/AA rules on every page in both themes, with tables and disclosures open, on a simulation result, a failed run, the error summary of two invalid fields and the phone layout; the current page in forced colours; no CSP violation or console error in the seven tests that watch for them; a phone viewport; the Forecasting page's dates in the Pacific/Kiritimati and America/Los_Angeles time zones; the footer's licence notices (no violation or console error, no sideways scrolling at 375 px); every built file served byte for byte with its policy (the policy for text on the notices); the private and public-demo nginx sites (accounts, simulations, the read-only demo) |
 | CI job `dashboard` | format, lint, types, contract types up to date, Vitest with coverage, a reproducible build (`git diff --exit-code -- dist`), `verify:dist`, size budgets, `npm audit`, Playwright |
 
 ## 14. Limitations
