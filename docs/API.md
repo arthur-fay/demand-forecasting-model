@@ -372,8 +372,13 @@ the real distortion can differ
 hence the notice's last clause on H2, whose corrected Holm-adjusted p is narrowly below 0.05.
 Within the study, H2's significance also depends on how far the variance estimator lets the
 dependence extend: with each HAC bandwidth corrected for its own size, its p-value is above
-0.05 under three of the five. Tests tie every figure to its source. No other string the API
-sends states or implies that the selection is significant or robust.
+0.05 under three of the five. The direct basis of the clause is the dependence study of the
+final review
+([audit/scripts/dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md)).
+Under nulls built from the loss differentials themselves, H2's Holm-adjusted p-value is
+0.068-0.155 wherever the null keeps dependence of 45 days or more, and 0.036-0.050 where it
+keeps about a month. Tests tie every figure to its source. No other string the API sends
+states or implies that the selection is significant or robust.
 
 ### `GET /api/v1/forecasts?horizon_days=1..30`
 

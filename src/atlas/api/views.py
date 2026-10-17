@@ -115,7 +115,10 @@ INTERVALS_LABEL: Final = (
 #: (docs/BACKTESTING.md section 12, "Limits of the correction"): hence the last clause. The
 #: study's bandwidth variants are consistent with it, but they change the variance
 #: estimator, not the null: with each HAC bandwidth size-corrected, H2's p-value is above
-#: 0.05 under three of the five. tests/test_m5_endpoints.py ties every figure to its source.
+#: 0.05 under three of the five. The direct basis is the dependence study,
+#: docs/audit/scripts/dm_dependence_sensitivity_output.md: under nulls built from the loss
+#: differentials, H2's Holm p is 0.068-0.155 wherever they keep dependence of 45 days or more.
+#: tests/test_m5_endpoints.py ties every figure to its source.
 SELECTION_EVIDENCE_NOTICE: Final = (
     "M2 SELECTION EVIDENCE: the pre-registered development selection test (HLN-DM, "
     "conservative p 0.044) passed its 5 % gate as computed, but at a 30-day horizon with "

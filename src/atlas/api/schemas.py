@@ -322,7 +322,7 @@ class SelectionInfo(_Model):
         description="Whether the development selection test passed its pre-registered gate, "
         "as M2 recorded it. Read the M2 SELECTION EVIDENCE notice with it: at a 30-day horizon "
         "with these origin counts the test over-rejects, and after a size correction the "
-        "selection evidence is borderline."
+        "selection p-value (0.069) is above the gate."
     )
     reason: str | None
 

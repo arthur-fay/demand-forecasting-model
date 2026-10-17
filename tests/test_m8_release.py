@@ -145,6 +145,25 @@ def test_no_action_runs_on_the_deprecated_node20_runtime() -> None:
     assert old == []
 
 
+def test_the_other_engines_run_against_the_api_alone_in_ci() -> None:
+    """CI's Firefox and WebKit step (M8) runs the API-backed specs with both switches.
+
+    Without ATLAS_E2E_ALL_BROWSERS the firefox and webkit projects do not exist; without
+    ATLAS_E2E_API_ONLY Playwright also starts both nginx stacks, which none of their tests use
+    (web/playwright.config.ts).
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    name = "- name: The API-backed pages and failure states in Firefox and WebKit (M8)"
+    assert workflow.count(name) == 1
+    step = workflow.split(name, 1)[1].split("\n      - name:", 1)[0]
+    assert 'ATLAS_E2E_ALL_BROWSERS: "1"' in step
+    assert 'ATLAS_E2E_API_ONLY: "1"' in step
+    assert "npx playwright test --project firefox --project webkit" in step
+    config = (REPO_ROOT / "web" / "playwright.config.ts").read_text(encoding="utf-8")
+    assert "process.env.ATLAS_E2E_ALL_BROWSERS === '1'" in config
+    assert "process.env.ATLAS_E2E_API_ONLY === '1'" in config
+
+
 # --- The comparison the manual reproduction workflow uses ---------------------------------
 
 M2_PROJECTION = REPO_ROOT / "docs" / "results" / "atlas-m2-rolling-origin-v1" / "projection"
