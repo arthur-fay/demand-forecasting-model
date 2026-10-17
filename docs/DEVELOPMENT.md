@@ -314,6 +314,21 @@ nginx and openssl on `PATH` and start the API and two nginx stacks; see
 rebuilds it and fails on any difference. `tests/test_m7_fixtures.py` keeps the fixtures of
 the frontend tests identical to the API's answers.
 
+By default the browser tests run in Chromium only. Two switches change that:
+
+- `ATLAS_E2E_ALL_BROWSERS=1` adds the `firefox` and `webkit` projects: the API-backed pages
+  and the injected failures (`dashboard.spec.ts` and `failures.spec.ts`) in Playwright's
+  builds of Firefox and WebKit (Safari's engine, not Safari). The keyboard, accessibility,
+  reflow, phone and nginx tests run in Chromium only.
+- `ATLAS_E2E_API_ONLY=1` starts the API server alone and leaves out the two nginx stacks
+  and their projects. Playwright starts every server whatever `--project` filter is given,
+  so a run of the API projects needs this switch to skip the stacks.
+
+CI's `dashboard` job runs the Chromium suite, then Firefox and WebKit with both switches set.
+To run them locally (nginx is not needed): `npx playwright install firefox webkit` once,
+then `ATLAS_E2E_ALL_BROWSERS=1 ATLAS_E2E_API_ONLY=1 npx playwright test --project firefox
+--project webkit`.
+
 GitHub Actions runs three workflows:
 
 - `.github/workflows/ci.yml`, on pushes to `main` and on pull requests: all of the above
