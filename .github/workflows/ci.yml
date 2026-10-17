@@ -232,8 +232,10 @@ jobs:
 
       - name: The API-backed pages and failure states in Firefox and WebKit (M8)
         # WebKit is Safari's engine, not Safari; real Safari and screen readers stay untested.
+        # These projects use the API only: no nginx stack is started (playwright.config.ts).
         env:
           ATLAS_E2E_ALL_BROWSERS: "1"
+          ATLAS_E2E_API_ONLY: "1"
         run: |
           npx playwright install --with-deps firefox webkit
           npx playwright test --project firefox --project webkit

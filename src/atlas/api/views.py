@@ -106,16 +106,26 @@ INTERVALS_LABEL: Final = (
     "quantiles and carry no probability to rely on."
 )
 #: The size caveat of the M2 development selection test, served next to the selection it
-#: qualifies. The p-value and origin counts are those of the committed M2 run
-#: (tests/test_m5_endpoints.py ties them to it); the size figures are the M8 audit's rounded
-#: Monte Carlo results (docs/audit/M8_FINDINGS_REGISTER.md, finding M8-04).
+#: qualifies (finding M8-04 of docs/audit/M8_FINDINGS_REGISTER.md). The p-value and origin
+#: counts are those of the committed M2 run. Every other figure comes from the M8 audit's
+#: recorded size study, docs/audit/scripts/dm_size_study_output.md (Gaussian shocks): the
+#: size of the rule (7.6 % with 486 origins, 9.1 % with 336), the size-corrected selection
+#: p-value and H2's size-corrected Holm p. That study corrects for size under one assumed
+#: error dependence, the test's own MA(29) null, and the real distortion can differ
+#: (docs/BACKTESTING.md section 12, "Limits of the correction"): hence the last clause. The
+#: study's bandwidth variants are consistent with it, but they change the variance
+#: estimator, not the null: with each HAC bandwidth size-corrected, H2's p-value is above
+#: 0.05 under three of the five. tests/test_m5_endpoints.py ties every figure to its source.
 SELECTION_EVIDENCE_NOTICE: Final = (
     "M2 SELECTION EVIDENCE: the pre-registered development selection test (HLN-DM, "
-    "conservative p 0.044) passed its 5 % gate, but at a 30-day horizon with 336-486 "
-    "overlapping origins this test over-rejects under its own assumptions (roughly 7-10 % "
-    "false rejections at a nominal 5 %); after a size correction the selection evidence is "
-    "borderline (p roughly 0.06-0.09). The pre-registered choice stands, but its statistical "
-    "support is weak."
+    "conservative p 0.044) passed its 5 % gate as computed, but at a 30-day horizon with "
+    "336-486 overlapping origins this test over-rejects under its own assumptions (7.6-9.1 % "
+    "false rejections at a nominal 5 % in the M8 audit's simulation). After a size correction "
+    "the selection p-value is 0.069, above the gate: a correctly sized test would most likely "
+    "have kept the same-weekday median baseline. The recommendation stands only under the "
+    "pre-registered rule as computed, and its statistical support is weak. Of the "
+    "confirmatory tests, H1 is not significant, and H2's significance after the size "
+    "correction (Holm-adjusted p 0.045) is not robust to the assumed error dependence."
 )
 COMPARISON_UNITS: Final = {
     "discretionary_cost": "usd",

@@ -283,3 +283,25 @@ describe('M8-34: the Overview heading', () => {
     expect(document.body).not.toHaveTextContent(/decision.intelligence/i);
   });
 });
+
+describe('M8 final review: the confirmation tests panel', () => {
+  it('shows the size caveat of the selection test next to the selection and the verdicts', async () => {
+    // The panel marks H2 significant and quotes the selection reason ("the selection-period
+    // DM test is significant at 0.05"). The API sends the caveat of that test with them: it
+    // must be read in the same panel, after the selection, not only in another panel.
+    const notices = FIXTURES.models.integrity.notices;
+    const caveat = notices.find((notice) => notice.startsWith('M2 SELECTION EVIDENCE'));
+    expect(caveat).toMatch(/selection p-value is 0\.069, above the gate/);
+    mockApi();
+    at('/forecasting');
+    const panel = await screen.findByRole('region', {
+      name: 'Is the model better than the baselines?',
+    });
+    const selection = await within(panel).findByText(/selection-period DM test is significant/);
+    const shown = within(panel).getByText(caveat!);
+    expect(selection.compareDocumentPosition(shown) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    for (const notice of notices) expect(within(panel).getByText(notice)).toBeInTheDocument();
+  });
+});

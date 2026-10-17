@@ -255,14 +255,65 @@ def test_the_selection_test_is_served_with_its_size_caveat(api: TestClient) -> N
     evidence = [n for n in body["integrity"]["notices"] if n.startswith("M2 SELECTION EVIDENCE")]
     assert evidence == [
         "M2 SELECTION EVIDENCE: the pre-registered development selection test (HLN-DM, "
-        "conservative p 0.044) passed its 5 % gate, but at a 30-day horizon with 336-486 "
-        "overlapping origins this test over-rejects under its own assumptions (roughly 7-10 % "
-        "false rejections at a nominal 5 %); after a size correction the selection evidence is "
-        "borderline (p roughly 0.06-0.09). The pre-registered choice stands, but its "
-        "statistical support is weak."
+        "conservative p 0.044) passed its 5 % gate as computed, but at a 30-day horizon with "
+        "336-486 overlapping origins this test over-rejects under its own assumptions "
+        "(7.6-9.1 % false rejections at a nominal 5 % in the M8 audit's simulation). After a "
+        "size correction the selection p-value is 0.069, above the gate: a correctly sized "
+        "test would most likely have kept the same-weekday median baseline. The "
+        "recommendation stands only under the pre-registered rule as computed, and its "
+        "statistical support is weak. Of the confirmatory tests, H1 is not significant, and "
+        "H2's significance after the size correction (Holm-adjusted p 0.045) is not robust to "
+        "the assumed error dependence."
     ]
     description = api.get("/openapi.json").json()["components"]["schemas"]["SelectionInfo"]
     assert "M2 SELECTION EVIDENCE" in description["properties"]["significant"]["description"]
+
+
+def _size_study(section: str) -> list[dict[str, str]]:
+    """The rows of one table of the M8 audit's recorded size study, keyed by its header."""
+    from tests.conftest import REPO_ROOT
+
+    text = (REPO_ROOT / "docs/audit/scripts/dm_size_study_output.md").read_text(encoding="utf-8")
+    body = text.split(f"\n## {section}", 1)[1].split("\n## ", 1)[0]
+    lines = [line for line in body.splitlines() if line.startswith("| ")]
+    header, *rows = ([cell.strip() for cell in line.strip("| ").split(" | ")] for line in lines)
+    return [dict(zip(header, row, strict=True)) for row in rows]
+
+
+def test_the_selection_caveat_quotes_the_recorded_size_study(api: TestClient) -> None:
+    # The notice's size figures are those the M8 size study recorded (Gaussian shocks), not
+    # rounded ranges: the size of the pre-registered rule with 486 and 336 origins, the
+    # size-corrected selection p-value and H2's size-corrected Holm p.
+    body = get(api, "/api/v1/models")
+    (notice,) = [n for n in body["integrity"]["notices"] if n.startswith("M2 SELECTION EVIDENCE")]
+    rule = "pre-registered rule (larger of HLN and Bartlett 60)"
+    (size,) = [r for r in _size_study("1. Empirical size") if r["rule or variant"] == rule]
+    sizes = sorted((size[f"T = {t}, gaussian"].split(" ")[0] for t in (486, 336)), key=float)
+    assert sizes == ["7.6", "9.1"]
+    assert f"({sizes[0]}-{sizes[1]} % false rejections at a nominal 5 % in the M8" in notice
+    corrected = {
+        (r["test"], r["rule or variant"]): r["size-corrected p, gaussian"].split(" ")[0]
+        for r in _size_study("3. Committed statistics")
+    }
+    selection = corrected[("selection", rule)]
+    assert selection == "0.069"
+    assert f"the selection p-value is {selection}, above the gate" in notice
+    # Above the gate, the pre-registered rule keeps the best development baseline.
+    metrics = read_json(M2_FULL / "metrics.json")["selection"]
+    assert float(selection) > 0.05
+    assert metrics["rule"].endswith("; otherwise the best baseline.")
+    assert metrics["best_baseline"] == "same_weekday_median_5w"
+    assert "would most likely have kept the same-weekday median baseline" in notice
+    holm = {(r["test"], r["shocks"]): r["size-corrected Holm p"] for r in _size_study("4. Holm")}
+    assert float(holm[("H1", "gaussian")]) > 0.05
+    assert "H1 is not significant" in notice
+    assert holm[("H2", "gaussian")] == "0.045"
+    assert f"(Holm-adjusted p {holm[('H2', 'gaussian')]}) is not robust to the" in notice
+    # The study's bandwidth variants, each size-corrected under the same MA(29) null, are
+    # consistent with that clause: H2 is above 0.05 under three of the five.
+    bandwidths = [v for t, v in corrected if t == "H2" and v != rule]
+    assert len(bandwidths) == 5
+    assert sum(float(corrected[("H2", v)]) > 0.05 for v in bandwidths) == 3
 
 
 def test_metrics_filters(api: TestClient) -> None:
