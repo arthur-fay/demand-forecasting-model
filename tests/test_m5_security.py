@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -75,11 +78,91 @@ def test_every_response_carries_security_headers(api: TestClient, method: str, p
     assert "server" not in response.headers
 
 
-def test_docs_pages_are_served_without_the_json_csp(api: TestClient) -> None:
-    response = api.get("/docs")
+#: The documentation pages' third-party files: exact versions (published at least two weeks
+#: before they were pinned) and the SHA-384 of each file in its npm registry tarball, the
+#: tarball checked against the registry's own integrity value (src/atlas/api/docs.py).
+DOCS_ASSETS = {
+    "/docs": {
+        "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui-bundle.js": (
+            "sha384-ZPehFMQommnnuaZ4rpxgkgTT2DKFVp4hZC/7pLit+9Lek9T1YGSo23eHFbvNkXkw"
+        ),
+        "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui.css": (
+            "sha384-Ov4/wv3j2bmct8cDc5X4ngJZohVPzEmc6uDPH8WeljUxO5vtoykvMEfbu9Vh6RaW"
+        ),
+    },
+    "/redoc": {
+        "https://cdn.jsdelivr.net/npm/redoc@2.5.4/bundles/redoc.standalone.js": (
+            "sha384-w447zOpYfw/1Tv/5AK9NfHTlQIqE3RVR6KY62jCyy9zNDgO64cMwGGP1Fj0zJVf5"
+        ),
+    },
+}
+
+
+def _policy(header: str) -> dict[str, list[str]]:
+    directives = (part.split() for part in header.split(";") if part.strip())
+    return {name: values for name, *values in directives}
+
+
+@pytest.mark.parametrize("path", sorted(DOCS_ASSETS))
+def test_docs_pages_load_pinned_files_under_their_own_csp(api: TestClient, path: str) -> None:
+    # M8-23: the pages are same-origin with the API and the dashboard, and Swagger UI takes
+    # the simulation key: only the pinned files, verified by the browser, may run there.
+    response = api.get(path)
     assert response.status_code == 200
-    assert "content-security-policy" not in response.headers
+    assert response.headers["content-type"].startswith("text/html")
+    html = response.text
+    assets = DOCS_ASSETS[path]
+    tags = re.findall(r"<(?:script|link)\b[^>]*>", html)
+    external = [t for t in tags if "https://" in t]
+    assert len(external) == len(assets)
+    for tag in external:
+        (url,) = re.findall(r'(?:src|href)="(https://[^"]+)"', tag)
+        assert f'integrity="{assets[url]}"' in tag, tag
+        assert 'crossorigin="anonymous"' in tag, tag
+    for floating in ("swagger-ui-dist@5/", "redoc@2/", "fastapi.tiangolo.com", "googleapis"):
+        assert floating not in html
+    policy = _policy(response.headers["content-security-policy"])
+    redoc = path == "/redoc"
+    # Exactly these directives: what is not listed falls back to default-src 'none'.
+    assert set(policy) == {
+        "default-src",
+        "script-src",
+        "style-src",
+        "img-src",
+        "connect-src",
+        "base-uri",
+        "form-action",
+        "frame-ancestors",
+        *(["worker-src"] if redoc else []),
+    }
+    for name in ("default-src", "base-uri", "form-action", "frame-ancestors"):
+        assert policy[name] == ["'none'"], name
+    assert policy["connect-src"] == ["'self'"]
+    assert policy["img-src"] == ["data:"]
+    scripts = [url for url in assets if url.endswith(".js")]
+    inline = re.findall(r"<script>(.*?)</script>", html, flags=re.DOTALL)
+    hashes = [
+        "'sha256-" + base64.b64encode(hashlib.sha256(s.encode()).digest()).decode() + "'"
+        for s in inline
+    ]
+    assert sorted(policy["script-src"]) == sorted([*scripts, *hashes])
+    # Swagger UI runs without inline styles (checked in a browser); ReDoc writes its styles
+    # into the page and searches in a worker started from a blob: URL.
+    if redoc:
+        assert policy["style-src"] == ["'unsafe-inline'"]
+        assert policy["worker-src"] == ["blob:"]
+    else:
+        assert policy["style-src"] == [url for url in assets if url.endswith(".css")]
     assert api.get("/openapi.json").status_code == 200
+
+
+def test_only_the_docs_pages_carry_their_own_policy(api: TestClient) -> None:
+    # Anything else on a docs path (a refused method) keeps the JSON policy.
+    response = api.post("/docs")
+    assert response.status_code == 405
+    assert (
+        response.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+    )
 
 
 def test_docs_can_be_disabled(api_store: ReferenceStore) -> None:
@@ -91,7 +174,8 @@ def test_docs_can_be_disabled(api_store: ReferenceStore) -> None:
 
 
 def test_only_the_exact_docs_pages_skip_the_csp(api: TestClient) -> None:
-    for path in ("/docsX", "/docs-anything", "/redocfoo", "/docs/oauth2"):
+    # The API has no OAuth2 flow, so Swagger UI's OAuth2 redirect page is not served.
+    for path in ("/docsX", "/docs-anything", "/redocfoo", "/docs/oauth2", "/docs/oauth2-redirect"):
         response = api.get(path)
         assert response.status_code == 404
         assert "content-security-policy" in response.headers, path

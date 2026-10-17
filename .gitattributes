@@ -12,7 +12,17 @@ snapshots/** -text
 *.pdf binary
 *.png binary
 
+# The research results are verified byte for byte against the SHA-256 in their run
+# manifests (verify, inspect, the API's readiness check, the M4 inputs); every release
+# fingerprints them with the configurations; CI and build-release.sh compare the API
+# contract byte for byte. tests/test_snapshot.py checks these rules as well.
+docs/results/** -text
+docs/api/openapi.json -text
+configs/** -text
+
 # The committed dashboard build and the API answers the frontend tests render are verified
 # byte for byte (web/dist/atlas-dashboard.json, tests/test_m7_fixtures.py).
 web/dist/** -text
+# Copied byte for byte into the reproducible web/dist (favicon, font licence).
+web/public/** -text
 web/src/test/fixtures/** -text

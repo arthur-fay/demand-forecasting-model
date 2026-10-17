@@ -93,6 +93,17 @@ export function PlanOutcome({
   const reported = reportedPlanName(outcome, daily);
   const evaluation = outcome.reported_plan?.evaluation ?? null;
   const certificate = outcome.reported_plan?.certificate ?? null;
+  // Each check of the certificate is its largest violation in units of its tolerance.
+  const checks =
+    certificate === null
+      ? []
+      : [
+          certificate.primal,
+          certificate.dual_sign,
+          certificate.stationarity,
+          certificate.duality_gap,
+        ].filter((value) => value !== null);
+  const violation = checks.length > 0 ? Math.max(...checks) : null;
   const notChecked = outcome.reported_plan?.constraints_not_checked ?? [];
   const variant = plans.find((p) => p.plan === reported);
   const target = variant?.terminal_backlog_max ?? null;
@@ -241,8 +252,9 @@ export function PlanOutcome({
       {certificate !== null && (
         <p className="small secondary">
           <strong>Certified:</strong> the solver's optimum {certificate.holds ? 'passed' : 'FAILED'}{' '}
-          the primal and dual feasibility and duality-gap certificate
-          {certificate.duality_gap !== null && ` (gap ${certificate.duality_gap.toExponential(1)})`}
+          the primal and dual feasibility and duality-gap certificate within its tolerances
+          {violation !== null &&
+            ` (largest violation ${violation.toExponential(1)} of its tolerance)`}
           , and the plan{' '}
           {outcome.reported_plan?.independent_check_passed === true
             ? 'passed'

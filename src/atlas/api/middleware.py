@@ -34,7 +34,7 @@ from atlas.api.context import (
 from atlas.api.logs import truncated_path
 from atlas.api.problems import ErrorCode, error_payload
 from atlas.api.settings import API_KEY_HEADER, api_key_matches
-from atlas.dashboard import DASHBOARD_HEADERS
+from atlas.dashboard import headers_for
 
 LOGGER: Final = logging.getLogger("atlas.api")
 
@@ -47,8 +47,9 @@ SECURITY_HEADERS: Final = {
 }
 #: JSON responses never load anything; the interactive documentation pages need scripts.
 API_CSP: Final = "default-src 'none'; frame-ancestors 'none'"
-#: The interactive documentation pages (exempt from the CSP, when the docs are served).
-DOCS_PATHS: Final = ("/docs", "/docs/oauth2-redirect", "/redoc")
+#: The interactive documentation pages, when the docs are served: each page carries its own
+#: policy (:mod:`atlas.api.docs`), and any other answer on these paths gets ``API_CSP``.
+DOCS_PATHS: Final = ("/docs", "/redoc")
 #: Requests in flight above which others get 503 ``server_busy`` (health probes excepted).
 MAX_IN_FLIGHT: Final = 64
 HEALTH_PREFIX: Final = "/health/"
@@ -131,7 +132,8 @@ class RequestContextMiddleware:
     ) -> None:
         self.app = app
         #: (M7) The dashboard's exact paths: they get the dashboard's headers (its own
-        #: Content-Security-Policy for HTML) and keep their cache policy.
+        #: Content-Security-Policy for HTML and, since M8, one for plain text) and keep
+        #: their cache policy.
         self.dashboard_paths = dashboard_paths
         self.api_key = api_key
         self.protected = frozenset(protected)
@@ -171,10 +173,16 @@ class RequestContextMiddleware:
                 for name, value in SECURITY_HEADERS.items():
                     if not (dashboard and name.lower() in response_headers):
                         response_headers[name] = value
+                # A documentation page brings its own policy; nothing else on its path does.
+                docs_page = path in self.docs_paths and "content-security-policy" in (
+                    response_headers
+                )
                 if page:
-                    for name, value in DASHBOARD_HEADERS.items():
+                    # (M8) Plain text (the licence notices) gets the policy for text.
+                    content_type = response_headers.get("content-type", "")
+                    for name, value in headers_for(content_type).items():
                         response_headers[name] = value
-                elif path not in self.docs_paths:
+                elif not docs_page:
                     response_headers["Content-Security-Policy"] = API_CSP
                 response_headers[REQUEST_ID_HEADER] = request_id
                 if cors_origin and "access-control-allow-origin" not in response_headers:

@@ -79,7 +79,7 @@ Contents:
 
 In the private and public-demo profiles nginx also serves the dashboard (M7): its pages and
 files by their exact names from a verified copy of the release's build, with the
-dashboard's own Content-Security-Policy, behind the same accounts and allow-list, with its
+dashboard's own Content-Security-Policy (its policy for text on the two licence notices), behind the same accounts and allow-list, with its
 own per-client limit (20 requests/s, burst 60) so that loading the page never uses up the
 API's; only its deployment descriptor, one small request per page load, counts against the
 API's read limit ([section 19](#19-the-dashboard-m7)).
@@ -106,7 +106,7 @@ On disk (`src/atlas/deploy/layout.py`):
 | `/var/cache/atlas/uv/` | root, 0700 | download cache of release builds |
 | `/var/www/atlas-acme/` | root, 0755 | ACME HTTP-01 challenge files |
 
-A **release id** is `<version>-<first 12 hex digits of the commit>`, e.g. `0.6.0-0123456789ab`
+A **release id** is `<version>-<first 12 hex digits of the commit>`, e.g. `1.0.0-0123456789ab`
 for a commit `0123456789ab...` (the examples below write `<release id>`).
 
 ## 2. Deployment method and why
@@ -118,7 +118,7 @@ for a commit `0123456789ab...` (the examples below write `<release id>`).
 | Extra memory | none | dockerd + containerd: about 140 MiB resident (measured on the test machine: 95 + 48 MiB) | none (no daemon) |
 | Isolation | systemd sandbox: no capabilities, read-only system, private /tmp and devices, user namespace, syscall filter, loopback-only IP firewall; `systemd-analyze security` exposure **0.9 (SAFE)** | namespaces + seccomp; default profile weaker than the unit's | similar to Docker |
 | Firewall | ufw rules apply | published ports bypass ufw (Docker's own iptables chains): a classic accidental exposure | rules apply |
-| Security updates | unattended-upgrades patches nginx, OpenSSL, Python | images must be rebuilt | images must be rebuilt |
+| Security updates | unattended-upgrades patches nginx, OpenSSL, Python; a release's own `.venv` changes only by building and activating a new release (CI's weekly dependency audit reports advisories; see DEVELOPMENT.md, "Dependency maintenance") | images must be rebuilt | images must be rebuilt |
 | Reproducibility | exact commit + `uv.lock` hashes + Python 3.12 from Ubuntu; the release reproduces the M4 reference run byte for byte *on the server* before it can be activated | also pins OS libraries (stronger) | same as Docker |
 | Rollback | atomic link to the previous release | previous image tag | previous image tag |
 | Moving parts | systemd, nginx | + daemon, images, registry | + images, registry |
@@ -187,14 +187,19 @@ Startup to ready: 3-6 s.
 ## 4. Preflight assessment
 
 Run it on the candidate server **before anything else**. It reads, never changes, and needs
-only the system Python:
+only the system Python. On a server that has not been bootstrapped yet, add
+`--before-bootstrap`. That option reports what the bootstrap installs (python3.12-venv, git,
+nginx, ...) as information instead of failures; without it, a fresh server is always
+UNSUITABLE. The bootstrap runs the same check itself, and after it the plain command is the
+definitive one:
 
 ```bash
 git clone https://github.com/arthur-fay/demand-forecasting-model.git ~/atlas   # any user
+# (no git yet: mkdir ~/atlas && curl -fsSL https://github.com/arthur-fay/demand-forecasting-model/archive/<SHA>.tar.gz | tar -xz -C ~/atlas --strip-components=1)
 cd ~/atlas
-python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir .
-sudo python3 -I src/atlas/deploy/preflight.py --resources low --release-dir .   # root sees more
-python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --json > preflight.json
+python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --before-bootstrap
+sudo python3 -I src/atlas/deploy/preflight.py --resources low --release-dir . --before-bootstrap   # root sees more
+python3 -I src/atlas/deploy/preflight.py --resources standard --release-dir . --json > preflight.json   # after the bootstrap
 ```
 
 It checks the distribution and version, kernel and systemd; the CPU architecture, the
@@ -314,7 +319,7 @@ existing complete release is checked and kept.
 **5.4 Secrets and first activation** (tunnel profile):
 
 ```bash
-ID=<release id>                      # printed by the build, e.g. 0.6.0-0123456789ab
+ID=<release id>                      # printed by the build, e.g. 1.0.0-0123456789ab
 R=/opt/atlas/releases/$ID/.venv/bin/atlas-deploy
 sudo $R secrets init                 # the simulation key, root-only, never printed
 sudo $R validate --installed         # deploy.env, rendered files, secrets, permissions
@@ -345,7 +350,7 @@ release itself, so the unit, the API environment and the nginx site cannot disag
 | `ATLAS_DEPLOY_TLS_CERT`, `_TLS_KEY` | `/etc/letsencrypt/live/<domain>/fullchain.pem`, `privkey.pem` | certificate files |
 | `ATLAS_DEPLOY_ALLOW_CIDRS` | none | networks allowed to connect to nginx (e.g. a VPN); `/0` is refused |
 | `ATLAS_DEPLOY_HSTS_MAX_AGE` | 31536000 | 300-63072000 seconds |
-| `ATLAS_DEPLOY_IPV6` | `true` | whether nginx listens on IPv6 |
+| `ATLAS_DEPLOY_IPV6` | `false` | whether nginx listens on IPv6; off by default because the per-client limits count each address and one IPv6 client usually holds a whole /64 ([section 17](#17-remaining-limitations)). Publish an AAAA record for the domain only with `true` |
 | `ATLAS_DEPLOY_SECURITY_REVIEW` | none | required by `public-demo`: the completed review's reference |
 | `ATLAS_DEPLOY_API_PORT` | 8000 | 1024-65535; the API always binds 127.0.0.1 (tunnels, verification, the monitor); nginx uses `/run/atlas/api.sock` |
 | `ATLAS_DEPLOY_SIMULATION_TIMEOUT_SECONDS` | 10 | 1-60 |
@@ -367,16 +372,18 @@ release itself, so the unit, the API environment and the nginx site cannot disag
 Access matrix (the API's operations from `docs/api/openapi.json`, the dashboard's paths from
 the release's verified build manifest (M7); any other path is a JSON 404, answered after
 the allow-list, authentication and rate limits, so 401 without an account; a wrong method
-on a route is a JSON 405):
+on a route is a JSON 405). `HEAD` is passed on only where the API answers it, on
+`/health/live` and `/health/ready` (for uptime checkers); on every other operation nginx
+answers it with its JSON 405, as the API would (M8):
 
 | Operation | Class | private | public-demo |
 |---|---|---|---|
-| `GET /health/live` | liveness | account | open |
-| `GET /health/ready`, `GET /api/v1/system` | readiness (operational detail: component details, workers, limits, versions) | account | 404 |
+| `GET`/`HEAD` `/health/live` | liveness | account | open |
+| `GET`/`HEAD` `/health/ready`, `GET /api/v1/system` | readiness (operational detail: component details, workers, limits, versions) | account | 404 |
 | `GET /api/v1/models`, `/forecasts`, `/forecasts/history`, `/forecasts/metrics`, `/uncertainty/status`, `/uncertainty/intervals`, `/scenarios`, `/scenarios/comparison`, `/scenarios/{id}`, `/simulations/parameters` | read (precomputed) | account | open |
 | `POST /api/v1/simulations` | compute | account + compute limit; nginx adds the key | 404 |
 | `/docs`, `/redoc`, `/openapi.json` | documentation | 404 | 404 |
-| `GET`/`HEAD` `/` and the other dashboard pages, `/assets/<exact name>`, `/favicon.svg`, `/atlas-deployment.json` | dashboard (M7, static: the pages, assets and favicon in their own limit `atlas_static`) | account | open (the descriptor says simulations are disabled) |
+| `GET`/`HEAD` `/` and the other dashboard pages, `/assets/<exact name>`, `/favicon.svg`, `/third-party-licences.txt`, `/inter-licence.txt`, `/atlas-deployment.json` | dashboard (M7, static: the pages, assets, favicon and licence notices in their own limit `atlas_static`) | account | open (the descriptor says simulations are disabled) |
 
 Do not assume the M5 simulation key protects the GET endpoints: it does not. In the private
 profile nginx protects them; in the tunnel profile only SSH reaches them.
@@ -393,7 +400,16 @@ Validate before applying any change: `sudo atlas-deploy validate --installed`; a
 restarts, verifies). If the new configuration fails, the **last verified state** comes back:
 the same release with the files rendered from the configuration it was verified with
 (`deploy.env` keeps your edit: fix it and activate again). `atlas-deploy render` prints the
-files without installing anything.
+files without installing anything. `atlas-deploy render --apply` (used for the ACME site in
+[section 7](#7-https-setup)) installs the files of the **current** release only, under the
+deployment lock, and records itself in `history.jsonl` (`"action": "render"`); it reloads
+nothing (it prints the commands to run). Before the first activation (no release is
+current) it accepts the ACME stage of an installed release (`--stage acme`): that site
+serves only ACME challenges, nothing from any release, and the first activation in the
+private or public-demo profile needs the certificate it obtains. Another release, or the
+complete site before the first activation, is refused with the command that serves it,
+`atlas-deploy activate <id>` (which switches, restarts, verifies and restores the previous
+state on failure), and so is any change while an activation is unfinished (M8).
 Returning to the `tunnel` profile takes the ATLAS site out of nginx (its `sites-enabled` link
 and its file are removed, `nginx -t`, then nginx is reloaded if it runs) before the switch;
 if nginx refuses the change, everything is put back and nothing else changes. Close ports 80
@@ -471,9 +487,21 @@ first activation on, and at every boot.
    listening on the API port belongs to the service's main process and the request without
    it was refused;
 7. exposure: the API listens on loopback addresses only;
-8. the proxy socket: `/run/atlas/api.sock` answers `/health/live` (nginx's way in).
+8. the proxy socket: `/run/atlas/api.sock` answers `/health/live` (nginx's way in);
+9. (M7) the dashboard, for a release that has one: the API serves `/` as the recorded
+   `index.html` with the Content-Security-Policy the release records, and the deployment
+   descriptor in the format it records; in the private and public-demo profiles, the copy
+   published for nginx (`/opt/atlas/dashboard/<release id>/`) holds exactly the recorded
+   files. From 1.0.0, where the release records a policy for its plain-text files,
+   `/inter-licence.txt` must be the recorded file, served with that policy. The policy the
+   release records must meet the floor (section 10), so a release whose code and record agree
+   on a weaker policy is refused.
 
 Every answer is treated as untrusted: a malformed body fails a check, not the verification.
+Verification reaches the API directly and reads the published copy: it does not see what
+nginx has loaded. That is why every activation, rollback and recovery reloads nginx (in the
+private and public-demo profiles) before it verifies, and why a site installed by hand is
+not verified.
 
 ## 9. Troubleshooting
 
@@ -484,7 +512,7 @@ Every answer is treated as untrusted: a malformed body fails a check, not the ve
 | `start-limit-hit` | `systemctl status atlas` | 6 failed starts in 15 min | fix the cause, then `systemctl reset-failed atlas && systemctl start atlas` |
 | readiness 503 naming a component | `curl -s 127.0.0.1:8000/health/ready` | a release file damaged or missing (`file_altered`, `depends on: ...`) | `atlas-deploy manifest check /opt/atlas/current`; roll back or rebuild |
 | browser 401 | nginx access log `"status":401` | wrong or missing account | `atlas-deploy secrets add-user NAME --generate`, `systemctl reload nginx` |
-| 429 `rate_limited` | access log | the client exceeds 10 req/s or 30 simulations/min (`low`: 12/min) | slow the client; limits are per address (IPv6: per address too, so one /64 counts as many clients) |
+| 429 `rate_limited` | access log | the client exceeds 10 req/s or 30 simulations/min (`low`: 12/min) | slow the client; limits are per address (IPv6, off unless `ATLAS_DEPLOY_IPV6=true`: per address too, so one /64 counts as many clients) |
 | 503 `upstream_unavailable` | `systemctl status atlas` | the API is down or restarting | see the first rows |
 | 503 `simulations_busy` | `/api/v1/system` workers | every worker busy | retry after `Retry-After`; `standard` profile on 2 vCPU |
 | 504 `simulation_timeout` | `journalctl -u atlas \| grep simulation_timeout` | a slow CPU (shared vCPU steal) | `ATLAS_DEPLOY_SIMULATION_TIMEOUT_SECONDS=20` |
@@ -492,7 +520,9 @@ Every answer is treated as untrusted: a malformed body fails a check, not the ve
 | memory near the limit | `systemctl show atlas -p MemoryCurrent` | many large responses, worker growth | `low` profile, more memory |
 | `nginx -t` fails after `render --apply` | `sudo nginx -t` | another site claims `default_server`, missing certificate | remove the other default site; finish section 7 |
 | certificate not renewed | `sudo certbot renew --dry-run` | port 80 closed, DNS changed | open 80, fix DNS |
-| an activation stopped half-way (SSH lost) | `atlas-deploy status` shows `pending_activation`; other changes are refused ("run `atlas-deploy recover` first") | interrupted | `sudo atlas-deploy recover` |
+| an activation stopped half-way (SSH lost, Ctrl-C) | `atlas-deploy status` shows `pending_activation`; other changes are refused ("run `atlas-deploy recover` first") | interrupted | `sudo atlas-deploy recover` (it completes or undoes the activation: [section 11](#11-rolling-back-and-recovering)) |
+| `render --apply`: "is not the current release" | `atlas-deploy status` | `--release-dir` names another release than `current` | `sudo atlas-deploy activate <id>` to serve that release |
+| `render --apply`: "no release is active" | `atlas-deploy status` | the complete site requested before the first activation | the ACME site first if the certificate is missing (`render --stage acme --apply`, [section 7](#7-https-setup)), then `sudo atlas-deploy activate <id>` |
 | service stopped and disabled after an activation (`failed_and_stopped`, `rollback_failed`) | `atlas-deploy status`, the record's `detail` | no verified state to return to, or it failed too: nothing unverified serves, even after a reboot | fix the cause, then `atlas-deploy activate <id>` (it enables the service again) |
 | `a release build is running` from `prune` | `ps aux \| grep build-release` | a build holds its lock | prune after it finishes |
 | `another deployment holds the lock` | `ps aux \| grep atlas-deploy` | a deployment is running | wait; never delete the lock while one runs |
@@ -504,8 +534,8 @@ Run long operations inside `tmux` or `screen` so an SSH disconnect does not inte
 ```bash
 cd ~/atlas && git fetch && git checkout <new-commit>           # for the scripts only
 sudo deploy/scripts/build-release.sh <new-commit>              # builds and checks; serves nothing
-sudo atlas-deploy plan-upgrade 0.6.1-<sha12>                   # what would change (read-only)
-sudo atlas-deploy activate 0.6.1-<sha12>                       # restores the verified state on failure
+sudo atlas-deploy plan-upgrade 1.0.1-<sha12>                   # what would change (read-only)
+sudo atlas-deploy activate 1.0.1-<sha12>                       # restores the verified state on failure
 sudo atlas-deploy prune --keep 3                               # frees disk: nothing prunes by itself
 ```
 
@@ -522,8 +552,86 @@ fingerprint (`5ab8b3a5...`); the SHA-256 of every research artifact (`snapshots/
 the API contract's SHA-256; the scientific status (`failed_calibration`, `HYPOTHETICAL`,
 `validated_recommendation: false`); the build time, uv version and checks passed.
 
+The environment fingerprint covers every file and link of the release's `.venv` except
+bytecode and, from 1.0.0 (`environment_fingerprint_version: 2`), the two files uv rewrites
+at every build of the project itself: its `uv_cache.json` (the project's file times at the
+build) and the `RECORD` that lists it. Two builds of one commit with the same lock, uv,
+Python (patch version included), platform (the architecture and C library, which select
+the wheels uv installs) and path are therefore expected to share it; two servers share it
+only if they also match in all of these. Measured on one x86-64 machine only: two installs
+of commit 8f077ed at one path, with the build's uv settings (`uv sync --locked --no-dev`
+with uv 0.11.32, copy mode, compiled bytecode, `/usr/bin/python3.12`), held 4,390 regular
+files besides bytecode each and differed in those two only: counted, they gave two
+different fingerprints; left out, the same one. A manifest written before 1.0.0 has no
+fingerprint version: its fingerprint counts every file and is checked that way.
+
 The manifest also records the dashboard (M7): its version, every file's SHA-256 and the
-build manifest's SHA-256; `plan-upgrade` says whether it changes.
+build manifest's SHA-256; `plan-upgrade` says whether it changes. From 1.0.0 it also
+records what the release's code sends with its dashboard: its response headers
+(Content-Security-Policy, Permissions-Policy, ...), the Content-Security-Policy of its
+plain-text files (`text_csp`), and the deployment descriptor of each exposed profile, with its
+format. Whatever tool activates, restores or rolls back to the
+release renders the dashboard part of its nginx site from that record and verifies the
+API's Content-Security-Policy and descriptor format against it, so an older release is
+served and verified with its own policy. A release built by 0.7.0 records only its
+Content-Security-Policy; its other headers and its descriptors are taken from the tool,
+which are the same as in 0.7.0 until a release changes them. (0.7.0 has no plain-text file;
+a record without a policy for text keeps its one policy for every file, as its code did.)
+
+Since the final review of M8, every tool holds the recorded dashboard policy to a floor
+before using it:
+
+- **Header names.** Recorded header names must be among those the dashboard sends
+  (Content-Security-Policy, Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy,
+  Permissions-Policy; compared without regard to case), each once. They are never one that a
+  dashboard location sets itself (Strict-Transport-Security, X-Content-Type-Options,
+  X-Frame-Options, Referrer-Policy, X-Robots-Tag, Cache-Control). Names and values must be in
+  character sets that nginx embeds safely.
+- **The HTML policy** must be one policy naming each directive once, with
+  `default-src 'none'`, `frame-ancestors 'none'`, `require-trusted-types-for 'script'` and a
+  `script-src`. In it, `script-src`, `script-src-elem`, `script-src-attr`, `worker-src` and
+  `child-src` may name only `'self'`, hashes, `'none'` and `'report-sample'`: never
+  `'unsafe-inline'`, `'unsafe-eval'`, `'strict-dynamic'`, a nonce, `*`, a scheme or a host.
+- **The policy for plain text**, if recorded, must be one policy with `default-src 'none'`
+  and `frame-ancestors 'none'`, and no script source.
+
+0.7.0's record and 1.0.0's meet the floor. The floor leaves two things open: the values of
+the other recorded headers are checked only for safe characters, and directives other than
+those named are sent as recorded. Only root writes `release.json`.
+
+A release below the floor is refused before anything changes, by `atlas-deploy manifest
+check`, by `plan-upgrade` (as a blocking problem), by every activation and by
+`render --apply`. Rendering and verification refuse it too.
+
+The floor is the running tool's own. An older tool refuses, before anything changes, a newer
+release whose dashboard sends a header or allows a script source that the older tool does
+not know. Plan and activate such a release with its own tool, as below:
+`sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`, then
+`... activate <new id>`. No release so far is affected: 0.7.0's record and 1.0.0's meet the
+1.0.0 floor.
+
+**From 0.7.0 (M7) to 1.0.0**, plan and activate with the new release's own tool, as from M6
+to M7: `sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`,
+then `... activate <new id>`. The 0.7.0 tool cannot read a 1.0.0 release, for two reasons:
+
+- its dashboard parser rejects the licence notices that 1.0.0 ships (`.txt` files);
+- it fingerprints the environment differently (fingerprint version 2, M8-24).
+
+Its `plan-upgrade` therefore fails ("the dashboard build is invalid: unexpected file name in
+the build"), and its `activate` and `rollback` refuse before changing anything. Restoring or
+rolling back to a 0.7.0 release with the 1.0.0 tool works, because the release's manifest is
+checked as it was written.
+
+Two consequences:
+
+- **Rolling forward after a rollback.** After a rollback to 0.7.0, `/opt/atlas/current`, and so
+  the plain `atlas-deploy`, is the 0.7.0 tool, which refuses to roll forward. Return to 1.0.0
+  with the 1.0.0 release's own tool:
+  `sudo /opt/atlas/releases/<1.0.0 id>/.venv/bin/atlas-deploy activate <1.0.0 id>`.
+- **IPv6.** `ATLAS_DEPLOY_IPV6` now defaults to `false` (M8-25). A 0.7.0 `deploy.env` without
+  the key loses its IPv6 listeners at the 1.0.0 activation, and the 1.0.0 tool reads a restored
+  0.7.0 configuration the same way. If IPv6 clients are served, set `ATLAS_DEPLOY_IPV6=true`
+  before upgrading.
 
 **From M6 to M7**, plan and activate with the new release's own tool, in every profile:
 `sudo /opt/atlas/releases/<new id>/.venv/bin/atlas-deploy plan-upgrade <new id>`, then
@@ -558,6 +666,24 @@ terminal record (`activated`, `refused`, `rolled_back`, `rollback_failed` or
 `failed_and_stopped`) share an operation id. An activation without its terminal record
 (interrupted) blocks every other change until `atlas-deploy recover` completes it.
 
+**Recovering.** An activation can be interrupted (a lost SSH session, Ctrl-C) after the
+switch, before or while the service restarts. If the restart was issued, systemd finishes
+it and the API comes up on the new release; if not, the previous release keeps running.
+Either way nginx has not been reloaded and still serves the previous release's site (its
+dashboard, routes and access rules). `atlas-deploy recover` therefore completes the
+activation rather than only checking it: if `current` already points to the interrupted
+release and that release passes its checks, it repeats the activation's steps after the
+switch. It installs the release's files again (idempotent: the published dashboard, units,
+environment and site, `nginx -t`, systemd reloaded), restarts the service, reloads nginx
+(private and public-demo profiles) and verifies; only then is the release, with its
+`deploy.env`, kept as the last verified state (`activated`). The restart is not skipped
+when the release already runs: it is what loads the environment just installed (from a
+`deploy.env` you may have fixed since), and nginx loads the new site only once the
+service runs the release. Otherwise (the activation stopped before the switch, a check,
+the start or the verification fails) it restores the last verified state as above
+(`rolled_back`). Until 1.0.0, `recover` only verified, and could keep a release as verified
+while nginx still served the previous one (M8).
+
 **Manual.**
 
 ```bash
@@ -583,10 +709,15 @@ An explicit rollback (`atlas-deploy rollback`) restores the code, environment an
 artifacts of the chosen release, with the current `deploy.env` re-rendered from that
 release's templates. The nginx site of the restored release points at that release's
 dashboard copy, so the browser always gets the dashboard built with the API it talks to
-(M7). No release
-is ever modified or deleted by an activation, so a failed deployment cannot alter the
-research outputs of any release; `prune` never removes the current release, the rollback
-target or the last verified state's release, and waits for a running build.
+(M7), with the headers and deployment descriptor that release records, and verification
+expects the Content-Security-Policy and descriptor format that release records
+([section 10](#10-upgrading)). So a newer tool (the one that ran a failed upgrade, or the
+current release's after an upgrade) restores and rolls back to an older release even when
+the dashboard's policy changed between them; until 1.0.0 the tool's own policy was used,
+and such a restoration failed its dashboard check (M8). No release is ever modified or
+deleted by an activation, so a failed deployment cannot alter the research outputs of any
+release; `prune` never removes the current release, the rollback target or the last
+verified state's release, and waits for a running build.
 
 ## 12. Backups and recovery
 
@@ -694,7 +825,7 @@ A larger observability stack (Prometheus, Grafana) is deliberately not part of M
 | Degraded data | per-component readiness (M5): a damaged artifact gives 503 on its endpoints, the rest serves; the monitor alerts |
 | Version identification | release id = version + commit; `release.json`; `atlas-deploy status`; verification compares the running process's directory, version and data fingerprint with the manifest |
 | Failure reporting | every activation, refusal, rollback and recovery is a JSON record with its reasons; `atlas-deploy` exits 0 on success, 1 when a deployment step failed or was refused, 2 for invalid arguments or configuration or when it cannot proceed (another deployment, a running build, a missing release), 3 for an internal error (a bug) |
-| Partial failures | builds clean up after themselves; any failure before the switch (nginx or systemd refusing the files, a write error, a rendering error) restores the previous files and changes nothing else; any failure after it, an unexpected error included, restores the last verified state (release and configuration); an error in the restoration itself stops and disables the service; interrupted activations block other changes until recovered (`recover`); a lock prevents concurrent deployments and `prune` waits for builds |
+| Partial failures | builds clean up after themselves; any failure before the switch (nginx or systemd refusing the files, a write error, a rendering error) restores the previous files and changes nothing else; any failure after it, an unexpected error included, restores the last verified state (release and configuration); an error in the restoration itself stops and disables the service; interrupted activations block other changes until `recover` completes them (the service restarted and nginx reloaded before the release is kept) or restores the verified state; a lock prevents concurrent deployments and `prune` waits for builds |
 | Applied at once | every activation reloads systemd (units written by `render --apply` too), starts the monitor timer, and restarts journald when its limits changed |
 
 ## 16. Testing
@@ -702,12 +833,12 @@ A larger observability stack (Prometheus, Grafana) is deliberately not part of M
 | Test module | What it checks |
 |---|---|
 | `test_m6_preflight.py` (39) | fake servers (directory trees) accepted or refused with actions: distributions, architectures, x86-64-v2, memory and swap against the estimate, disk, ports, exposed listeners, software, SSH/ufw/updates/clock, load and competing services, lock wheel tags; JSON and text; the standalone script with `python -I -S` (standard library only); a real run changes nothing |
-| `test_m6_config.py` (57) | `deploy.env`: defaults, profiles, every unsafe value refused, shell syntax and secrets refused, all problems reported together; the rendered environment accepted by the API's own parser for every profile; workers vs CPUs; `ATLAS_API_KEY_FILE`: read, newline handling, open modes (group read for the root group only), empty, oversized, non-ASCII, both variables, missing, errors never echo the content |
-| `test_m6_render.py` (31) | deterministic rendering; unsafe values and missing placeholders refused; the unit's least privilege, loopback bind, Unix socket in its runtime directory, sandbox, credential and restart policy; resource limits by profile; no secret rendered; the monitor and alert units; `systemd-analyze verify` (no unknown key); `systemd-analyze security --offline` exposure at most 1.5 for the service (0.9 measured), the monitor and the alert hook (1.3 each); routes equal the contract, `/api/v1/system` operational; unroutable or unsafe contract paths refused; the private and public-demo sites (header allow-list, socket upstream, catch-all after authentication); `nginx -t` on every profile and stage; atomic, idempotent writes; the site taken out |
-| `test_m6_proxy.py` (39; M7 removed the `/` case) | the rendered site in a real nginx with TLS, its upstream a Unix socket as in production: authentication on every route, method and path allow-lists, ambiguous paths (line breaks, fragments included), unparsable request lines (JSON 400), unknown paths behind authentication and rate limits, the key added to simulations only and client keys dropped, only `Content-Type` and `Accept` of the client's headers passed on, a fixed Host, nginx's request id, security headers exactly once, 413, per-client and simulation rate limits (429 JSON), upstream down (503 JSON), unknown SNI and foreign Host (no answer), HTTP redirect and ACME, TLS 1.1 refused, the allow-list (403), the public-demo separation (no `/api/v1/system`), the access log without secrets or queries; the real API behind it |
+| `test_m6_config.py` (57) | `deploy.env`: defaults (IPv6 off), profiles, every unsafe value refused, shell syntax and secrets refused, all problems reported together; the rendered environment accepted by the API's own parser for every profile; workers vs CPUs; `ATLAS_API_KEY_FILE`: read, newline handling, open modes (group read for the root group only), empty, oversized, non-ASCII, both variables, missing, errors never echo the content |
+| `test_m6_render.py` (33) | deterministic rendering; unsafe values and missing placeholders refused; the unit's least privilege, loopback bind, Unix socket in its runtime directory, sandbox, credential and restart policy; resource limits by profile; no secret rendered; the monitor and alert units; `systemd-analyze verify` (no unknown key); `systemd-analyze security --offline` exposure at most 1.5 for the service (0.9 measured), the monitor and the alert hook (1.3 each); routes equal the contract, `/api/v1/system` operational, HEAD only where the API answers it; nginx on IPv6 only when asked; unroutable or unsafe contract paths refused; the private and public-demo sites (header allow-list, socket upstream, catch-all after authentication); `nginx -t` on every profile and stage; atomic, idempotent writes; the site taken out |
+| `test_m6_proxy.py` (39; M7 removed the `/` case) | the rendered site in a real nginx with TLS, its upstream a Unix socket as in production: authentication on every route, method and path allow-lists, ambiguous paths (line breaks, fragments included), unparsable request lines (JSON 400), unknown paths behind authentication and rate limits, the key added to simulations only and client keys dropped, only `Content-Type` and `Accept` of the client's headers passed on, a fixed Host, nginx's request id, security headers exactly once, 413, per-client and simulation rate limits (429 JSON), upstream down (503 JSON), unknown SNI and foreign Host (no answer), HTTP redirect and ACME, TLS 1.1 refused, the allow-list (403), the public-demo separation (no `/api/v1/system`), the access log without secrets or queries; the real API behind it (HEAD passed on exactly where the API answers it, refused by nginx elsewhere) |
 | `test_m6_secrets.py` (20) | key generation, the nginx copy kept identical and repaired, rotation, open modes, links, foreign keys; users added, replaced, removed; openssl SHA-512-crypt verified; weak hashes refused; the CLI never prints the key; permission checks; release trees (writable files, set-id bits, escaping links including `..` after an allowed prefix, owners) |
-| `test_m6_manifest.py` (14) | identification and fingerprints; altered artifacts, lock, contract, code, environment, added and removed files refused; bytecode written later ignored, a planted source file not; manifest errors; the CLI; **every research artifact byte-identical to the M5 merge commit** |
-| `test_m6_releases.py` (38) | activation (monitor timer started, journald applied, the verified state kept); private activation with nginx; the tunnel profile taking the site out (and put back if nginx refuses); automatic restoration after failed verification or a failed start, to the last *verified* release; a failed configuration change restoring the verified configuration; a failed first deployment stopped and disabled; a failed restoration reported, stopped and disabled; an error inside the restoration; unsafe releases, configurations, directories and TLS keys refused without touching the service; nginx refusal before the switch (no dangling link); the lock; rollback; an interrupted activation blocking other changes until recovered; pruning (waits for builds); status and upgrade plans; the CLI; **real API processes**: a broken release detected over HTTP and the previous one restored and verified |
+| `test_m6_manifest.py` (16) | identification and fingerprints (the environment fingerprint the same for two builds of one commit, every other file, other distributions' `RECORD` included, still counted; manifests written before 1.0.0 checked as written); altered artifacts, lock, contract, code, environment, added and removed files refused; bytecode written later ignored, a planted source file not; manifest errors; the CLI; **every research artifact byte-identical to the M5 merge commit** |
+| `test_m6_releases.py` (40) | activation (monitor timer started, journald applied, the verified state kept); private activation with nginx; the tunnel profile taking the site out (and put back if nginx refuses); automatic restoration after failed verification or a failed start, to the last *verified* release; a failed configuration change restoring the verified configuration; a failed first deployment stopped and disabled; a failed restoration reported, stopped and disabled; an error inside the restoration; unsafe releases, configurations, directories and TLS keys refused without touching the service; nginx refusal before the switch (no dangling link); the lock; rollback; an interrupted activation blocking other changes until recovered, and a recovery that has the service and nginx load the configuration it keeps as verified (the activation interrupted before or during the restart); pruning (waits for builds); status and upgrade plans; the CLI; **real API processes**: a broken release detected over HTTP and the previous one restored and verified |
 | `test_m6_notify.py` (10) | the systemd notification protocol on a real socket; READY only after the bind, watchdog pings from the event loop, STOPPING; variables removed before the workers start; the readiness summary; workers' OOM preference on real processes |
 | `test_m6_verify_monitor.py` (47) | verification against a real API (every check), explicit failures, a dead service, no proxy; each integrity label flipped one at a time (each one detected); malformed answers failing checks, never the verification; the key never sent to a listener that is not the service's or that does not require it; the proxy socket; every monitor finding and level, a slow crash loop critical; CPU deltas; state; the command; the real probes |
 | `test_m6_scripts.py` (22) | shellcheck; root-script rules (strict mode, no tracing, nothing piped to a shell); the bootstrap is a dry run by default and never touches the firewall; the build installs the lock and checks as the service user; argument errors; the tooling imports the standard library only; the console script; CI |
@@ -724,9 +855,13 @@ a simulation, docs 404, the redirect, no password in nginx logs); `kill -9` of t
 (restarted); `kill -STOP` (the watchdog restarts it); a killed worker (replaced); an invalid
 setting (exit 2, no restart loop, repaired by an activation); a stop during a simulation
 (answered 200, a clean exit, no worker killed); a broken release (rolled back automatically); an
-explicit rollback; an interrupted activation (other changes refused until it is recovered);
-the monitor and the alert hook; a reboot (everything back and verified); memory and tasks
-within the limits; a return to the tunnel profile (the site gone, nginx still running).
+explicit rollback between two verified releases (a second release is built from an empty
+commit on top of the first, the same tree under another release id, and activated;
+`atlas-deploy rollback` then returns to the first: `current`, the site's dashboard root,
+the published copy and `atlas-deploy verify`); an interrupted activation (other changes
+refused until it is recovered); the monitor and the alert hook; a reboot (everything back
+and verified); memory and tasks within the limits; a return to the tunnel profile (the
+site gone, nginx still running).
 
 M7 adds `test_m7_deploy.py`, `test_m7_proxy.py` and two container tests for the dashboard
 ([DASHBOARD.md](DASHBOARD.md) section 13), and changes two M6 tests where the dashboard is
@@ -735,8 +870,26 @@ now intended: `test_m6_render.py` counts the API locations before the dashboard'
 runs each site inside an http block with the distribution's types by extension, as on
 Ubuntu.
 
-All earlier tests (M0-M5) run unchanged except one line: the version literal in
-`test_m5_endpoints.py` (now 0.7.0). CI runs the whole suite with
+M8 adds regression tests for the corrections of this guide's sections 6, 10 and 11: an
+activation interrupted before or during the restart and completed by `recover`, the
+service restarted and nginx loading the new release's site only once the service runs it
+(`test_m7_deploy.py`), and its configuration (`test_m6_releases.py`); a later tool
+restoring and rolling back to an older release with that release's dashboard policy (its
+Content-Security-Policy, Permissions-Policy and descriptor), and recorded policies that
+could alter the site, or that fall below the floor, refused by the release check, rendering
+and verification (`test_m7_deploy.py`); HEAD where the API answers it
+(`test_m6_render.py`, and against the real API in `test_m6_proxy.py`); the environment
+fingerprint of two builds (`test_m6_manifest.py`); IPv6 off by default
+(`test_m6_config.py`, `test_m6_render.py`); `render --apply` of the current release only
+(and of the ACME site before the first activation), under the lock and recorded
+(`test_m7_deploy.py`). The container test's explicit rollback now switches between two
+releases (it re-activated the current one before).
+
+M6 and M7 ran all earlier tests (M0-M5) unchanged except one line: the version literal in
+`test_m5_endpoints.py` (now 1.0.0). M8 adds regression tests for its API and line-ending
+corrections to the M5 test files and to `test_snapshot.py` (M0), and replaces
+`test_m5_security.py`'s docs-page test with a stricter one
+([audit/M8_CORRECTIONS.md](audit/M8_CORRECTIONS.md) section 5). CI runs the whole suite with
 `ATLAS_REQUIRE_DEPLOY_TOOLS=1` (a missing nginx, openssl, shellcheck or systemd-analyze
 fails instead of skipping), shellcheck, and the container job.
 
@@ -753,8 +906,20 @@ against the real certificate.
 - **One server, one process.** No high availability: an upgrade restarts the API (3-6 s),
   a server failure is an outage until recovery (section 12).
 - **OS libraries are not pinned.** Ubuntu security updates can change Python or OpenSSL
-  under a running release. Rebuild the release after a `python3.12` update (the build
-  re-verifies the M4 results on the new interpreter).
+  under a running release. A rebuild of the same commit does not help: it finds the release
+  and only checks its files against the manifest, and the environment fingerprint records the
+  interpreter link, not the interpreter's bytes. After a `python3.12` update, restart the
+  service and re-run the M4 reproduction on the new interpreter as the service user, exactly
+  as the build runs it:
+
+  ```bash
+  R=/opt/atlas/current
+  cd /tmp && sudo setpriv --reuid=atlas --regid=atlas --clear-groups --no-new-privs \
+      env -i PATH=/usr/bin:/bin LC_ALL=C HOME=/nonexistent PYTHONDONTWRITEBYTECODE=1 \
+      ATLAS_REPO_ROOT=$R OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+      $R/.venv/bin/atlas --repo-root $R optimize verify $R/docs/results/atlas-m4-optimization-v1
+  sudo atlas-deploy verify
+  ```
 - **Basic authentication** is a shared-secret scheme: no MFA, no per-user roles. Everyone
   with an account can run simulations (rate-limited). Fine for a private research
   deployment; not for a public service.
@@ -765,7 +930,8 @@ against the real certificate.
   and could listen on port 8000 while the API is down (nginx and `verify` never send the key
   there). The server is meant to be dedicated to ATLAS with one administrator.
 - **IPv6 rate limits** count each address: a client with a /64 counts as many clients.
-  Keep `ATLAS_DEPLOY_IPV6=false` unless IPv6 clients are needed.
+  nginx therefore listens on IPv4 only by default (`ATLAS_DEPLOY_IPV6=false`); turn IPv6
+  on only when IPv6 clients are needed.
 - **Unknown paths are rate limited, wrong methods and ambiguous paths are not**: nginx
   answers those two before its limits (cheap answers revealing only the public contract).
 - **Commits are not signed**; the build trusts GitHub for the commit content (its SHA is
@@ -782,8 +948,12 @@ Phase B (a real deployment) needs, in writing:
 2. **The server**: provider, plan (vCPU, memory, disk), region, Ubuntu 24.04 LTS image, an
    administrator account with SSH key access and sudo; confirmation that it is dedicated to
    ATLAS.
-3. **The preflight report** from that server (`--json`, with `--probe-dependencies`): no
-   `fail`; the warnings acknowledged; the resource profile chosen.
+3. **The preflight reports** from that server:
+   - before the bootstrap: `--before-bootstrap --json`, with no `fail`, the warnings
+     acknowledged and the resource profile chosen. This is what item 5 authorises;
+   - after the bootstrap and before the build: the preflight without `--before-bootstrap`,
+     and `--probe-dependencies`, both with no `fail`. On a fresh server the probe cannot pass
+     earlier, because it needs `python3.12-venv`, which the bootstrap installs (section 4).
 4. **The exposure decision**: tunnel only, or private. For private: the domain name, who
    controls its DNS, the certificate method (HTTP-01 with port 80 open, or DNS-01), the HSTS
    duration, and optionally the networks allowed (`ALLOW_CIDRS`) or a VPN.
@@ -813,14 +983,19 @@ M6 was built so the dashboard could be added without changing its model; M7 adds
   stays off and the browser's Basic-auth session also covers the API calls.
 - **A static route class** (`atlas.deploy.routes.dashboard_routes`, rendered into the site
   after the API's locations): the pages (answered with `index.html` through `try_files`),
-  each asset by its exact name, the favicon, and the deployment descriptor
+  each asset by its exact name, every other top-level file of the build by its exact name
+  (the favicon and, since M8, the licence notices `/third-party-licences.txt` and
+  `/inter-licence.txt`, sent as `text/plain; charset=utf-8` with the dashboard's policy for
+  text), and the deployment descriptor
   `/atlas-deployment.json` (written into the site; served through the same authentication).
-  GET and HEAD only, `disable_symlinks on`; the pages, assets and favicon have their own
+  GET and HEAD only, `disable_symlinks on`; the pages, assets and other files have their own
   rate zone `atlas_static` (the descriptor counts against the API's read limit); a page path
   can never shadow an API route. Anything else is the existing JSON 404, and nginx's own
   answers are JSON whatever extension the path ends with (`types { }` at server level).
 - **A separate Content-Security-Policy for HTML** (`script-src 'self'`, Trusted Types, no
-  inline code; `atlas.dashboard.DASHBOARD_CSP`), set once; JSON keeps `default-src 'none'`.
+  inline code; `atlas.dashboard.DASHBOARD_CSP`), set once; JSON keeps `default-src 'none'`;
+  plain text (the licence notices) gets `atlas.dashboard.DASHBOARD_TEXT_CSP`, which lets the
+  browser's text viewer wrap lines and runs nothing.
   Text answers are gzip-compressed; hashed assets are cached as immutable.
 - **Simulations from the browser** work in the private profile without exposing the key
   (nginx adds it); in public-demo the descriptor says they are disabled and the route does not
@@ -830,14 +1005,16 @@ M6 was built so the dashboard could be added without changing its model; M7 adds
   in `release.json`; activation in an exposed profile copies it to
   `/opt/atlas/dashboard/<release id>/`, verifies the copy, then writes the site that points
   to it (a release with an altered build is refused before anything changes); `verify`
-  checks that the API serves it with its policy and that the copy is exactly the recorded
-  files; rollback restores the release's site and so its dashboard; `prune` removes copies of
-  pruned releases. `render --apply` publishes only an installed release whose build matches
-  its `release.json`.
+  checks that the API serves it with the policy the release records and that the copy is
+  exactly the recorded files; rollback and recovery restore the release's site, with the
+  headers and descriptor it records, and so its dashboard (M8,
+  [section 11](#11-rolling-back-and-recovering)); `prune` removes copies of pruned
+  releases. `render --apply` publishes only the current release, installed, whose build
+  matches its `release.json`.
 - **Tests**: `test_m7_deploy.py`, `test_m7_proxy.py` (real nginx), the browser tests against
   both profiles, and `test_m6_container.py` (the dashboard through nginx after a real
-  activation; after the automatic and explicit rollbacks, the site's dashboard root, read
-  from the site file).
+  activation; after the automatic rollback and the explicit rollback from a second release,
+  the site's dashboard root, read from the site file).
 
 ## 20. Independent review
 

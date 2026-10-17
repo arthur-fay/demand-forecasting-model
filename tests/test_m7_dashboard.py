@@ -23,6 +23,7 @@ from atlas.dashboard import (
     CACHE_IMMUTABLE,
     DASHBOARD_CSP,
     DASHBOARD_HEADERS,
+    DASHBOARD_TEXT_CSP,
     DESCRIPTOR_PATH,
     DIST,
     MANIFEST_NAME,
@@ -109,6 +110,41 @@ def test_the_client_waits_longer_than_any_server_deadline() -> None:
     nginx_margin = 20  # proxy_read_timeout = deadline + 20 s (atlas.deploy.render)
     assert client_seconds > SIMULATION_TIMEOUT_SECONDS[2] + nginx_margin  # the API's maximum
     assert client_seconds > TIMEOUT_RANGE[1] + nginx_margin  # the deployment's maximum
+
+
+#: The licence notices every build ships (web/src/notices.ts): the bundled packages'
+#: copyright and licence texts (Vite's build.license) and the Inter font's copyright and
+#: SIL Open Font License 1.1 (from its package, through web/public).
+NOTICES = ("third-party-licences.txt", "inter-licence.txt")
+
+
+def test_the_build_ships_and_the_api_serves_the_licence_notices(
+    api_store: ReferenceStore,
+) -> None:
+    """MIT and ISC require the copyright and permission notice in every copy, and OFL-1.1
+    the copyright and licence with every copy of the font (M8-05). The committed build
+    lists both notice files, and the API serves them as plain text with the dashboard's
+    headers and its policy for text. (web/build/notices.test.ts checks that every bundled
+    package is named.)"""
+    build = load_build(BUILD)
+    with client(api_store) as test_client:
+        for name in NOTICES:
+            item = build.file(name)
+            assert item is not None, f"{name} is not in {MANIFEST_NAME}"
+            assert item.content_type == "text/plain; charset=utf-8"
+            answer = test_client.get(item.url)
+            assert answer.status_code == 200, name
+            assert hashlib.sha256(answer.content).hexdigest() == item.sha256
+            assert answer.headers["content-type"] == "text/plain; charset=utf-8"
+            assert answer.headers["content-security-policy"] == DASHBOARD_TEXT_CSP
+            assert answer.headers["x-content-type-options"] == "nosniff"
+            if name == "inter-licence.txt":
+                assert answer.text.startswith("Copyright 2016 The Inter Project Authors")
+                assert "SIL OPEN FONT LICENSE Version 1.1" in answer.text
+            else:
+                assert "## react - " in answer.text
+                assert "(MIT)" in answer.text
+                assert "(ISC)" in answer.text
 
 
 def test_the_build_sends_no_credential() -> None:
@@ -274,6 +310,41 @@ def test_every_page_is_the_index_with_the_dashboard_policy(api_store: ReferenceS
             assert answer.headers["x-frame-options"] == "DENY"
             assert answer.headers["x-content-type-options"] == "nosniff"
             assert answer.headers["x-request-id"]
+
+
+def test_plain_text_gets_the_policy_for_text_and_every_other_file_the_html_one(
+    api_store: ReferenceStore,
+) -> None:
+    """A browser shows text/plain in its own viewer: Chromium's wraps long lines with an
+    inline style attribute, which the HTML policy refuses (a CSP violation on every visit,
+    and lines that do not wrap: M8 final review). The licence notices get the policy for
+    text, which allows that style and runs nothing; every other header is the same as on
+    index.html and the assets, and each is sent once."""
+    build = load_build(BUILD)
+    asset = next(f for f in build.files if f.path.startswith("assets/"))
+    expected = {
+        "/": DASHBOARD_CSP,
+        asset.url: DASHBOARD_CSP,
+        "/favicon.svg": DASHBOARD_CSP,
+        "/third-party-licences.txt": DASHBOARD_TEXT_CSP,
+        "/inter-licence.txt": DASHBOARD_TEXT_CSP,
+    }
+    others = {k: v for k, v in DASHBOARD_HEADERS.items() if k != "Content-Security-Policy"}
+    with client(api_store) as test_client:
+        for path, policy in expected.items():
+            for method in ("GET", "HEAD"):
+                answer = test_client.request(method, path)
+                assert answer.status_code == 200, (method, path)
+                assert answer.headers.get_list("content-security-policy") == [policy], path
+                for name, value in others.items():
+                    assert answer.headers.get_list(name) == [value], (path, name)
+                assert answer.headers["x-content-type-options"] == "nosniff"
+                assert answer.headers["x-frame-options"] == "DENY"
+        item = build.file("inter-licence.txt")
+        assert item is not None
+        unchanged = test_client.get(item.url, headers={"If-None-Match": item.etag})
+        assert unchanged.status_code == 304
+        assert unchanged.headers["content-security-policy"] == DASHBOARD_TEXT_CSP
 
 
 def test_every_built_file_is_served_as_built(api_store: ReferenceStore) -> None:

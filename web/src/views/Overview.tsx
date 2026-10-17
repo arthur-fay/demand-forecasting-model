@@ -378,7 +378,7 @@ export default function Overview() {
     <>
       <PageHeader
         eyebrow="ATLAS · NYC 311 demand research"
-        title="Decision-intelligence research on NYC 311 demand"
+        title="NYC 311 demand: forecasts, uncertainty and hypothetical scenarios"
       >
         <p>
           ATLAS turns a legacy 30-day demand forecast for New York City's 311 service requests into

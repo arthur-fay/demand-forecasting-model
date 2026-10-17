@@ -546,15 +546,36 @@ class SimulationPool:
         self.size = size
 
     def acquire(self) -> _Worker:
+        """An idle worker: the warm one released last (one that has answered), else the
+        idle worker at the end of the list (see :meth:`release`).
+
+        A worker replaced after a timeout or a crash is a fresh process that may still be
+        importing ATLAS, and a request given it would wait for that import (outside its
+        deadline) while a worker that has finished importing sits idle.
+        """
         with self._lock:
             if self._closed or not self._idle:
                 raise Busy
-            return self._idle.pop()
+            warm = [i for i, worker in enumerate(self._idle) if worker.ready]
+            return self._idle.pop(warm[-1] if warm else -1)
 
     def release(self, worker: _Worker) -> None:
+        """Return ``worker`` to the idle list: last if it is warm, else first.
+
+        A worker that has not answered since its process started (it was replaced, or its
+        start failed) becomes the last choice, behind every worker started before it: those
+        have had longer to import ATLAS, and among replaced workers the one replaced first
+        is taken first. This matters because sequential requests reuse one warm worker:
+        when it is replaced, the others have never answered (they are not known to be
+        warm), but they started with the pool and have usually finished importing.
+        """
         with self._lock:
-            if not self._closed:
+            if self._closed:
+                return
+            if worker.ready:
                 self._idle.append(worker)
+            else:
+                self._idle.insert(0, worker)
 
     def pids(self) -> list[int]:
         return [w.process.pid for w in self._workers if w.process is not None]
@@ -701,23 +722,33 @@ class SimulationService:
             )
 
     def warm_up(self, timeout: float = 60.0) -> int:
-        """Ping every idle worker (blocking); returns how many answered."""
+        """Ping every idle worker once (blocking); returns how many answered.
+
+        Every idle worker is taken before the first ping (simulations meanwhile answer 503
+        ``simulations_busy``): a pinged worker is released as the preferred one, so taking
+        them one at a time would ping the same worker each time.
+        """
         pool = self._ensure_pool()
+        held: list[_Worker] = []
+        with contextlib.suppress(Busy):
+            while len(held) < pool.size:
+                held.append(pool.acquire())
         answered = 0
-        for _ in range(pool.size):
-            try:
-                worker = pool.acquire()
-            except Busy:
-                break
-            try:
-                reply = pool.exchange(worker, None, timeout)
-            except Timeout as exc:
-                self._record("timeout", exc.stopped)
-                continue
-            except Crashed as exc:
-                self._record("crash", exc.stopped)
-                continue
-            answered += reply == PONG
+        try:
+            while held:
+                worker = held.pop()
+                try:
+                    reply = pool.exchange(worker, None, timeout)
+                except Timeout as exc:
+                    self._record("timeout", exc.stopped)
+                    continue
+                except Crashed as exc:
+                    self._record("crash", exc.stopped)
+                    continue
+                answered += reply == PONG
+        finally:
+            for worker in held:  # only after an unexpected error
+                pool.release(worker)
         return answered
 
     def worker_pids(self) -> list[int]:

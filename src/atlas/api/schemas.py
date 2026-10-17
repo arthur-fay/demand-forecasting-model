@@ -26,6 +26,7 @@ from annotated_types import Ge, Le
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from atlas.api.problems import ErrorCode
+from atlas.optimizer import CERT_ABS, CERT_REL
 from atlas.planning import MAX_HORIZON_DAYS
 
 API_VERSION: Final = "v1"
@@ -145,7 +146,12 @@ class Source(_Model):
     kind: str
     path: str = Field(description="Repository-relative directory of the run or file.")
     record_type: str | None = None
-    run_id: str | None = None
+    run_id: str | None = Field(
+        default=None,
+        description="The run's identifier. A projection run's (m2_projection_run, "
+        "m3_projection_run) is null while the M4 reference run, the only record of its "
+        "manifest, is not ready (see /health/ready).",
+    )
     result_fingerprint: str | None = None
     config_fingerprint: str | None = None
     files: dict[str, str] = Field(
@@ -312,7 +318,12 @@ class SelectionInfo(_Model):
     best_baseline: str | None
     best_regression: str | None
     margin_met: bool | None
-    significant: bool | None
+    significant: bool | None = Field(
+        description="Whether the development selection test passed its pre-registered gate, "
+        "as M2 recorded it. Read the M2 SELECTION EVIDENCE notice with it: at a 30-day horizon "
+        "with these origin counts the test over-rejects, and after a size correction the "
+        "selection p-value (0.069) is above the gate."
+    )
     reason: str | None
 
 
@@ -553,14 +564,48 @@ class HypotheticalParameter(_Model):
     assumption: str
 
 
+def _tolerance(value: float) -> str:
+    """A certificate tolerance as written in the descriptions (``1e-7``)."""
+    return f"{value:.0e}".replace("e-0", "e-")
+
+
+_ABS, _REL = _tolerance(CERT_ABS), _tolerance(CERT_REL)
+
+
 class Certificate(_Model):
-    holds: bool
-    primal: float | None
-    dual_sign: float | None
-    stationarity: float | None
-    duality_gap: float | None
-    primal_objective: float | None
-    dual_objective: float | None
+    """The optimality certificate of one solved programme, computed from its primal and dual
+    values without trusting the solver's status. primal, dual_sign, stationarity and
+    duality_gap are unitless ratios: each is the largest violation in units of its tolerance,
+    so at most 1 passes and 1.0 is exactly at the tolerance."""
+
+    holds: bool = Field(
+        description="True when the four ratios are finite and at most 1: the solution is "
+        f"optimal within the tolerances ({_ABS} absolute, {_REL} relative)."
+    )
+    primal: float | None = Field(
+        description="Largest violation of a constraint row or variable bound, in units of its "
+        f"tolerance ({_ABS} + {_REL} x the magnitude of the row or bound); at most 1 passes."
+    )
+    dual_sign: float | None = Field(
+        description="Largest dual multiplier of the wrong sign, in units of its tolerance "
+        f"({_REL} x max(1, the largest absolute objective coefficient)); at most 1 passes."
+    )
+    stationarity: float | None = Field(
+        description="Largest reduced-cost residual, in units of its tolerance "
+        f"({_REL} x max(1, the magnitude of its terms)); at most 1 passes."
+    )
+    duality_gap: float | None = Field(
+        description="|primal_objective - dual_objective| in units of its tolerance "
+        f"({_REL} x max(1, the sum of the absolute objective terms)); at most 1 passes. A "
+        "unitless ratio, not the absolute gap, which is the difference of the two objectives."
+    )
+    primal_objective: float | None = Field(
+        description="Objective value of the solution in the units of the programme's "
+        "objective, its constant included."
+    )
+    dual_objective: float | None = Field(
+        description="Objective value of the dual solution (same units)."
+    )
 
 
 class PlanEvaluation(_Model):
@@ -600,7 +645,13 @@ class Programme(_Model):
     iterations: int | None = None
     retried_without_presolve: bool | None = None
     stage_fallback: str | None = None
-    certificate: Certificate | None = None
+    certificate: Certificate | None = Field(
+        default=None,
+        description="Optimality certificate of this programme (its objective is named in "
+        "objective). For reported_plan it is the certificate of the last tie-break stage "
+        "(reported_plan_selection); strict_programme carries that of the penalised-score "
+        "programme.",
+    )
     independent_check_passed: bool | None = None
     constraints_not_checked: list[str] = Field(default_factory=list)
     values_snapped_to_bounds: int | None = None

@@ -14,15 +14,20 @@ import dataclasses
 import hashlib
 import json
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from atlas.api import reference
 from atlas.api import worker as worker_module
 from atlas.api.problems import ApiError
 from atlas.api.reference import (
+    FORECAST,
     M3_INTERVALS,
+    SNAPSHOT,
+    WORDED_INTERVAL_STATUS,
     ArtifactError,
     ReferenceStore,
     _load_m2,
@@ -34,6 +39,7 @@ from atlas.api.reference import (
 from atlas.api.schemas import ComponentStatus, SimulationRequest
 from atlas.api.settings import ApiSettings
 from atlas.api.simulation import prepare, worker_context
+from atlas.api.views import INTERVALS_LABEL
 from atlas.api.worker import compute
 from atlas.experiment import result_fingerprint
 from atlas.optimization_runner import RESULT_FILES
@@ -150,6 +156,31 @@ def test_a_file_swapped_after_inspection_is_not_served(
     assert "SHA-256 differs" in str(state.detail)
 
 
+def test_a_projection_manifest_swapped_between_reads_is_not_served(
+    repo_copy: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The M4 reference component checks the M3 manifest the stress paths were read from;
+    the intervals component reads it again for the run id it serves. A manifest changed
+    between the two reads must not be served (M8-20)."""
+    root = add_api_inputs(repo_copy)
+    manifest = root / "docs/results/atlas-m3-intervals-v1/projection/manifest.json"
+    real = reference.load_inputs
+
+    def load_then_swap(*args: Any, **kwargs: Any) -> Any:
+        inputs = real(*args, **kwargs)
+        text = manifest.read_text(encoding="utf-8")
+        run_id = json.loads(text)["run_id"]
+        manifest.write_text(text.replace(run_id, "FORGED-RUN-ID"), encoding="utf-8")
+        return inputs
+
+    monkeypatch.setattr(reference, "load_inputs", load_then_swap)
+    store = load_reference_store(ApiSettings(repo_root=root))
+    assert store.status["m4_reference_run"].ready  # it checked the bytes read first
+    state = store.status[M3_INTERVALS]
+    assert not state.ready
+    assert "M3 projection manifest changed" in str(state.detail)
+
+
 # --- Cross-references between the runs ----------------------------------------------------
 
 
@@ -200,6 +231,59 @@ def test_cross_references_are_checked(api_store: ReferenceStore) -> None:
     )
     with pytest.raises(ArtifactError, match="different M3 status"):
         _load_m4(REPO_ROOT, config, other_status)
+    # The projection manifests whose run ids the API serves must be the ones the M4 run
+    # recorded: their SHA-256 and their run id are each compared.
+    ((level, path),) = inputs.quantiles.items()  # the reference run's one stress path
+    for key in ("manifest_sha256", "run_id"):
+        forged_projection = dataclasses.replace(
+            inputs,
+            projection=dataclasses.replace(
+                projection, provenance={**projection.provenance, key: "FORGED"}
+            ),
+        )
+        with pytest.raises(ArtifactError, match="M2 projection manifest"):
+            _load_m4(REPO_ROOT, config, forged_projection)
+        forged_path = dataclasses.replace(path, provenance={**path.provenance, key: "FORGED"})
+        with pytest.raises(ArtifactError, match="M3 projection manifest"):
+            _load_m4(REPO_ROOT, config, dataclasses.replace(inputs, quantiles={level: forged_path}))
+    with pytest.raises(ArtifactError, match="M3 projection manifest"):
+        _load_m4(REPO_ROOT, config, dataclasses.replace(inputs, quantiles={}))
+
+
+# --- Fixed wording that must be true of the data -------------------------------------------
+
+
+def test_a_status_the_fixed_wording_does_not_state_is_not_served(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INTERVALS_LABEL, the quantile descriptions of the contract and M4's stress-path notice
+    # say the intervals FAILED their calibration. A run whose status is anything else must
+    # not be served next to that wording: the whole chain fails closed until it is reviewed.
+    assert f"FAILED its pre-registered calibration criteria ({WORDED_INTERVAL_STATUS})" in (
+        INTERVALS_LABEL
+    )
+    monkeypatch.setattr(reference, "WORDED_INTERVAL_STATUS", "decision_grade")
+    store = load_reference_store(ApiSettings(repo_root=REPO_ROOT))
+    state = store.status[FORECAST]
+    assert state.ready is False
+    assert "failed_calibration" in str(state.detail)
+    assert "wording" in str(state.detail)
+    assert [c.component for c in store.components() if c.ready] == [SNAPSHOT]
+
+
+def test_the_archived_notice_holds_only_for_a_projection_from_the_last_observed_day(
+    api_store: ReferenceStore,
+) -> None:
+    inputs = api_store.inputs
+    assert inputs is not None
+    reference.check_fixed_wording(inputs)  # the committed runs
+    projection = inputs.projection
+    earlier = dataclasses.replace(
+        inputs,
+        projection=dataclasses.replace(projection, origin=projection.origin - timedelta(days=1)),
+    )
+    with pytest.raises(ArtifactError, match="last observed day"):
+        reference.check_fixed_wording(earlier)
 
 
 def test_require_honours_readiness_not_presence(api_store: ReferenceStore) -> None:

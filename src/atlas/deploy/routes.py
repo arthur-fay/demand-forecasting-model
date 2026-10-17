@@ -3,7 +3,9 @@
 nginx routes only the operations the contract documents (``docs/api/openapi.json``, which
 CI requires to equal the code), each with exactly its methods; every other path is a 404
 at the proxy and never reaches the API. A new endpoint is therefore exposed only when the
-contract changes and the proxy configuration is rendered again: never by accident.
+contract changes and the proxy configuration is rendered again: never by accident. HEAD is
+let through only where the API answers it, ``/health/live`` and ``/health/ready``
+(:data:`HEAD_ANSWERED`); on every other operation nginx answers it 405, as the API would.
 
 Each operation has an access class, from its ``x-atlas-cost``:
 
@@ -41,6 +43,7 @@ from atlas.dashboard import (
     ENTRY,
     MANIFEST_NAME,
     DashboardBuild,
+    descriptor,
     load_build,
 )
 
@@ -66,6 +69,9 @@ _PARAMETER: Final = re.compile(r"\{([a-z_]+)\}")
 _SAFE_PATH: Final = re.compile(r"(/([a-z0-9_-]+|\{[a-z_]+\}))+")
 #: Operational detail: never routed without authentication (see the module docstring).
 OPERATIONAL: Final = frozenset({"/health/ready", "/api/v1/system"})
+#: The GET operations the API also answers with HEAD: the health endpoints have their own
+#: HEAD handlers (``atlas.api.routers.health``); FastAPI adds none to the other GET routes.
+HEAD_ANSWERED: Final = frozenset({"/health/live", "/health/ready"})
 #: Path parameter patterns nginx may embed (a conservative character set: no quote, no
 #: brace other than a repetition count, no whitespace).
 _SAFE_PATTERN: Final = re.compile(r"\^?[a-z0-9_\[\]{},\-]+\$?")
@@ -85,8 +91,11 @@ class Route:
 
     @property
     def methods(self) -> tuple[str, ...]:
-        """The HTTP methods nginx lets through (HEAD with GET, as the API answers it)."""
-        return ("GET", "HEAD") if self.method == "GET" else (self.method,)
+        """The HTTP methods nginx lets through: the operation's own, and HEAD where the API
+        answers it (:data:`HEAD_ANSWERED`)."""
+        if self.method == "GET" and self.path in HEAD_ANSWERED:
+            return ("GET", "HEAD")
+        return (self.method,)
 
 
 def _access(path: str, method: str, cost: str) -> str:
@@ -174,6 +183,15 @@ def dashboard_build(release_dir: Path) -> DashboardBuild | None:
     if not (release_dir / DIST / MANIFEST_NAME).exists():
         return None
     return load_build(release_dir / DIST)
+
+
+def descriptor_for(profile: str) -> str:
+    """The deployment descriptor of an exposed profile (what the dashboard may do there)."""
+    if profile == "private":
+        return descriptor("private", "enabled", operational_detail=True).decode("ascii")
+    return descriptor("public-demo", "disabled_public_demo", operational_detail=False).decode(
+        "ascii"
+    )
 
 
 def dashboard_routes(build: DashboardBuild, api_routes: Sequence[Route] = ()) -> list[StaticRoute]:

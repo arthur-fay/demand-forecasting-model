@@ -1,0 +1,146 @@
+# Known limitations of ATLAS 1.0
+
+Everything a reader should know before relying on anything ATLAS shows, in one place. Each item
+names the document that explains it. Items marked **(M8)** were found or confirmed by the M8
+release audit ([audit/README.md](audit/README.md)). What the audit deliberately left unchanged
+is listed in section 10.
+
+## 1. What ATLAS is not
+
+- **Not an operational tool.** It is a research demonstration on frozen data. No output is a
+  validated forecast, a calibrated probability or a staffing, budget or service recommendation;
+  the API fixes `validated_recommendation` and `point_forecast_validated` to `false`.
+- **Not live.** The forecasts are an archived projection for 2026-07-01 to 2026-07-30 from data
+  ending 2026-06-30. Nothing is fetched from NYC Open Data at run time, and the archived projection
+  has never been scored.
+- **Not deployed.** The deployment package (M6 phase A) is tested in disposable containers only;
+  a real deployment (phase B) needs the owner's authorisation
+  ([release/VPS_PHASE_B_RUNBOOK.md](release/VPS_PHASE_B_RUNBOOK.md)).
+
+## 2. Data ([DATA_CARD.md](DATA_CARD.md))
+
+- One frozen snapshot (`legacy-v0`), 2023-01-01 to 2026-06-30, city-wide daily counts plus
+  five-borough agency segments. Its extraction time, query hash and raw responses were never
+  recorded; re-querying the live source may not reproduce the counts.
+- The NYC Open Data terms of use have not been verified for redistribution of the committed
+  derived tables, although the public repository already redistributes them (owner action;
+  section 9).
+- City-wide totals and borough segments differ by 13,279 requests (0.11 %); shares are of the
+  five-borough subset.
+- 311 counts measure reporting, not need, and reporting differs between communities.
+- The anomaly flags are incomplete: they miss part of the winter 2025-26 cluster and an outage
+  that follows another within four weeks **(M8)** ([DATA_QUALITY.md](DATA_QUALITY.md)).
+- No NYC/NYS observances other than federal holidays, no declared events, no weather.
+
+## 3. Forecasting (M2, [BACKTESTING.md](BACKTESTING.md))
+
+- The recommended model's lead over the same-weekday median (B\*) is **not statistically
+  established**: confirmation MAE 984.9 against 1,112.2, 95 % interval of the difference
+  −256 to +2, Holm-adjusted p 0.054; about 10-14 effective independent observations.
+- **(M8)** The development selection test over-rejects at a 30-day horizon with a few hundred
+  overlapping origins: the nominal 5 % rule rejects a true null 7.6-9.1 % of the time. After a
+  size correction the selection p-value is 0.069, above its 5 % gate, so a correctly sized test
+  would most likely have kept B\*. The recommendation stands only under the pre-registered rule
+  as computed, and its statistical support is weak (M8 erratum in BACKTESTING.md).
+- **(M8)** The advantage over seasonal naive (H2) is borderline once the test's size is
+  corrected. It is significant after Holm (0.045) under the test's own assumption of no
+  dependence beyond 29 days. Under nulls that keep dependence of 45 days or more, its Holm-adjusted p-value is 0.068-0.155
+  ([audit/scripts/dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md)).
+- The confirmation period has been exposed: a new, untouched evaluation needs data after
+  2026-06-30.
+- The lead is not uniform (6 of 28 origin months lost to B\*), and recursion drives most of the
+  error growth with horizon.
+- The original project's headline figures (4.93 % MAPE, "13 days of advance warning", "planning
+  capacity") do not mean what they were presented as ([LEGACY_LIMITATIONS.md](LEGACY_LIMITATIONS.md)).
+
+## 4. Uncertainty (M3, [UNCERTAINTY.md](UNCERTAINTY.md))
+
+- The prediction intervals have the pre-registered status **`FAILED_CALIBRATION`**: 95 % coverage
+  was more than 3 points below nominal at horizons 8-30. This is a failed criterion, accepted
+  only as a disclosed limitation of a research demonstration, never as a validated uncertainty
+  capability.
+- The evidence is too thin for any calibration claim either way. There are about 8-9 effective
+  independent observations, and the 95 % HAC interval of the 80 % coverage spans 65 to 95 %. That
+  interval uses `t(335)` critical values; a `t(ESS − 1)` reference (about 7-8 degrees of
+  freedom) would make it wider still, ±17.5 instead of ±14.6 points **(M8)**.
+- The interval construction itself (empirical type-7 quantiles without a finite-sample
+  correction) lowers the expected coverage of a 95 % interval by about half a point at the
+  calibration sizes used, which is more than the margin by which the two failing buckets missed
+  the tolerance **(M8)**; a corrected construction might have been `insufficient_evidence`
+  rather than failed, which is not decision-grade either
+  ([audit/M8_SCIENTIFIC_VALIDATION.md](audit/M8_SCIENTIFIC_VALIDATION.md) section 3).
+- Exceedance probabilities come from the same uncalibrated distribution and share its status.
+- The M3 comparisons with baselines are descriptive and not adjusted for multiplicity **(M8)**.
+
+## 5. Decision simulation (M4, [OPTIMIZATION.md](OPTIMIZATION.md))
+
+- Every operational parameter (hours, productivity, wages, surge price, budget, targets, penalty
+  weights) is **`HYPOTHETICAL`**; no real NYC staffing, cost or capacity data exist.
+- Plans are certified optimal for the hypothetical linear programme only (continuous quantities,
+  one city-wide unit, no shift rules, deterministic demand). Six of nine reference scenarios are
+  infeasible under their limits and are shown with labelled `DIAGNOSTIC` relaxed plans.
+- No chance constraints or stochastic programming: with failed intervals, no probabilistic
+  guarantee could be supported.
+
+## 6. API and dashboard (M5, M7)
+
+- One optional shared API key protects simulations; no user accounts or roles. There is no queue:
+  a full worker pool answers 503.
+- Browsers:
+  - the whole browser test suite runs in Chromium, locally and in CI;
+  - the API-backed pages and every injected failure state also run in Playwright's Firefox and
+    WebKit (Safari's engine) in CI **(M8)**;
+  - the accessibility (axe), keyboard, reflow, phone-layout and nginx tests run in Chromium only;
+  - real Safari, real mobile devices and screen-reader sessions are not verified.
+- Automated accessibility checks pass. They do not replace testing with assistive technology or
+  with people with disabilities.
+- Some page chrome states two fixed facts of this release (the snapshot's end date and the number
+  of reference scenarios) instead of reading them from the API.
+
+## 7. Deployment and security (M6, [DEPLOYMENT.md](DEPLOYMENT.md) section 17)
+
+- One server, one process: no high availability; an upgrade restarts the API for a few seconds.
+- HTTP Basic accounts: shared secrets without MFA or roles; fine for a private demonstration, not
+  for a public service. The `public-demo` profile is refused until a security review, DDoS
+  protection and a log-retention decision.
+- Operating-system libraries (Python, OpenSSL, nginx) are not pinned; Ubuntu updates can change
+  them under a running release.
+- Commits are not signed; builds trust GitHub for the commit content (SHA-checked) and PyPI for
+  the wheels (hash-checked).
+- No automated tool can show the absence of vulnerabilities: the audit found no exploitable defect
+  and the dependency audits report none known today, which is not a guarantee.
+
+## 8. Reproducibility
+
+- Byte-identical reproduction of the runs that involve the regression (M2, M3 and the legacy
+  holdout) needs the CPU class of the reference runs. That means OpenBLAS's SkylakeX (AVX-512)
+  kernels; on other CPUs the last bits differ. The M4 run reproduces either way **(M8)**.
+- The sealed M2 development record verifies only with the code and lock of its own commit,
+  `a16672f`.
+- The research reproduction is a manual CI workflow. It can run only once it is on the default
+  branch, so its first run is an owner action after the merge.
+- The dashboard build reproduces byte for byte from a checkout with LF line endings. Its HTML
+  entry file is converted on a Windows checkout with `core.autocrlf=true`
+  ([release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md)).
+- The snapshot cannot be re-derived from the live source (section 2).
+
+## 9. Licensing and attribution
+
+- **No licence has been chosen for the project** (owner decision). The repository includes no
+  LICENSE file, yet it is **public** (since 2026-07-18): the code and the derived NYC 311 tables
+  are already visible and downloadable without a licence. The release gate makes the licence and
+  data-terms decision a condition of the release
+  ([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1).
+- The shipped dashboard bundles third-party code and a font under permissive licences (MIT, ISC,
+  OFL-1.1); their notices ship with the build **(M8)** ([DASHBOARD.md](DASHBOARD.md)).
+- Source data: NYC Open Data, 311 Service Requests (`erm2-nwe9`), City of New York; ATLAS is not
+  affiliated with or endorsed by the City.
+
+## 10. What the M8 audit left unchanged
+
+Every M8 finding was corrected; none was deferred. What the audit deliberately left as it was is
+listed with the reasons in [audit/M8_CORRECTIONS.md](audit/M8_CORRECTIONS.md) section 4. That
+covers the committed reports' original wording (corrected by errata), the generator strings that
+would alter committed bytes, the M2 decision, and the owner decisions. So are the limitations
+the final independent review recorded rather than changed
+([audit/M8_CORRECTIONS.md](audit/M8_CORRECTIONS.md) section 7).

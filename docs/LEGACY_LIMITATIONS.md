@@ -1,6 +1,7 @@
 # Known limitations of the original forecasting and capacity-risk claims
 
-The original README, dashboard and PDF publish headline numbers that ATLAS reproduces
+The original README (since M8 an archived section of the [README](../README.md), with each
+claim qualified in place), dashboard and PDF publish headline numbers that ATLAS reproduces
 **arithmetically**: they reproduce from the committed data within their published precision,
 except the regression RMSE (declared exception `LEGACY-V0-EX-002`; see
 [DATA_SNAPSHOT.md](DATA_SNAPSHOT.md)). Reproducing a number does not validate what it is
@@ -48,7 +49,9 @@ before refitting".
   (conservative DM p 0.064-0.601). In the confirmation period it is better than every
   baseline, by 5.8 % against that median (p = 0.26) and by 23.6 % against seasonal naive
   (p = 0.002). Neither period shows that it beats simple baselines reliably; see
-  [Backtesting](BACKTESTING.md), finding 2.
+  [Backtesting](BACKTESTING.md), finding 2. (M8: these p-values are nominal; at this
+  horizon and sample size the test rejects a true null more often than 5 %, see
+  [BACKTESTING.md](BACKTESTING.md), section 12.)
 
 ## 2. "Planning capacity 11,609 per day" is not operational capacity
 
