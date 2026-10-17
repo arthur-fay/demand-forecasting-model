@@ -74,7 +74,7 @@ during the audit, on code the corrections did not change, or were re-checked as 
 | C. Uncertainty calibration and limitations | **FAIL** (calibration) | The intervals' pre-registered status is `FAILED_CALIBRATION`, unchanged. The evaluation was reproduced byte for byte and recomputed independently. The disclosures are corrected wherever intervals or projections appear (M8-08, M8-09, M8-13 to M8-17). So are the construction's finite-sample bias and the degrees of freedom of the HAC coverage intervals (model card, UNCERTAINTY.md section 11). | Accepted only as a prominently disclosed limitation, never as a validated uncertainty capability. |
 | D. Optimisation correctness | **PASS** | An independent SciPy formulation reproduces every committed optimum, frontier, sensitivity and diagnosis to about 1e-15, and four hand-derived instances match exactly *(baseline; the M4 code is unchanged)*. The certificates hold. The reference run reproduces byte for byte (section 4). | Every parameter is `HYPOTHETICAL`; plans are optimal for the assumed model only. |
 | E. API correctness | **PASS** | The live contract equals the committed one (section 4). Schemathesis generated 729 cases over all 14 operations: no server error or schema breach *(baseline, and again on the corrected API in the final review)*. Reference GETs make no computation. The archived-projection notice is on every projected response (M8-09), and the selection notice now gives the exact size figures. The provenance chain is checked (M8-20). HEAD is consistent with nginx (M8-21). A replaced worker no longer delays the next simulation (M8-22). | One shared API key; no queue (503 when busy). |
-| F. Security | **PASS** (no known exploitable defect; not a guarantee) | The key is compared in constant time and checked before the body is read. public-demo cannot compute. Validation and limits are strict. No secret appears in logs, the environment or argv. No credential was found in any of the 1,228 blobs reachable from every ref (section 4). The API docs pages are pinned with SRI and their own policy (M8-23). IPv6 is off by default (M8-25). A release's recorded dashboard policy must meet a fixed minimum (final review). | HTTP Basic without MFA. `public-demo` is refused until a security review. OS libraries are not pinned. |
+| F. Security | **PASS** (no known exploitable defect; not a guarantee) | The key is compared in constant time and checked before the body is read. public-demo cannot compute. Validation and limits are strict. No secret appears in logs, the environment or argv. No credential was found in any of the 1,337 blobs reachable from every ref at `298d58b`, the candidate's code (section 4). The API docs pages are pinned with SRI and their own policy (M8-23). IPv6 is off by default (M8-25). A release's recorded dashboard policy must meet a fixed minimum (final review). | HTTP Basic without MFA. `public-demo` is refused until a security review. OS libraries are not pinned. |
 | G. Deployment package | **PASS** | Container end-to-end test on a disposable Ubuntu 24.04 systemd server (section 4). recover reloads nginx (M8-02). Rollbacks keep each release's own dashboard policy (M8-03). An explicit rollback between two releases is exercised (M8-37). The environment fingerprint is reproducible (M8-24). `render --apply` is current-only and locked (M8-26). | Not executed on the owner's server (gate N). |
 | H. Frontend functionality | **PASS** | Every page loads with no console error or CSP violation, the licence notices included (final review). Displayed values equal the API's: 461 compared *(baseline)*, and the corrected status, certificate and date wording re-checked in the final review. Dates are correct in six time zones and now tested in non-UTC zones (M8-29). Failure states never show substitute numbers. Firefox and WebKit run in CI for the API-backed pages and every failure state (section 4). | The axe, keyboard, reflow, phone and nginx tests run in Chromium only. Real Safari (WebKit is its engine) and real devices are not tested. |
 | I. Accessibility | **PASS** (automated checks) | axe WCAG 2.2 A/AA on every page and state, including the corrected error summary (M8-27). Keyboard, focus, reduced motion, forced colours, 320 px reflow. | **NOT VERIFIED** with real screen readers or other assistive technology. The automated checks run in Chromium only. |
@@ -86,7 +86,24 @@ during the audit, on code the corrections did not change, or were re-checked as 
 
 ## 4. Measured checks on the candidate
 
-To be completed with the final run on the candidate commit (see M8_CORRECTIONS.md section 1).
+The full record, with the commands, is in
+[../audit/M8_CORRECTIONS.md](../audit/M8_CORRECTIONS.md) section 1. The runs used the
+candidate's code at `298d58b`, on the reference CPU class (OpenBLAS `SkylakeX`), on 2026-10-17.
+
+| Check | Result |
+|---|---|
+| Static checks (ruff, strict mypy, shellcheck; Prettier, ESLint, tsc) | clean |
+| pytest, the whole suite with the coverage gate | 3,068 passed, 25 skipped (22 opt-in container tests, run below; 2 that need an unprivileged user; 1 opt-in study rerun); coverage 96.06 % |
+| Vitest | 192 of 192; coverage 94.92 / 83.44 / 94.05 / 96.37 % (statements, branches, functions, lines) |
+| Dashboard build | reproduced byte for byte; within every size budget |
+| Playwright in Chromium | 61 of 61 |
+| Playwright in Firefox and WebKit | CI only (see the pull request) |
+| Deployment end to end in a disposable systemd container | 22 of 22 (after two attempts failed on the sandbox's proxy and a third on its nearly full disk, which the monitor correctly flagged; no code changed) |
+| M2 full, M3 full and M4 reference runs regenerated | byte-identical (`d53bc911…`, `c4d2adbf…`, `0dc4eb0f…`); smoke runs byte-identical; `atlas check`, `quality` and `backtest legacy` pass |
+| API contract; Schemathesis (729 cases, 14 operations) | contract identical; no server error, schema breach or undocumented status |
+| pip-audit (runtime and development); npm audit | no known vulnerability |
+| Secret scan, every ref | 1,337 blobs, no credential |
+| CI on the pull request's head commit | recorded in the pull request; the release condition (section 1) |
 
 ## 5. Outstanding risks
 

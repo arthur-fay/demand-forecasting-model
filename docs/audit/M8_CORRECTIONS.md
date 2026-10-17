@@ -6,7 +6,62 @@ correction was proved, and what remains. The verdict built on it is in
 
 ## 1. Measured checks on the release candidate
 
-<!-- M8-FINAL-RESULTS -->
+Measured on the candidate's code at `298d58b` (later commits change documents and add the
+release-candidate manifest only). Machine: 4-vCPU Intel Xeon with AVX-512, OpenBLAS core
+`SkylakeX` (the reference CPU class), Ubuntu 24.04, Python 3.12.3, uv 0.11.32, Node.js 22.22.2;
+2026-10-17. The CI results on the pull request's head commit are recorded in the pull request.
+
+**Static checks and tests**
+
+| Check | Result |
+|---|---|
+| `ruff format --check`, `ruff check`, strict `mypy` (89 source files), `shellcheck` of `deploy/scripts` | clean |
+| `ATLAS_REQUIRE_DEPLOY_TOOLS=1 uv run pytest` (with the coverage gate) | **3,068 passed, 25 skipped**, coverage **96.06 %** (gate 90 %), 32 min. The skips: the 22 container tests (opt-in, run separately below), 2 tests that need an unprivileged user (the run was as root), and the opt-in full rerun of the dependence study |
+| Dashboard: Prettier, ESLint, `tsc`; the client types equal the contract | clean |
+| Vitest with coverage | **192 of 192** passed; statements 94.92 %, branches 83.44 %, functions 94.05 %, lines 96.37 % (gates 85/75/85/85) |
+| `npm run build`, then `git diff --exit-code -- dist`; `verify:dist`; size budgets | the committed build reproduced **byte for byte**; 19 files match the manifest; initial HTML, CSS and JavaScript 91.3 KB gzip (budget 125), initial JavaScript 85.0, largest lazy chunk 20.7, font 48.3, whole build 524.4 KB |
+| Playwright, all default projects in Chromium (the API, a phone, nginx private and public demo) | **61 of 61** passed (3.1 min) |
+| Playwright in Firefox and WebKit | not installable here (the browser download is blocked); run by CI's dashboard job |
+| Deployment end to end in a disposable Ubuntu 24.04 systemd container (`tests/test_m6_container.py`) | **22 of 22** passed (5 min 56 s): bootstrap, build (45 s), activation, private profile through nginx and TLS, dashboard, crash, hang and worker recovery, automatic and explicit rollback, interrupted activation, monitor and alert, reboot, resource limits (service 285 MiB), tunnel return; `systemd-analyze security` exposure 0.9 |
+
+The container test needed three attempts in this sandbox, all on the same commit. The first
+two ran without the container on the host network, so its package installs could not reach
+PyPI through the sandbox's proxy: 21 failed, 1 passed. The third ran on the host network with
+the proxy's CA (`ATLAS_E2E_NETWORK=host`, `ATLAS_E2E_CA_BUNDLE`, as the test documents). There
+the monitor reported the sandbox's disk as critical (4.8 % free, below its 5 % threshold),
+correctly, and its test failed: 21 passed, 1 failed. After freeing scratch space the run
+passed 22 of 22. No code changed between the runs.
+
+**Research reproduction** (`verify` regenerates a run and compares every output file)
+
+| Run | Result |
+|---|---|
+| `atlas check`, `atlas quality`, `atlas backtest legacy` | pass |
+| M2, M3 and M4 smoke runs, then `verify` | byte-identical |
+| M4 reference run (`atlas optimize verify`) | **byte-identical**, 8 of 8 files, result fingerprint `0dc4eb0f…` |
+| M2 full reference run (`atlas backtest verify .../full`) | **byte-identical**, result fingerprint `d53bc911…` (336 s) |
+| M3 full reference run (`atlas uncertainty verify .../full`) | **byte-identical**, result fingerprint `c4d2adbf…` (225 s) |
+| API contract (`atlas api openapi`) | equals `docs/api/openapi.json` |
+
+**API, dependencies and secrets**
+
+| Check | Result |
+|---|---|
+| Schemathesis 4.31.1, every check, phases examples, coverage and fuzzing, seed 42, against the candidate's API | 729 cases over 14 of 14 operations: no server error, no schema breach, no undocumented status. Its two reports of a schema-compliant request refused (422) are the documented cross-field rules: a history window outside the snapshot, a quantile with a point-forecast basis (the same as at the baseline) |
+| pip-audit 2.10.1 (`--strict --require-hashes`) on the runtime and the development exports of `uv.lock` | no known vulnerability |
+| `npm audit --audit-level=high`; `npm audit --omit=dev --audit-level=moderate` | 0 vulnerabilities |
+| Secret scan (key formats, tokens, private keys, credentials in URLs and connection strings, high-entropy assignments; zip and PDF contents included) over every blob reachable from every ref at `298d58b` | **1,337 blobs, no credential**. Matches not seen at the baseline: a test's fake git identity (`atlas-tests@example.invalid`) and two quotations in [M8_AUDIT_EVIDENCE.md](M8_AUDIT_EVIDENCE.md) (a description of key generation, the legacy Power BI path) |
+
+**Earlier evidence kept for reference**
+
+- The repeat of the container test on the baseline's code, which
+  [M8_BASELINE_ASSESSMENT.md](M8_BASELINE_ASSESSMENT.md) section 3.1 defers to this section:
+  once the machine was quiet, 22 of 22 passed in 5 min 20 s (2026-10-16). The first attempt had
+  been refused by the preflight because of the machine's load.
+- CI run 38972241374 on `e79e66d`: all jobs green. That covers the quality job, `deploy-e2e`
+  with the explicit rollback of M8-37, the dashboard job with Firefox and WebKit (38 passed),
+  and both dependency-audit jobs.
+- The final independent review's checks (section 7).
 
 ## 2. How the corrections were made
 
@@ -777,7 +832,7 @@ The lead corrected the documents.
 | BACKTESTING section 10 said the flagged-target sensitivity removes 44 target days; 31 are in the backtest's target range (R1-science#5) | LOW; LOW | corrected; the figures script reproduces the count | [scripts/m8_doc_figures_output.md](scripts/m8_doc_figures_output.md) section 4 |
 | Overstated readiness reasons, unqualified byte-for-byte claims and a pointer to a deferred list that did not exist (R1-assessment#6, R2-release#4) | LOW; LOW | the release gate counts 29 corrections with a regression test and 10 in documentation; every byte-for-byte claim names the CPU class and the own-commit condition; the known limitations point to section 4 | documentation |
 | Baseline-only evidence in the post-correction column, and the container result without a committed record (R1-assessment#7) | LOW; LOW | baseline evidence marked; the measured runs recorded in section 1 | section 1 |
-| The secret-scan scope (979 blobs) was the baseline's (R1-security#2) | LOW; LOW | re-run on the candidate: 1,228 blobs reachable from every ref, no credential | the scan (section 1) |
+| The secret-scan scope (979 blobs) was the baseline's (R1-security#2) | LOW; LOW | re-run at `298d58b`, the candidate's code: 1,337 blobs reachable from every ref, no credential | the scan (section 1) |
 | Runbook: the pre-bootstrap preflight returns UNSUITABLE on every fresh server without `--before-bootstrap`; wrong load threshold; missing steps (R2-infra#1) | LOW; LOW (partly) | `--before-bootstrap` before the bootstrap, the definitive preflight after it; load warns above 0.7 and fails above 1.5 × CPUs; the `atlas-deploy` link, ufw and certbot steps; gate N names what the container test does not exercise | documentation (the option and both verdicts were checked by the verifier) |
 | "Rebuild the current release after a python3.12 update" re-verifies nothing (R2-infra#2) | LOW; LOW | the runbook and DEPLOYMENT.md give the build's own reproduction command, run as the service user | the command, run on the candidate: exit 0, 8 of 8 M4 files identical |
 | DEPLOYMENT.md section 10 misdescribed how the 0.7.0 tool fails on a 1.0.0 release, and omitted the roll-forward and IPv6 consequences (R2-infra#4) | LOW; LOW | corrected | documentation |

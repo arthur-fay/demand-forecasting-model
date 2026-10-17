@@ -17,7 +17,7 @@ honest Version 1.0 research demonstration, and tried to disprove it. It started 
 
 | Document | What it holds |
 |---|---|
-| [M8_CORRECTIONS.md](M8_CORRECTIONS.md) | The measured checks on the candidate, how the corrections were made and reviewed, the outcome and regression tests of every finding, and what was deliberately not changed |
+| [M8_CORRECTIONS.md](M8_CORRECTIONS.md) | The measured checks on the candidate, how the corrections were made and reviewed, the outcome and regression tests of every finding, what was deliberately not changed, and the final independent review of the candidate with its corrections (section 7) |
 | [M8_SCIENTIFIC_VALIDATION.md](M8_SCIENTIFIC_VALIDATION.md) | Independent re-implementation and checks of the data, forecasting, uncertainty and optimisation mathematics |
 | [M8_SECURITY_ASSESSMENT.md](M8_SECURITY_ASSESSMENT.md) | API, deployment, dashboard, dependency, CI and secret review |
 | [M8_ACCESSIBILITY_BROWSERS.md](M8_ACCESSIBILITY_BROWSERS.md) | Accessibility checks and browser coverage, verified and not verified |

@@ -17,7 +17,7 @@ assessment reports what was tested and what was found; it is not a certification
 | Dashboard (M7) | strict CSP with Trusted Types verified in a browser; no credential in the browser; notices for shipped code added (M8-05), served since the final review with a policy for text |
 | Dependencies | 0 known vulnerabilities (pip-audit, npm audit, all severities); lockfiles complete and hash-checked; no install script runs on Linux; monitoring added (M8-06) |
 | CI | read-only permissions, actions pinned to verified SHAs, now on Node.js 24 (M8-32) |
-| Secrets | none in the 1,228 blobs reachable from every ref of the candidate (979 at the baseline); secrets never in the environment, argv, logs or unit properties |
+| Secrets | none in the 1,337 blobs reachable from every ref at `298d58b`, the candidate's code (979 at the baseline); secrets never in the environment, argv, logs or unit properties |
 
 ## 2. API
 
@@ -139,7 +139,8 @@ it (M8-05).
   private keys, credentials in URLs and connection strings, and high-entropy assignments. Zip
   and PDF contents were included. It found none:
   - at the baseline, 979 blobs;
-  - repeated on the candidate, 1,228 blobs. The only new matches were two quotations in
+  - repeated at `298d58b`, the candidate's code, 1,337 blobs. The only new matches were a
+    test's fake git identity (`atlas-tests@example.invalid`) and two quotations in
     [M8_AUDIT_EVIDENCE.md](M8_AUDIT_EVIDENCE.md): a description of key generation and the
     legacy Power BI path.
 
