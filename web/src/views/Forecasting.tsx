@@ -543,7 +543,7 @@ function TestsPanel() {
       subtitle="Pre-registered confirmation tests (Diebold-Mariano with HAC variances, Holm-adjusted)"
     >
       <Async resource={models} label="the statistical tests">
-        {({ data, provenance }) => {
+        {({ data, integrity, provenance }) => {
           const h1 = h1Test(data.primary_tests);
           return (
             <div className="stack-3">
@@ -624,7 +624,9 @@ function TestsPanel() {
                   </>
                 )}
               </dl>
-              <ProvenanceFooter provenance={provenance} />
+              {/* The API's notices: the size caveat of the selection test is read with the
+                  selection and the verdicts above it. */}
+              <Evidence integrity={integrity} provenance={provenance} />
             </div>
           );
         }}
