@@ -46,7 +46,7 @@
     "release_candidate": "docs/release/RELEASE_CANDIDATE.md",
     "release_gate": "docs/release/RELEASE_GATE.md"
   },
-  "generated_from_commit": "67052ca06474bc03fe425adb0797f71d82dcdd99",
+  "generated_from_commit": "39fa4c70a2140725804408f6a7fbbaf31e66f7f4",
   "locks": {
     ".github/ci-requirements.txt": "239f731eda909713f470adac2a90fddff2804bb5074456a49411115b07dfb18f",
     ".python-version": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d",
@@ -289,10 +289,10 @@
       "docs/api": "d49eb947a864011cd1786b4696f5cf8126ad7bb2e607e21e5f94f718f7ab2962",
       "docs/results": "ae227c9dc378c1128b7f71d962495e7e1c6b69e7c7ec057037596ceb309ddfa2",
       "snapshots": "e05d5da4fadd65e875c3fe3d0b30eb62b61906b051b8070ef3dda6deaf0d3b0b",
-      "src/atlas": "6ad2d2b26b0978c59e1532c8ef1ac343331a4dc4d964bd3476b4d4cca7a79573",
+      "src/atlas": "a1a91bb3a6f0728c83793db6856742412fad5796c61646a6a1827961f3cb04f8",
       "tests": "44575ecab934d08eef6b67fe26c0ced2f0c40024b6ec516420b00542087cb8d4",
       "web/dist": "deba2103191a4050a63afdae86f51c17eb8db01a88fc5ffa7b35a4e4d00c2438",
-      "web/e2e": "9253645a2fd11b9c4d3e565170a1eb8e70142e3a7d8fc664f4916c67ef71f889",
+      "web/e2e": "d786fdfda6dbc50b6f60fdec0f5d7fbcb65f9b00a63b1dc722597296dcb3f329",
       "web/src": "dd14d0866797015a5149986b55d6b27923b4535f1afaab294c723737d738a5d0"
     },
     "files": {
@@ -351,7 +351,7 @@
       "docs/API.md": "100644 c3cf97f400798196fb5c41e68a476696626d1e0f6ec55d697642312df0eb6b19",
       "docs/ARCHITECTURE.md": "100644 0174534b0a325db924db96a71418f5ceaf5ac9f1ebcff0fdea533216d9ca0fb8",
       "docs/BACKTESTING.md": "100644 5e06164d3250f8a2da419fafb7e387f409bbe2cd170e8cb9bd176b9d0ee005ee",
-      "docs/DASHBOARD.md": "100644 7eae5f8117d349e61a7289a81d031dcb06776d14d3cb146ab86c9f2ac9a04f97",
+      "docs/DASHBOARD.md": "100644 cbca791cf1371177fddcc8c969ef78f690ec886792e525232f7af311746921af",
       "docs/DATA_CARD.md": "100644 0fd5b9434d5f4c0b4bfc76b6165e62929c6afc4622e32931462ee3ebf6b2aca7",
       "docs/DATA_QUALITY.md": "100644 fc03baeb17d934691e0223bce1518ef78400515c2bb15cce6cda74bf34e1b3c8",
       "docs/DATA_SNAPSHOT.md": "100644 dd44c00f3244d9d60111c87f97aa6786e1a1484ad682de10322e4121e887b957",
@@ -368,11 +368,11 @@
       "docs/audit/M8_ACCESSIBILITY_BROWSERS.md": "100644 81740ff0a7f3b46631b55d5f25cd2cfcb802175b4c1069d4f00b0bb7823442d5",
       "docs/audit/M8_AUDIT_EVIDENCE.md": "100644 a879e7a7b0071728bb708a92be89dee963d87e0d26ade68c6c76b99f78b75118",
       "docs/audit/M8_BASELINE_ASSESSMENT.md": "100644 7e9373d66aece3b46e38351fba58103e9a56db5a39163feeb4e3bc095fc92526",
-      "docs/audit/M8_CORRECTIONS.md": "100644 7babe117425fb95272b486993351256fcb7c3119f7f55981f4a538221433da39",
+      "docs/audit/M8_CORRECTIONS.md": "100644 bad1d4e3363eb9bdbcc1e31106d2af97aa38acb73a9d06c4284fa25db3f22f6e",
       "docs/audit/M8_FINDINGS_REGISTER.md": "100644 81753790551866aa4104239131c266ca771cf7ccd39b3f0bc5156880335d13f5",
       "docs/audit/M8_REPRODUCIBILITY.md": "100644 7576a2eebc9083ba8806afe5d8c32a276ac6ff68b5ec54a024756ccf34fabb44",
       "docs/audit/M8_SCIENTIFIC_VALIDATION.md": "100644 2f7190ff049cadff042dfae7b789a384f7ef707cae7bfcc2d7383be2522a07e7",
-      "docs/audit/M8_SECURITY_ASSESSMENT.md": "100644 fceacb33bcdb2c5b61add0ba8a550c2ccb75c7989568de474bb236a07f651d3b",
+      "docs/audit/M8_SECURITY_ASSESSMENT.md": "100644 72cc71e790e857aa595606b25070cf12a9bcf31d003398d6fe445e78a4b7fa99",
       "docs/audit/README.md": "100644 b48ca1d6732115273e37daf2cc83e7af489ceced5f735b97f3fefcdc42adba88",
       "docs/audit/scripts/dm_dependence_sensitivity.py": "100644 338c6d6ab358b7e11864d64ca98d147561d32236df9bf2006f811debea3f7382",
       "docs/audit/scripts/dm_dependence_sensitivity_output.md": "100644 01903115d9476368439c2b29921f6868ef908f1c276b97015e4a440bee37a7dd",
@@ -382,7 +382,7 @@
       "docs/audit/scripts/m8_doc_figures.py": "100644 810f357a477751d4eebcee7e92b95e126b699a4191240d1451be06036fc72652",
       "docs/audit/scripts/m8_doc_figures_output.md": "100644 3cf96733c7fa5fcc4448509f968c6b3f86443b1b8f612932543a25eb169ddfb0",
       "docs/release/RELEASE_CANDIDATE.md": "100644 80bcf70c6d39628894cf0a2107db00dbdcf298c32c364e6f8d69171a92c113c3",
-      "docs/release/RELEASE_GATE.md": "100644 2a45f19c866f9101e19bee4eaa42c0373af615d6b50cc9c0c158b732ef523aa7",
+      "docs/release/RELEASE_GATE.md": "100644 2e231a0754f1a50ed9a800fb66ed4b57f6cfa640cecc2a654afed129b4e8c05c",
       "docs/release/VPS_PHASE_B_RUNBOOK.md": "100644 1f13cc203b66d771fab97c3c99edd353da0fc220904b9c3cbe2510ec2fb44230",
       "docs/release/rc_manifest.py": "100644 dcb2581b5de852823a78e7fb1021b6f0b4c23ce157e460f7e507579852f53f23",
       "docs/results/atlas-m2-rolling-origin-v1-delay1/development/config.json": "100644 61ffb00db447f4cc2638f2957a4cde838d06f12c07f5d3cb4d7a37f20401f5d3",
@@ -472,7 +472,7 @@
       "src/atlas/cli.py": "100644 9f0a6086315e9b5cc663929d1ee3e94f00d200dc71695388b85514578431f0f2",
       "src/atlas/config.py": "100644 e0ce22d79afca9c663d4bcb6e504c38ca447335fafce16b514261ec21e46d1a8",
       "src/atlas/contracts.py": "100644 d855f79d6a6453e78d7560e90ff8c87fe314dad45f112e850ff2422ecf6b48aa",
-      "src/atlas/dashboard.py": "100644 b2fd33fb06f6ef9bdbe338b12e9c5cd3b10c0427fc76e03a6711c337056a2d53",
+      "src/atlas/dashboard.py": "100644 763825b3d6685cc46c21fd817de701489ea3a4a8c33482ee8d7b8269484fcdcb",
       "src/atlas/dates.py": "100644 eddb1f3d6731b6a59d72c6927ce64997c3015b7a39cd8e16a45b113e19a7981e",
       "src/atlas/decision_analysis.py": "100644 eb00a3268368d080253a4719502f4213b7e7e7313cad94639d2eccaa704368ed",
       "src/atlas/decision_inputs.py": "100644 aef77e63ebff371afd9b11cba1ed711c3b817e62c1bf432b4225c0e29dd2ee85",
@@ -642,7 +642,7 @@
       "web/dist/inter-licence.txt": "100644 3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345",
       "web/dist/third-party-licences.txt": "100644 a0e57a2d64aab6723018d628b8ab37d067d354f1bafac24bd1345267b68b4fea",
       "web/e2e/a11y.spec.ts": "100644 cec10e4fe9be37a353aa1d14d764972913498400548a5a1f1b807bcdbd32965f",
-      "web/e2e/dashboard.spec.ts": "100644 3c36033dc251a9a2d3ebaa653ec78699eb38d7ac982aaa4169c2712401d1ebc0",
+      "web/e2e/dashboard.spec.ts": "100644 b94dd830530ceaea3d04bca744df90a717a695c71f24a9b534559b507cc06791",
       "web/e2e/failures.spec.ts": "100644 7bbaf8288db45369fa5ff17dbba1fb41d6b3596d386857e8f9f595da68aa0c76",
       "web/e2e/helpers.ts": "100644 8d07a6897b284bd2c13a28b4ef869ee831adf9d0213bd292e22e6dd7877d5268",
       "web/e2e/keyboard.spec.ts": "100644 eb6c4fbdb2a3b65ad5937db716279f1470da28e6a5a4675fe2474e6be02114ac",
@@ -740,7 +740,7 @@
     },
     "fingerprint_rule": "sha256 over the sorted lines 'path NUL mode SP sha256 LF', one per tracked file except this manifest, where mode and sha256 are those of the content git committed (git ls-files -s, git cat-file), not of the working tree",
     "tracked_files": 441,
-    "tree_fingerprint": "264dbab825a571074d03e767bc83d58660e5be592184376737b34f906fa051ea"
+    "tree_fingerprint": "35b5b79f7683fdde3564130c91be6b8105fabb0e8e09009352a1450961f32a16"
   },
   "toolchain": {
     "declared": {
