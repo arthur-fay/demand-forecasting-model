@@ -15,15 +15,18 @@ What is verified:
   the Git for Windows default) therefore verifies like any other.
 - ``--write`` and ``--check`` first require a clean checkout, by git's own comparison
   (``git status``, which honours ``core.autocrlf`` and ``.gitattributes``): no modified,
-  staged, deleted or untracked file apart from the manifest itself, and no tracked file hidden
-  from ``git status`` (assume-unchanged or skip-worktree). Ignored files (``.venv``,
-  ``node_modules``) are allowed. Otherwise the tool names the paths and exits 1. When the
-  manifest itself is not the committed one, a passing ``--check`` says so.
-- ``--check`` names every added, removed or changed file and every mode change (the first
-  50, then the total), then the sections that differ.
+  staged, deleted, renamed, unmerged or untracked file apart from the manifest itself, and no
+  tracked file hidden from ``git status`` (assume-unchanged or skip-worktree, so a sparse
+  checkout is refused). Otherwise the tool names the paths (the first 50, then the total) and
+  exits 1. Ignored files (``.venv``, ``node_modules``) are neither fingerprinted nor reported,
+  so a candidate is best verified in a fresh clone. When the manifest itself is not the
+  committed one, a passing ``--check`` says so.
+- ``--check`` names the added, removed or changed files and the mode changes (the first 50,
+  then the total), then the sections that differ.
 - The scientific status separates what the committed results record (``recorded``) from what
-  the release declares (``declared``). The M2, M3 and M4 results must record one data
-  fingerprint, computed from the committed snapshot manifest.
+  the release declares (``declared``); the candidate's own status is declared as well. The
+  M2, M3 and M4 results must record one data fingerprint, computed from the committed snapshot
+  manifest; otherwise the tool refuses to write or check.
 
 Usage (Python 3.11 or later, standard library only, and git)::
 
@@ -33,9 +36,10 @@ Usage (Python 3.11 or later, standard library only, and git)::
 ``--root DIR`` works on the checkout at DIR instead of the one containing this script.
 
 Exit status: 0 the checkout matches the manifest (or the manifest was written); 1 the checkout
-is not clean, has no manifest or differs from it; 2 the tool cannot run (Python older than
-3.11, git missing, not the top level of a git checkout, or committed records that are missing
-or contradict each other).
+is not clean, its manifest is missing or is not a JSON object, or the checkout differs from
+it; 2 the tool cannot run (Python older than 3.11, git missing or unable to use the directory,
+not the top level of a git checkout, or committed records that are missing or contradict each
+other).
 
 The manifest excludes itself from the file map (a file cannot contain its own hash) and records
 the commit it was generated from only for information: what identifies the candidate is the
@@ -123,6 +127,10 @@ class ManifestError(Exception):
     """The tool cannot run, or the committed records are missing or inconsistent (exit 2)."""
 
 
+#: What reading a committed record of an unexpected shape raises (exit 2 as well).
+MALFORMED = (AttributeError, KeyError, IndexError, TypeError, ValueError)
+
+
 def git(root: Path, *args: str, stdin: bytes | None = None) -> bytes:
     try:
         result = subprocess.run(  # noqa: S603
@@ -135,7 +143,9 @@ def git(root: Path, *args: str, stdin: bytes | None = None) -> bytes:
         raise ManifestError(f"cannot run git: {exc}") from None
     if result.returncode != 0:
         lines = result.stderr.decode("utf-8", "replace").strip().splitlines()
-        reason = lines[-1] if lines else f"exit status {result.returncode}"
+        # The 'fatal:' line says what failed; hints (such as safe.directory's) may follow it.
+        fatal = next((line for line in lines if line.startswith("fatal:")), None)
+        reason = fatal or (lines[-1] if lines else f"exit status {result.returncode}")
         command = next(a for a in args if not a.startswith("-"))
         raise ManifestError(f"git {command} failed: {reason}")
     return result.stdout
@@ -150,7 +160,7 @@ def require_checkout(root: Path) -> None:
     try:
         up = git(root, "rev-parse", "--show-cdup").strip()
     except ManifestError as exc:
-        raise ManifestError(f"{root} is not a git checkout ({exc})") from None
+        raise ManifestError(f"{root} is not a usable git checkout ({exc})") from None
     if up:
         raise ManifestError(f"{root} is not the top level of its git checkout")
 
@@ -227,22 +237,28 @@ def manifest_name(tree: Committed) -> str:
 
 
 def _state(code: str) -> str:
+    """The state a ``git status --porcelain=v1`` code (index, then working tree) stands for."""
     if code == "??":
         return "untracked"
     if "U" in code or code in ("AA", "DD"):
         return "unmerged"
     if "D" in code:
         return "deleted"
-    if "R" in code or "C" in code:
+    if "R" in code:
         return "renamed"
-    return "added, not committed" if code[0] == "A" else "modified"
+    if "C" in code:
+        return "copied"
+    # 'A ' staged, ' A' intended (git add -N)
+    return "added, not committed" if "A" in code else "modified"
 
 
 def unclean(root: Path) -> list[tuple[str, str]]:
     """``(state, path)`` of everything that keeps the checkout from being its commit.
 
     ``git status`` compares the working tree with the commit the way git itself does, so files
-    git converts at checkout (``core.autocrlf``) are clean. Ignored files are not listed.
+    git converts at checkout (``core.autocrlf``) are clean. Ignored files are not listed. Index
+    entries marked assume-unchanged or skip-worktree are listed as well, because ``git status``
+    does not compare them.
     """
     found: list[tuple[str, str]] = []
     fields = git(
@@ -256,11 +272,14 @@ def unclean(root: Path) -> list[tuple[str, str]]:
             if "R" in code or "C" in code:
                 path = f"{next(records)} -> {path}"
             found.append((_state(code), path))
+    # ls-files -v tags: 'S' skip-worktree, lower case assume-unchanged ('H' cached and 'M'
+    # unmerged are compared by git status above).
     for record in git(root, "ls-files", "-v", "-z").decode("utf-8").split("\0"):
         tag, path = record[:1], record[2:]
-        if record and tag != "H":
-            flag = "skip-worktree" if tag in "Ss" else "assume-unchanged"
-            found.append((f"hidden from git status ({flag})", path))
+        if tag in ("S", "s"):
+            found.append(("hidden from git status (skip-worktree)", path))
+        elif tag.islower():
+            found.append(("hidden from git status (assume-unchanged)", path))
     return found
 
 
@@ -342,7 +361,10 @@ def data_fingerprint(tree: Committed, snapshot_id: str) -> tuple[str, list[str]]
     and M4 ones must) have to agree, and each run must name the committed snapshot manifest.
     """
     snapshot_sha256 = tree.sha256(SNAPSHOT_MANIFEST)
-    recorded = {M2_RECOMMENDATION: tree.json(M2_RECOMMENDATION).get("data_fingerprint")}
+    reference = tree.json(M2_RECOMMENDATION).get("data_fingerprint")
+    if not isinstance(reference, str):
+        raise ManifestError(f"{M2_RECOMMENDATION} records no data fingerprint")
+    recorded = {M2_RECOMMENDATION: reference}
     for path in sorted({*run_manifests(tree), *DATA_RECORDS}):
         data = tree.json(path).get("data")
         if not isinstance(data, dict) or "data_fingerprint" not in data:
@@ -352,10 +374,13 @@ def data_fingerprint(tree: Committed, snapshot_id: str) -> tuple[str, list[str]]
         recorded[path] = data["data_fingerprint"]
         if (data.get("snapshot_id"), data.get("manifest_sha256")) != (snapshot_id, snapshot_sha256):
             raise ManifestError(f"{path} was not computed from the committed {SNAPSHOT_MANIFEST}")
-    if len(set(recorded.values())) != 1:
-        detail = "; ".join(f"{p}: {v}" for p, v in sorted(recorded.items()))
-        raise ManifestError(f"the committed results record different data fingerprints: {detail}")
-    return str(recorded[M2_RECOMMENDATION]), sorted(recorded)
+    differing = [f"{p} records {v}" for p, v in sorted(recorded.items()) if v != reference]
+    if differing:
+        raise ManifestError(
+            f"the committed results record different data fingerprints: {M2_RECOMMENDATION} "
+            f"records {reference}, but {'; '.join(differing)}"
+        )
+    return reference, sorted(recorded)
 
 
 def snapshot(tree: Committed) -> dict[str, Any]:
@@ -383,7 +408,12 @@ def snapshot(tree: Committed) -> dict[str, Any]:
 
 
 def provenances(node: Any) -> list[str]:
-    """Every ``provenance`` value declared anywhere in a configuration."""
+    """Every ``provenance`` value declared anywhere in a configuration.
+
+    These are declarations, not distinct parameters: in the M4 configuration they cover the
+    base quantities, each scenario adjustment and each sensitivity sweep, so a parameter that
+    several scenarios adjust is counted once for each.
+    """
     if isinstance(node, dict):
         found = [str(node["provenance"])] if "provenance" in node else []
         return found + [v for child in node.values() for v in provenances(child)]
@@ -422,8 +452,8 @@ def scientific_status(tree: Committed) -> dict[str, Any]:
     }
     calibration = tree.json(M3_STATUS)
     m4 = tree.json(M4_MANIFEST)
-    parameters = Counter(provenances(tree.json(M4_CONFIG)))
-    if not parameters:
+    declarations = Counter(provenances(tree.json(M4_CONFIG)))
+    if not declarations:
         raise ManifestError(f"{M4_CONFIG} declares no parameter provenance")
     return {
         "recorded": {
@@ -439,7 +469,8 @@ def scientific_status(tree: Committed) -> dict[str, Any]:
             "m2_projection": projection(tree),
             "m3_interval_status": calibration["decision_status"]["interval_status"],
             "m3_decision_grade": calibration["decision_status"]["decision_grade"],
-            "m4_parameter_provenance": dict(sorted(parameters.items())),
+            # How many provenance declarations carry each value (not a count of parameters).
+            "m4_provenance_declarations": dict(sorted(declarations.items())),
             "m4_record_type": m4["record_type"],
             "m4_validated_recommendation": m4["validated_recommendation"],
         },
@@ -493,7 +524,9 @@ def build(tree: Committed, commit: str | None) -> dict[str, Any]:
         "name": "ATLAS",
         "version": release,
         "candidate": f"{release}-{CANDIDATE}",
-        "status": "release candidate under review: not released, not tagged, not deployed",
+        "declared": {
+            "status": "release candidate under review: not released, not tagged, not deployed",
+        },
         "generated_from_commit": commit,
         "source": {
             "tracked_files": len(files),
@@ -551,13 +584,20 @@ def report(lines: list[str]) -> None:
 
 def run(root: Path, write: bool) -> int:
     require_checkout(root)
-    tree = Committed(root)
-    name = manifest_name(tree)
-    path = root / name
     states = unclean(root)
+    tree: Committed | None
+    try:
+        tree = Committed(root)
+        name = manifest_name(tree)
+    except (ManifestError, *MALFORMED):
+        if not states:
+            raise
+        # An unresolved merge or a staged removal of pyproject.toml can leave the committed
+        # content unreadable: the checkout is refused below, naming every path.
+        tree, name = None, "the manifest"
     dirty = [f"{state}: {p}" for state, p in states if p != name]
     own = [state for state, p in states if p == name]
-    if dirty:
+    if dirty or tree is None:
         action = "write" if write else "check"
         print(
             f"refusing to {action}: the checkout is not clean ({len(dirty)} path(s) besides "
@@ -566,6 +606,7 @@ def run(root: Path, write: bool) -> int:
         )
         report(dirty)
         return 1
+    path = root / name
     if write:
         commit = git(root, "rev-parse", "HEAD").decode("utf-8").strip()
         text = json.dumps(build(tree, commit), indent=2, sort_keys=True) + "\n"
@@ -576,10 +617,14 @@ def run(root: Path, write: bool) -> int:
         print(f"MISMATCH: {name} does not exist", file=sys.stderr)
         return 1
     try:
-        recorded = comparable(json.loads(path.read_bytes()))
+        document = json.loads(path.read_bytes())
     except ValueError as exc:
         print(f"MISMATCH: {name} is not valid JSON: {exc}", file=sys.stderr)
         return 1
+    if not isinstance(document, dict):
+        print(f"MISMATCH: {name} is not a JSON object", file=sys.stderr)
+        return 1
+    recorded = comparable(document)
     current = comparable(build(tree, None))
     if recorded == current:
         source = current["source"]
@@ -619,7 +664,7 @@ def main(argv: list[str] | None = None) -> int:
         return run(args.root.resolve(), write=args.write)
     except ManifestError as exc:
         print(f"rc_manifest: error: {exc}", file=sys.stderr)
-    except (AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
+    except MALFORMED as exc:
         print(f"rc_manifest: error: a committed record is malformed ({exc!r})", file=sys.stderr)
     return 2
 

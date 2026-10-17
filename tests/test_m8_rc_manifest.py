@@ -4,7 +4,7 @@ The tool fingerprints the content git has committed and refuses a checkout that 
 These tests run the working-tree version of the tool (``--root``) on a temporary repository
 that holds this checkout's committed tree (``git archive HEAD``) in one commit, followed by a
 commit adding the manifest the tool wrote for it. They therefore need neither a clean checkout
-nor any git history (CI checks out a shallow clone). Each test works on its own clone, with git
+nor any git history (a checkout may be shallow). Each test works on its own clone, with git
 isolated from the user's and the system's configuration.
 """
 
@@ -19,13 +19,17 @@ import subprocess
 import sys
 import tarfile
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.conftest import REPO_ROOT
 
 TOOL = REPO_ROOT / "docs" / "release" / "rc_manifest.py"
+SNAPSHOT_MANIFEST = "snapshots/legacy-v0/manifest.json"
+M2_RECOMMENDATION = "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json"
 M3_MANIFEST = "docs/results/atlas-m3-intervals-v1/full/manifest.json"
 M4_CONFIG = "configs/optimization/atlas-m4-optimization-v1.json"
 M4_MANIFEST = "docs/results/atlas-m4-optimization-v1/manifest.json"
@@ -48,7 +52,7 @@ def _environment(**extra: str) -> dict[str, str]:
     return environment
 
 
-def _git(cwd: Path, *args: str) -> str:
+def _git(cwd: Path, *args: str, succeeds: bool = True) -> str:
     result = subprocess.run(  # noqa: S603
         ["git", "-C", str(cwd), *GIT_CONFIG, *args],  # noqa: S607
         capture_output=True,
@@ -56,7 +60,7 @@ def _git(cwd: Path, *args: str) -> str:
         env=_environment(),
         check=False,
     )
-    assert result.returncode == 0, result.stderr
+    assert (result.returncode == 0) == succeeds, result.stderr
     return result.stdout
 
 
@@ -83,6 +87,12 @@ def _lines(result: subprocess.CompletedProcess[str]) -> list[str]:
 
 def _append(path: Path, data: bytes) -> None:
     path.write_bytes(path.read_bytes() + data)
+
+
+def _edit_json(path: Path, edit: Callable[[Any], object]) -> None:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    edit(document)
+    path.write_text(json.dumps(document), encoding="utf-8")
 
 
 def _manifest(repo: Path) -> str:
@@ -153,12 +163,14 @@ def test_a_written_manifest_checks_and_records_the_committed_content(
     assert document["locks"]["uv.lock"] == files["uv.lock"].split(" ")[1]
 
     # The status separates what the committed results record from what the release declares.
+    assert "status" not in document
+    assert document["declared"]["status"].startswith("release candidate under review: ")
     status = document["scientific_status"]
     assert sorted(status) == ["declared", "recorded"]
     config = (clone / M4_CONFIG).read_text(encoding="utf-8")
     hypothetical = config.count('"provenance": "HYPOTHETICAL"')
     assert hypothetical == config.count('"provenance"') > 0
-    assert status["recorded"]["m4_parameter_provenance"] == {"HYPOTHETICAL": hypothetical}
+    assert status["recorded"]["m4_provenance_declarations"] == {"HYPOTHETICAL": hypothetical}
     assert status["recorded"]["m4_validated_recommendation"] is False
     assert status["declared"]["validated_recommendation"] is False
     m3 = json.loads((clone / M3_MANIFEST).read_text(encoding="utf-8"))
@@ -226,39 +238,72 @@ def test_an_unclean_checkout_is_refused_and_named(clone: Path, manifest: str) ->
     _append(clone / "README.md", b"\nnot committed\n")
     (clone / "src/atlas/evil.py").write_text("x = 1\n", encoding="utf-8")
     (clone / "web/dist/stray.txt").write_text("stray\n", encoding="utf-8")
+    (clone / "src/atlas/intended.py").write_text("y = 2\n", encoding="utf-8")
+    _git(clone, "add", "-N", "src/atlas/intended.py")
+    _git(clone, "rm", "-q", ".env.example")
+    _git(clone, "mv", "docs/DATA_CARD.md", "docs/DATA_CARD_MOVED.md")
+    # Changes git status does not compare (a sparse checkout marks entries skip-worktree).
+    _git(clone, "update-index", "--assume-unchanged", "src/atlas/__init__.py")
+    _git(clone, "update-index", "--skip-worktree", "web/index.html")
     for mode in ("--check", "--write"):
         result = _tool(clone, mode)
         assert result.returncode == 1, mode
         assert _lines(result) == [
-            f"refusing to {mode[2:]}: the checkout is not clean (3 path(s) besides "
+            f"refusing to {mode[2:]}: the checkout is not clean (8 path(s) besides "
             f"{manifest}); commit or remove them, or use a fresh clone",
+            "  deleted: .env.example",
             "  modified: README.md",
+            "  renamed: docs/DATA_CARD.md -> docs/DATA_CARD_MOVED.md",
+            "  added, not committed: src/atlas/intended.py",
             "  untracked: src/atlas/evil.py",
             "  untracked: web/dist/stray.txt",
+            "  hidden from git status (assume-unchanged): src/atlas/__init__.py",
+            "  hidden from git status (skip-worktree): web/index.html",
         ]
     assert (clone / manifest).read_bytes() == committed
 
-    _git(clone, "checkout", "--", "README.md")
-    (clone / "src/atlas/evil.py").unlink()
-    (clone / "web/dist/stray.txt").unlink()
+    _git(clone, "update-index", "--no-assume-unchanged", "src/atlas/__init__.py")
+    _git(clone, "update-index", "--no-skip-worktree", "web/index.html")
+    _git(clone, "reset", "-q", "--hard")
+    _git(clone, "clean", "-q", "-f")
+    assert _git(clone, "status", "--porcelain") == ""
     # Ignored files are not part of the candidate.
     for ignored in (".venv/bin/python", "web/node_modules/a/index.js", "web/dist/.DS_Store"):
         (clone / ignored).parent.mkdir(parents=True, exist_ok=True)
         (clone / ignored).write_text("ignored\n", encoding="utf-8")
     assert _tool(clone, "--check").returncode == 0
 
-    # A change hidden from git status is refused as well.
-    _git(clone, "update-index", "--assume-unchanged", "README.md")
-    _append(clone / "README.md", b"\nhidden\n")
-    assert _lines(_tool(clone, "--check"))[1:] == [
-        "  hidden from git status (assume-unchanged): README.md"
-    ]
-    _git(clone, "update-index", "--no-assume-unchanged", "README.md")
-    _git(clone, "checkout", "--", "README.md")
-
-    if os.name == "posix":  # with core.fileMode, as on Linux and macOS
+    # An uncommitted mode change, where the filesystem records modes (core.fileMode).
+    if _git(clone, "config", "--bool", "core.fileMode").strip() == "true":
         (clone / "README.md").chmod(0o755)
         assert _lines(_tool(clone, "--check"))[1:] == ["  modified: README.md"]
+        (clone / "README.md").chmod(0o644)
+
+    # A staged rename of pyproject.toml (whose version names the manifest) and an unresolved
+    # merge (which leaves no committed content to read) are refused like any other change.
+    _git(clone, "mv", "pyproject.toml", "pyproject.old")
+    result = _tool(clone, "--check")
+    assert result.returncode == 1
+    assert _lines(result) == [
+        "refusing to check: the checkout is not clean (1 path(s) besides the manifest); "
+        "commit or remove them, or use a fresh clone",
+        "  renamed: pyproject.toml -> pyproject.old",
+    ]
+    _git(clone, "reset", "-q", "--hard")
+    _git(clone, "checkout", "-q", "-b", "other")
+    _append(clone / "README.md", b"\nother\n")
+    _commit(clone, "a change on another branch")
+    _git(clone, "checkout", "-q", "-")
+    _append(clone / "README.md", b"\nthis branch\n")
+    _commit(clone, "a conflicting change")
+    _git(clone, "merge", "-q", "other", succeeds=False)
+    result = _tool(clone, "--check")
+    assert result.returncode == 1
+    assert _lines(result) == [
+        "refusing to check: the checkout is not clean (1 path(s) besides the manifest); "
+        "commit or remove them, or use a fresh clone",
+        "  unmerged: README.md",
+    ]
 
 
 def test_a_crlf_checkout_matches_the_manifest(origin: Path, manifest: str, tmp_path: Path) -> None:
@@ -276,43 +321,120 @@ def test_a_crlf_checkout_matches_the_manifest(origin: Path, manifest: str, tmp_p
 
 
 def test_the_status_is_read_from_the_committed_results(clone: Path, manifest: str) -> None:
-    m4 = json.loads((clone / M4_MANIFEST).read_text(encoding="utf-8"))
-    m4["validated_recommendation"] = True
-    (clone / M4_MANIFEST).write_text(json.dumps(m4), encoding="utf-8")
-    _commit(clone, "an M4 manifest claiming a validated recommendation")
+    config = (clone / M4_CONFIG).read_text(encoding="utf-8")
+    hypothetical = config.count('"provenance": "HYPOTHETICAL"')
+    _edit_json(clone / M4_MANIFEST, lambda m4: m4.update(validated_recommendation=True))
+    measured = {"provenance": "MEASURED"}
+    _edit_json(clone / M4_CONFIG, lambda config: config["discretionary_budget"].update(measured))
+    _commit(clone, "an M4 run claiming a validated recommendation and one measured parameter")
     assert _tool(clone, "--write").returncode == 0
     written = json.loads((clone / manifest).read_text(encoding="utf-8"))
-    assert written["scientific_status"]["recorded"]["m4_validated_recommendation"] is True
+    recorded = written["scientific_status"]["recorded"]
+    assert recorded["m4_validated_recommendation"] is True
+    assert recorded["m4_provenance_declarations"] == {
+        "HYPOTHETICAL": hypothetical - 1,
+        "MEASURED": 1,
+    }
 
-    m3 = json.loads((clone / M3_MANIFEST).read_text(encoding="utf-8"))
-    m3["data"]["data_fingerprint"] = "0" * 64
-    (clone / M3_MANIFEST).write_text(json.dumps(m3), encoding="utf-8")
-    _commit(clone, "an M3 manifest computed from other data")
+    # The M2, M3 and M4 results must record one data fingerprint, computed from the committed
+    # snapshot manifest; an inconsistency is named on one line, and the tool stops (exit 2).
+    reference = json.loads((clone / M2_RECOMMENDATION).read_text(encoding="utf-8"))
+    other = "0" * 64
+    cases: list[tuple[str, Callable[[Any], object], str]] = [
+        (
+            M3_MANIFEST,
+            lambda m3: m3["data"].update(data_fingerprint=other),
+            "the committed results record different data fingerprints: "
+            f"{M2_RECOMMENDATION} records {reference['data_fingerprint']}, "
+            f"but {M3_MANIFEST} records {other}",
+        ),
+        (
+            M3_MANIFEST,
+            lambda m3: m3["data"].pop("data_fingerprint"),
+            f"{M3_MANIFEST} records no data fingerprint",
+        ),
+        (
+            M4_MANIFEST,
+            lambda m4: m4["data"].update(manifest_sha256=other),
+            f"{M4_MANIFEST} was not computed from the committed {SNAPSHOT_MANIFEST}",
+        ),
+    ]
+    for path, edit, message in cases:
+        _edit_json(clone / path, edit)
+        _commit(clone, f"an inconsistent {path}")
+        result = _tool(clone, "--check")
+        assert (result.returncode, result.stderr) == (2, f"rc_manifest: error: {message}\n")
+        _git(clone, "reset", "-q", "--hard", "HEAD~1")
+
+    # The release documents the manifest lists must be committed.
+    _git(clone, "rm", "-q", "docs/MODEL_CARD.md")
+    _commit(clone, "the model card removed")
     result = _tool(clone, "--write")
-    assert result.returncode == 2
-    assert len(_lines(result)) == 1
-    assert result.stderr.startswith(
-        "rc_manifest: error: the committed results record different data fingerprints: "
+    assert (result.returncode, result.stderr) == (
+        2,
+        "rc_manifest: error: docs/MODEL_CARD.md is not committed\n",
     )
-    assert f"{M3_MANIFEST}: {'0' * 64}" in result.stderr
 
 
-def test_the_tool_fails_clearly_where_it_cannot_run(tmp_path: Path, clone: Path) -> None:
+def test_the_tool_fails_clearly_where_it_cannot_run(
+    tmp_path: Path, clone: Path, manifest: str
+) -> None:
+    # A manifest file that holds JSON but no manifest is a mismatch (exit 1), not a failure.
+    (clone / manifest).write_text("[]\n", encoding="utf-8")
+    result = _tool(clone, "--check")
+    assert (result.returncode, result.stderr) == (1, f"MISMATCH: {manifest} is not a JSON object\n")
+    _git(clone, "checkout", "--", manifest)
+
     outside = tmp_path / "outside"
     outside.mkdir()
     no_git = tmp_path / "empty-path"
     no_git.mkdir()
     cases = [
-        (outside, {"GIT_CEILING_DIRECTORIES": str(tmp_path)}, f"{outside} is not a git checkout"),
+        (
+            outside,
+            {"GIT_CEILING_DIRECTORIES": str(tmp_path)},
+            f"{outside} is not a usable git checkout (git rev-parse failed: fatal: not a git "
+            "repository",
+        ),
         (clone / "docs", {}, f"{clone / 'docs'} is not the top level of its git checkout"),
         (clone, {"PATH": str(no_git)}, "git is required but was not found on PATH"),
     ]
+    if os.name == "posix":
+        # git refusing a repository it does not trust: its 'fatal:' line, not the hint after it.
+        refusing = tmp_path / "refusing-git"
+        refusing.mkdir()
+        (refusing / "git").write_text(
+            "#!/bin/sh\n"
+            "echo \"fatal: detected dubious ownership in repository at '/srv/atlas'\" >&2\n"
+            "echo 'To add an exception for this directory, call:' >&2\n"
+            "echo >&2\n"
+            "echo '\tgit config --global --add safe.directory /srv/atlas' >&2\n"
+            "exit 128\n",
+            encoding="utf-8",
+        )
+        (refusing / "git").chmod(0o755)
+        message = (
+            f"{clone} is not a usable git checkout (git rev-parse failed: fatal: detected "
+            "dubious ownership in repository at '/srv/atlas')"
+        )
+        cases.append((clone, {"PATH": str(refusing)}, message))
     for root, environment, message in cases:
         result = _tool(root, "--check", **environment)
         assert result.returncode == 2, message
         assert result.stdout == ""
         assert len(_lines(result)) == 1, result.stderr
         assert result.stderr.startswith(f"rc_manifest: error: {message}")
+
+    # A submodule's content is not in this repository, so it cannot be fingerprinted.
+    head = _git(clone, "rev-parse", "HEAD").strip()
+    _git(clone, "update-index", "--add", "--cacheinfo", f"160000,{head},vendored")
+    (clone / "vendored").mkdir()
+    _git(clone, "commit", "-q", "-m", "a submodule")
+    result = _tool(clone, "--check")
+    assert (result.returncode, result.stderr) == (
+        2,
+        "rc_manifest: error: vendored is a submodule, whose content cannot be fingerprinted\n",
+    )
 
     # An interpreter older than 3.11 (no tomllib) is named before anything else runs.
     older = subprocess.run(  # noqa: S603
