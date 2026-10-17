@@ -399,3 +399,30 @@ def test_the_ma29_null_reproduces_the_erratum() -> None:
         corrected["H2"],
     ]
     assert (ma29[4], ma29[5]) == (holm["H1"], holm["H2"])
+
+
+def test_backtesting_quotes_the_recorded_dependence_study() -> None:
+    # The erratum (BACKTESTING.md section 12) quotes the study's section 2: bind its figures
+    # to the recorded output, as test_m8_dm_size.py does for the size study.
+    doc = " ".join((REPO_ROOT / "docs" / "BACKTESTING.md").read_text(encoding="utf-8").split())
+    erratum = doc.split("## 12. M8 erratum", 1)[1]
+    rows = {r[0]: r for r in _rows(_section(_sections(OUTPUT), "2"))[1:]}
+
+    def value(null: str, column: int) -> float:
+        return float(rows[null][column].split(" ")[0])
+
+    def span(values: list[float]) -> str:
+        return f"{min(values):.3f}-{max(values):.3f}"
+
+    blocks = [f"block bootstrap, {days} days" for days in (30, 45, 60, 90)]
+    gaussian = [f"Gaussian, Bartlett taper {taper}" for taper in (29, 60, 90, 120)]
+    longer = blocks[1:] + gaussian[1:]  # dependence of 45 days or more
+    selection, h1, h2_holm = 1, 2, 5
+    assert f"{value(gaussian[0], h2_holm):.3f}" == "0.036"
+    assert "is 0.036 (Gaussian, taper 29) and 0.050 (30-day blocks, within Monte Carlo" in erratum
+    assert rows[blocks[0]][h2_holm] == "0.05020"  # quoted as 0.050, at the threshold
+    assert f"Holm-adjusted p-value is {span([value(n, h2_holm) for n in longer])}" in erratum
+    assert f"any of the eight ({span([value(n, h1) for n in blocks + gaussian])})" in erratum
+    assert f"under every block bootstrap ({span([value(n, selection) for n in blocks])})" in erratum
+    assert f"the Gaussian null with taper 29 ({value(gaussian[0], selection):.3f})" in erratum
+    assert f"tapers 60-120 ({span([value(n, selection) for n in gaussian[1:]])})" in erratum

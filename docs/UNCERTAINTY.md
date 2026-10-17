@@ -395,8 +395,12 @@ Evaluation period, days 1-30:
   Holm adjustment (p 0.054)**; on the selection period the same WIS comparison was not
   significant either (p 0.266, table above). The evaluation-period WIS difference itself
   survives a Holm adjustment over the five comparisons (0.001) and the size correction
-  (0.0075; 0.0375 with both). It is a statement about the interval score, not evidence
-  that the point forecasts are significantly more accurate.)
+  (0.0075; 0.0375 with both). That correction assumes the test's own MA(29) dependence. For
+  M2's H2, nulls with dependence beyond a month raised the corrected value above 0.05
+  ([audit/scripts/dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md)),
+  and that study does not cover M3, so this value may be as sensitive. It is a statement
+  about the interval score, not evidence that the point forecasts are significantly more
+  accurate.)
 - Every candidate, scored on the evaluation period as a description (the selection was
   sealed before):
 

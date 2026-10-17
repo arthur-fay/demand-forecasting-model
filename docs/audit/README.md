@@ -28,6 +28,7 @@ honest Version 1.0 research demonstration, and tried to disprove it. It started 
 | Script | What it does |
 |---|---|
 | [scripts/dm_size_study.py](scripts/dm_size_study.py) and [its output](scripts/dm_size_study_output.md) | The Monte Carlo size study behind the M2 erratum (finding M8-04): the size of the pre-registered Diebold-Mariano rule and the size-corrected p-values of the committed statistics |
+| [scripts/dm_dependence_sensitivity.py](scripts/dm_dependence_sensitivity.py) and [its output](scripts/dm_dependence_sensitivity_output.md) | The post hoc dependence study of the final review: the size-corrected M2 tests under nulls built from the committed loss differentials ([scripts/m2_loss_differentials.csv](scripts/m2_loss_differentials.csv)), with the calibration of both methods when MA(29) is true. About 4 minutes on one core; `ATLAS_M8_FULL_STUDY=1 uv run pytest tests/test_m8_dm_dependence.py` reruns it in full |
 | [scripts/m8_doc_figures.py](scripts/m8_doc_figures.py) and [its output](scripts/m8_doc_figures_output.md) | Recomputes every figure the M8 documentation corrections quote from the committed results |
 
 ## Release documents built on it

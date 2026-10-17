@@ -31,8 +31,8 @@ The measured run on the candidate commit is in [M8_CORRECTIONS.md](M8_CORRECTION
 - **Locked environments.** `uv.lock` (hashes for every wheel) with uv itself installed from a
   hash-pinned file; `web/package-lock.json` with integrity hashes and `npm ci`. M8 changed
   neither lock except the project's own version.
-- **No randomness, or a fixed seed.** M2-M4 have no random component; the M8 size study fixes
-  its seed and its recorded output is checked by a test.
+- **No randomness, or a fixed seed.** M2-M4 have no random component. The M8 size and
+  dependence studies fix their seeds, and tests check their recorded output.
 - **Line endings (M8-07).** Every byte-verified file (results, configurations, the contract,
   the snapshot, the build, the dashboard fixtures and `web/public`) is excluded from line-ending
   conversion, and a test exports the committed files with `core.autocrlf=true` (as a checkout

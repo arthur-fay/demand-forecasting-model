@@ -134,10 +134,13 @@ What the evidence supports:
   - H1 becomes 0.095, and H2 0.022 (Holm 0.045).
 
   These corrected values assume the test's own short-memory dependence (an MA(29) differential).
-  The confirmation differentials stay positively autocorrelated beyond 29 days.
-  In the audit's block bootstrap, which keeps the data's own dependence, H2's p-value was
-  0.031-0.079 and its Holm-adjusted value at least 0.06 ([audit/M8_FINDINGS_REGISTER.md](audit/M8_FINDINGS_REGISTER.md),
-  M8-04). So H2's significance is not robust either.
+  A post hoc study repeats the correction under nulls built from the loss differentials
+  themselves. H2 is significant after the size correction and Holm only under MA(29) (0.045)
+  and the one null that keeps about a month's dependence (0.036). Under 30-day blocks it is at
+  the threshold (0.050). Under the six nulls with dependence of 45 days or more it is
+  0.068-0.155. So H2's significance is not robust to the dependence the confirmation errors
+  show, and H1 is not significant under any of the nulls
+  ([audit/scripts/dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md)).
   The pre-registered choice stands, because changing it after the fact would be worse science,
   but its statistical support is weak. Details: [BACKTESTING.md](BACKTESTING.md), M8 erratum, and
   the reproducible studies in `docs/audit/scripts/`.

@@ -62,10 +62,12 @@ forecast is a re-forecast of days that were already in the data.
    true null more often than its nominal level: under its own assumptions the
    pre-registered rule rejects 9.1 % of null series at a nominal 5 % with 336 origins and
    7.6 % with 486. After a size correction the selection test that chose this model has
-   p = 0.069 (nominal 0.044), so its statistical support is weak; H2 keeps p = 0.022 (Holm
-   0.045) under the pre-registered rule but not under three of the five HAC bandwidths, so
-   "stays significant under every HAC bandwidth tried" no longer holds; H1 becomes 0.095.
-   The pre-registered choice stands.
+   p = 0.069 (nominal 0.044), above its 5 % gate, so its statistical support is weak. H2
+   keeps p = 0.022 (Holm 0.045) under the pre-registered rule and the test's own MA(29)
+   dependence, but not under three of the five HAC bandwidths, so "stays significant under
+   every HAC bandwidth tried" no longer holds. Nor is it robust to the dependence the
+   confirmation differentials show: Holm 0.068-0.155 under nulls with dependence of 45 days
+   or more (section 12). H1 becomes 0.095. The pre-registered choice stands.
 4. **In the confirmation period, almost all of the error growth with horizon comes from
    recursion.** Applying the same fitted regressions to *observed* previous days keeps their
    confirmation MAE nearly flat across horizons (686-749); feeding their own
@@ -1119,13 +1121,26 @@ bandwidth, see the M8 table in section 6.2):
 **What the evidence supports.** The pre-registered development selection test (HLN-DM,
 conservative p 0.044) passed its 5 % gate, but at a 30-day horizon with 336-486 overlapping
 origins this test over-rejects under its own assumptions (7.6 % and 9.1 % false rejections
-at a nominal 5 %); after a size correction the selection evidence is borderline (p 0.069).
-The pre-registered choice stands, but its statistical support is weak, and the statements
-of sections 6.1 and 6.2 that the selection and H2 are robust to the HAC bandwidth do not hold
-once each bandwidth is size-corrected. The disclosed H1 result (not significant after Holm)
-is unchanged; corrected, it is further from significance (0.095). H2 remains significant
-under the pre-registered rule after the size correction and the Holm adjustment, narrowly
-(0.045).
+at a nominal 5 %). After a size correction the selection evidence is borderline (p 0.069),
+above its 5 % gate. The pre-registered choice stands, but its statistical support is weak.
+The statements of sections 6.1 and 6.2 that the selection and H2 are robust to the HAC
+bandwidth do not hold once each bandwidth is size-corrected. The disclosed H1 result (not
+significant after Holm) is unchanged; corrected, it is further from significance (0.095).
+
+H2 stays below 0.05 after the size correction and the Holm adjustment (0.045) only if the
+loss differential has no material dependence beyond about a month. A post hoc study repeats
+the correction under eight nulls built from the committed differentials themselves:
+
+- under the six that keep dependence of 45 days or more (block bootstraps with blocks of
+  45-90 days, Gaussian nulls with Bartlett tapers 60-120), H2's Holm-adjusted p-value is
+  0.068-0.155;
+- under the two that keep only about a month's dependence, it is 0.036 (Gaussian, taper 29)
+  and 0.050 (30-day blocks, within Monte Carlo error of 0.05).
+
+H2's significance after the size correction is therefore not robust to the dependence
+assumption ([dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md),
+section 2). H1 is not significant under any of the eight (0.094-0.164). The point-accuracy
+lead over seasonal naive, 28.2 %, is unaffected.
 
 **Why the decision stands.** The selection rule, its test and its 5 % gate were fixed before
 any run, and the selection was sealed before any confirmation-period run of the protocol
@@ -1138,12 +1153,22 @@ rule only through the selection gate, so the recommendation inherits the gate's 
 support, and its confirmation lead is already disclosed as not statistically established.
 With a correctly sized gate the protocol would most likely have selected B\*, the median of
 the last five same weekdays, which finding 6 already names as a close and much simpler
-alternative.
+alternative. In the dependence study the gate fails under the test's own MA(29) null (0.069),
+under the Gaussian null with taper 29 (0.068) and under every block bootstrap (0.083-0.130).
+It passes only under the Gaussian nulls with tapers 60-120 (0.014-0.049). Those nulls take
+the development differential's negative autocorrelation at lags 30-60 as the truth, although
+that autocorrelation is within the range MA(29) produces. When MA(29) holds they give p-values
+below the exact ones, so a pass under them is weak evidence (sections 1, 2 and 5 of the
+study).
 
 **Limits of the correction.** It assumes the test's own null, an MA(29) differential, and so
-shows what the test delivers when its assumption holds. The H1 differential stays
-autocorrelated beyond lag 29 (section 6.2), so the real distortion can differ, and the
-corrected p-values are approximations too. M3 uses the same test on the same grid; the M8
+shows what the test delivers when its assumption holds. H1's mean autocorrelation over lags
+30-120 (0.126) is more than MA(29) produces: only 1.5 % of MA(29) series of the same length
+reach it. H2's (0.042) is in the same direction but within the MA(29) range (8.0 % reach
+it). The post hoc dependence study gives the figures above
+([dm_dependence_sensitivity_output.md](audit/scripts/dm_dependence_sensitivity_output.md),
+sections 1-2). The data cannot show which null is right. Values within Monte Carlo error of
+0.05, and the ends of its ranges, carry that error. M3 uses the same test on the same grid; the M8
 notes in [UNCERTAINTY.md](UNCERTAINTY.md) give what the correction does there.
 
 **For a future protocol version** (not applied to v1, whose results stay as committed): a

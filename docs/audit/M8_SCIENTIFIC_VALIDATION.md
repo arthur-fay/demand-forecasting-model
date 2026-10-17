@@ -70,6 +70,24 @@ than trusting the package, and what the checks showed. The full evidence of each
   worse science; the documents now say that the selection's support is weak and that the
   earlier "robust to the bandwidth" statements do not hold ([../BACKTESTING.md](../BACKTESTING.md)
   section 12). A test (`tests/test_m8_dm_size.py`) pins the over-rejection and the recorded study.
+
+  These corrected values assume the test's own null: no dependence beyond lag 29. The final
+  independent review showed that the confirmation differentials are positively autocorrelated
+  beyond it. A post hoc study ([scripts/dm_dependence_sensitivity.py](scripts/dm_dependence_sensitivity.py),
+  with its [recorded output](scripts/dm_dependence_sensitivity_output.md) and
+  `tests/test_m8_dm_dependence.py`) repeats the correction under eight nulls built from the
+  committed loss differentials: circular block bootstraps with blocks of 30-90 days, and
+  Gaussian nulls with each differential's own Bartlett-tapered autocovariance. It also checks
+  how both methods behave when MA(29) is true. It finds:
+
+  - **H2** stays significant after Holm only under MA(29) (0.045) and the taper-29 Gaussian
+    null (0.036). It is at the threshold under 30-day blocks (0.050), and at 0.068-0.155 under
+    the six nulls with dependence of 45 days or more. Its significance after the size
+    correction is not robust.
+  - **H1** is not significant under any null (0.094-0.164).
+  - **The selection gate** fails under MA(29), the taper-29 Gaussian null and every block
+    bootstrap (0.068-0.130). It passes only under the long-taper Gaussian nulls (0.014-0.049),
+    which give p-values below the exact ones when MA(29) holds. So "most likely B\*" stands.
 - **Model-selection bias.** Six candidates were compared on the development period, which the
   documents state; the confirmation period was used once for the primary tests and has since
   been exposed (M3 reused it, labelled as such). A new untouched evaluation needs data after
