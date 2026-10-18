@@ -1,0 +1,299 @@
+{
+  "format": "atlas-static-export/1",
+  "atlas_version": "1.0.0",
+  "api_version": "v1",
+  "description": "Recorded GET answers of the ATLAS API over the committed research outputs, byte for byte, for a static read-only dashboard. Archived research results: nothing here is a live forecast or a validated recommendation.",
+  "snapshot": {
+    "snapshot_id": "legacy-v0",
+    "data_fingerprint": "5ab8b3a59e107158da9a3a285ea58a22c566f5b0da067e0f3fae6ee5e3d73a4d",
+    "first_date": "2023-01-01",
+    "last_date": "2026-06-30"
+  },
+  "scientific_status": {
+    "point_forecast_validated": false,
+    "validated_recommendation": false,
+    "uncertainty_interval_status": "failed_calibration",
+    "uncertainty_decision_grade": false,
+    "m2_recommended_model": "atlas_linear_regression",
+    "m2_h1_significant_after_holm": false,
+    "m2_h1_holm_adjusted_p_value": 0.0535166597203122,
+    "m2_selection_evidence_notice": true,
+    "projection_record_type": "future_projection",
+    "projection_origin": "2026-06-30",
+    "projection_first_target": "2026-07-01",
+    "projection_last_target": "2026-07-30",
+    "projection_archived_notice": true,
+    "m4_parameter_provenance": "HYPOTHETICAL",
+    "m4_scenarios": 9,
+    "m4_scenarios_meeting_every_constraint": 3
+  },
+  "files": {
+    "models.json": {
+      "request": "/api/v1/models",
+      "sha256": "f6c342b2d2d58c5d84b9415e51fd53e1bc45992a60ccc0e8eeea4d4884f41b25",
+      "bytes": 9988,
+      "data_status": "historical_evaluation",
+      "record_type": "historical_backtest"
+    },
+    "forecast.json": {
+      "request": "/api/v1/forecasts?horizon_days=30",
+      "sha256": "f76480d251d210cec4c9df20e2fecec5a56b0c64020760fea6a6db3d5e29cf82",
+      "bytes": 7606,
+      "data_status": "projected",
+      "record_type": "future_projection"
+    },
+    "history.json": {
+      "request": "/api/v1/forecasts/history",
+      "sha256": "9e32d09452277d7a25dcec8fd3eb8002a9eea098b8b2050939e09fb745978305",
+      "bytes": 20161,
+      "data_status": "observed",
+      "record_type": "observed_daily_total"
+    },
+    "metrics-bucket.json": {
+      "request": "/api/v1/forecasts/metrics?scope=bucket",
+      "sha256": "d8ecafd93b8c59d9f61b98da2a8b1c8201c18bfab13a9a4faca6f64aeb58d5c8",
+      "bytes": 37932,
+      "data_status": "historical_evaluation",
+      "record_type": "historical_backtest"
+    },
+    "uncertainty-status.json": {
+      "request": "/api/v1/uncertainty/status",
+      "sha256": "9d1ec542c04857ff75af014cc55346f0b914337f4f68e443ee931c793644fe42",
+      "bytes": 3920,
+      "data_status": "calibration_assessment",
+      "record_type": "calibration_status"
+    },
+    "intervals.json": {
+      "request": "/api/v1/uncertainty/intervals?horizon_days=30",
+      "sha256": "0cab214f3a7a15f1c3b1ad6abc7a4748039ddd1703f2043a49ea710aea259a64",
+      "bytes": 12603,
+      "data_status": "projected",
+      "record_type": "future_projection_intervals"
+    },
+    "scenarios.json": {
+      "request": "/api/v1/scenarios",
+      "sha256": "99f864de0259cf1c27ba403f9d4c0acc86f564d104a567d8f4f70c96ddd7a9f9",
+      "bytes": 13155,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "comparison.json": {
+      "request": "/api/v1/scenarios/comparison",
+      "sha256": "2a55d4e1e59793fbaafaee0ac16528a132f73f87fcbd4e85853e91fb0c635523",
+      "bytes": 12962,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "simulation-parameters.json": {
+      "request": "/api/v1/simulations/parameters",
+      "sha256": "103ad03ae0c4fea713c56c5ad92aec667f23f7107816c454141490ee9a46d5e0",
+      "bytes": 8247,
+      "data_status": "hypothetical_simulation",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "history-90d.json": {
+      "request": "/api/v1/forecasts/history?start=2026-04-02",
+      "sha256": "bd1b439f148ec53181b8f39065d7df39699020e1647eafdb1591a9da5f12829b",
+      "bytes": 10599,
+      "data_status": "observed",
+      "record_type": "observed_daily_total"
+    },
+    "history-365d.json": {
+      "request": "/api/v1/forecasts/history?start=2025-07-01",
+      "sha256": "e2156c3b192d8a084b405b9ba87046f79b554fe406e0b794a46772c2631690b6",
+      "bytes": 39755,
+      "data_status": "observed",
+      "record_type": "observed_daily_total"
+    },
+    "history-all.json": {
+      "request": "/api/v1/forecasts/history?start=2023-01-01",
+      "sha256": "0549543e008f551ae3fc176f6d7d800102e469a2aaff7933e7110902a523382a",
+      "bytes": 136084,
+      "data_status": "observed",
+      "record_type": "observed_daily_total"
+    },
+    "metrics-horizon-development.json": {
+      "request": "/api/v1/forecasts/metrics?scope=horizon&period=development",
+      "sha256": "0a2dee6fc9391723a8ec48e2f62f5145adbaf280175f9f39519e4a3328301389",
+      "bytes": 71746,
+      "data_status": "historical_evaluation",
+      "record_type": "historical_backtest"
+    },
+    "metrics-horizon-confirmation.json": {
+      "request": "/api/v1/forecasts/metrics?scope=horizon&period=confirmation",
+      "sha256": "0482e23688ac111f6d1c91cd1fceaef59804810803113c26fef4fdcaaafffb3a",
+      "bytes": 72031,
+      "data_status": "historical_evaluation",
+      "record_type": "historical_backtest"
+    },
+    "metrics-horizon-legacy_window.json": {
+      "request": "/api/v1/forecasts/metrics?scope=horizon&period=legacy_window",
+      "sha256": "3cb5481e098c00eccac1be306d37b36cd241752e132fec9b6a813bd5ea9ec941",
+      "bytes": 71515,
+      "data_status": "historical_evaluation",
+      "record_type": "historical_backtest"
+    },
+    "scenario-normal.json": {
+      "request": "/api/v1/scenarios/normal",
+      "sha256": "01c8e0f62d35cd9caace4fc91563ef0a64769f0970372e368bb906b3781bcc14",
+      "bytes": 59903,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-increased_demand.json": {
+      "request": "/api/v1/scenarios/increased_demand",
+      "sha256": "fa8b3ed31f747f51feb97ddf7656a5aa579a686134749005210334dc5a26862d",
+      "bytes": 60449,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-reduced_capacity.json": {
+      "request": "/api/v1/scenarios/reduced_capacity",
+      "sha256": "bf3419e1751835082506a92ac2fcbf253b95892f0bbf515cd73e4326a6636c3c",
+      "bytes": 60218,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-increased_costs.json": {
+      "request": "/api/v1/scenarios/increased_costs",
+      "sha256": "fd1e450bb156f36e376c5631845466fd8cf880d6b1c66bbafadc48f3497cac9e",
+      "bytes": 59788,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-reduced_budget.json": {
+      "request": "/api/v1/scenarios/reduced_budget",
+      "sha256": "f1e1fdc73014ace551c6174961b7e1016be888124fac89ecaac6f5f20067a7aa",
+      "bytes": 60288,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-delayed_surge.json": {
+      "request": "/api/v1/scenarios/delayed_surge",
+      "sha256": "5892bddff9f7319ea5ed968eb030fb529429add03b702810f85fb7fa6777ffa5",
+      "bytes": 59584,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-combined_stress.json": {
+      "request": "/api/v1/scenarios/combined_stress",
+      "sha256": "58f7dd077c4fd3a4a07f4cf3986871da025316df51b52b9671734fe996f11d80",
+      "bytes": 62319,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-m2_bias_shift.json": {
+      "request": "/api/v1/scenarios/m2_bias_shift",
+      "sha256": "6cadf3ba3e4537767cd613d57b88456e45a169c49b5ae2abee94eba069cfd638",
+      "bytes": 61299,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    },
+    "scenario-m3_marginal_q90_stress.json": {
+      "request": "/api/v1/scenarios/m3_marginal_q90_stress",
+      "sha256": "7a7f40ce5525012df3a7f3435bf0e680d085bc1684cb572fb51ac68310998c29",
+      "bytes": 60665,
+      "data_status": "hypothetical_reference_run",
+      "record_type": "hypothetical_decision_simulation"
+    }
+  },
+  "sources": [
+    {
+      "kind": "legacy_snapshot",
+      "path": "01 Data",
+      "record_type": "observed_daily_total",
+      "run_id": null,
+      "result_fingerprint": null,
+      "config_fingerprint": null,
+      "files": {
+        "daily_total.csv": "16a338f4851f62380a706a611e54706f52a29f3ee9a5adcea4f276b9b904d65c"
+      }
+    },
+    {
+      "kind": "m2_backtest_run",
+      "path": "docs/results/atlas-m2-rolling-origin-v1/full",
+      "record_type": "historical_backtest",
+      "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5-development-confirmation-legacy_window",
+      "result_fingerprint": "d53bc91196296d43e6ca43aac859f5e9d7ea9dd88ac8fdb4c30fdcab39315a8a",
+      "config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+      "files": {
+        "metrics.json": "4fc9f5efe2e5edbaf7d7f4333e8c486daf53593bc94dd2608401774f33ebf86c"
+      }
+    },
+    {
+      "kind": "m2_projection_run",
+      "path": "docs/results/atlas-m2-rolling-origin-v1/projection",
+      "record_type": "future_projection",
+      "run_id": "atlas-m2-rolling-origin-v1-78da64e8-5ab8b3a5",
+      "result_fingerprint": null,
+      "config_fingerprint": "78da64e8c2ce75d9318cf855137d015e9692dbd50517a70d00243d7f731b1753",
+      "files": {
+        "projections.csv": "1fb2f1a0c1ae0dfa722e11ebd8b79906a9d5945e7d0f352c9c580b630ffacab3"
+      }
+    },
+    {
+      "kind": "m3_calibration_status",
+      "path": "docs/results/atlas-m3-intervals-v1/full",
+      "record_type": "calibration_status",
+      "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5-m3_selection-m3_evaluation",
+      "result_fingerprint": "c4d2adbf128e9f5e136c3e19d6aaba281257f6721f8a2d1804ac22eb27f8dfaf",
+      "config_fingerprint": "5afd32068ebc63b5838cfea545326916f0c4dd835ed294a301acd89d8622244b",
+      "files": {
+        "calibration_status.json": "41768af15f69a28faf80c882d67b85aa2a271883df9ec93a835b49fe2a94a715"
+      }
+    },
+    {
+      "kind": "m3_projection_run",
+      "path": "docs/results/atlas-m3-intervals-v1/projection",
+      "record_type": "future_projection_intervals",
+      "run_id": "atlas-m3-intervals-v1-5afd3206-5ab8b3a5",
+      "result_fingerprint": null,
+      "config_fingerprint": "5afd32068ebc63b5838cfea545326916f0c4dd835ed294a301acd89d8622244b",
+      "files": {
+        "projection_intervals.csv": "0e648e0a3430af9b00181f439f110c769e4bb13d8b48da617a48873af65efa8c"
+      }
+    },
+    {
+      "kind": "m4_reference_configuration",
+      "path": "configs/optimization",
+      "record_type": "optimization_config",
+      "run_id": null,
+      "result_fingerprint": null,
+      "config_fingerprint": "02258d28d0e30759946e5aafbb83a8492d5db905c5fb77da921b191d4ce22e8a",
+      "files": {
+        "atlas-m4-optimization-v1.json": "523c5821ec29dc5fdab2de58d175d6fede3cc8c72f8a0626b5fbc85b076a997b"
+      }
+    },
+    {
+      "kind": "m4_reference_run",
+      "path": "docs/results/atlas-m4-optimization-v1",
+      "record_type": "hypothetical_decision_simulation",
+      "run_id": "atlas-m4-optimization-v1-02258d28-5ab8b3a5",
+      "result_fingerprint": "0dc4eb0fcc4623c19d8eb5fbd0dc453bd3f75453c2b69e35d3aa470436af3c82",
+      "config_fingerprint": "02258d28d0e30759946e5aafbb83a8492d5db905c5fb77da921b191d4ce22e8a",
+      "files": {
+        "metrics.json": "edf8a9ec23ca67c8009115352e9dbf3326d67a44494952957cc0346dd3495b76",
+        "plans.csv": "330f22231b8eaeac18a4d7175f833337226a9e9dd03d5984924079ee7deb8bf9",
+        "scenarios.csv": "9ef8d0479e8ea86842946e5c42b663a037413d1e9bec8f961631aab97e9e137a"
+      }
+    }
+  ],
+  "not_exported": [
+    {
+      "request": "GET /api/v1/system",
+      "reason": "operational metadata (component readiness, limits, simulation workers, solver versions, endpoint inventory); not public, as in the public-demo profile"
+    },
+    {
+      "request": "GET /health/live, GET /health/ready",
+      "reason": "the liveness and readiness of a running server"
+    },
+    {
+      "request": "GET /openapi.json, /docs, /redoc",
+      "reason": "the contract is in the repository (docs/api)"
+    },
+    {
+      "request": "POST /api/v1/simulations",
+      "reason": "a computation: it needs the Python M4 engine, which a static host cannot run"
+    }
+  ]
+}

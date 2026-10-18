@@ -26,3 +26,6 @@ web/dist/** -text
 # Copied byte for byte into the reproducible web/dist (favicon, font licence).
 web/public/** -text
 web/src/test/fixtures/** -text
+# (M9) The static export: recorded API answers, verified byte for byte by `atlas static
+# verify` and, in the browser, by their SHA-256 in the static build.
+web/static-export/** -text
