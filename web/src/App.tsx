@@ -245,7 +245,8 @@ export function App() {
             </p>
             <p>
               Nothing here is a validated staffing, budget or service-capacity recommendation for
-              any NYC agency.
+              any NYC agency. ATLAS is an independent research project, not affiliated with or
+              endorsed by the City of New York or NYC Open Data.
             </p>
             <p>
               Software in this dashboard:{' '}

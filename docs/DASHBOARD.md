@@ -11,6 +11,11 @@ and by nginx in the private and public-demo deployments. The server needs no Nod
 > ([docs/audit](audit/README.md)); section 17 lists the corrections of the dashboard's
 > findings.** Nothing has been deployed to any server or domain.
 >
+> **(M9)** The same dashboard also builds as a static, read-only site for GitHub Pages, from
+> the API's recorded answers ([STATIC_DEMO.md](STATIC_DEMO.md)). This document describes the
+> api profile, the committed `web/dist`, whose behaviour M9 does not change; section 18 lists
+> what M9 changed in the shared sources.
+>
 > **What the dashboard shows** is research output, labelled as such next to every number:
 > - The forecast is an archived, unvalidated point forecast (M2). The model's lead over the
 >   best baseline is **not statistically significant after the Holm adjustment**.
@@ -760,3 +765,31 @@ dashboard's sentence; this document's status has none); most are in
 The statements of section 14 on what is not tested (screen readers, real Safari, real
 devices) still hold; Firefox and WebKit now run in CI for the API-backed pages and the
 failure states.
+
+## 18. M9: the static profile (shared sources)
+
+M9 adds a second build profile, described in [STATIC_DEMO.md](STATIC_DEMO.md). In the sources
+this document describes, it changed:
+
+- **`api/endpoints.ts`**: the operations are built over a transport (`createApi`). The api
+  profile's transport is the same-origin HTTP client of section 4, unchanged. The static
+  profile's (`api/static.ts`) reads the recorded answers. `client.ts` shares its answer checks
+  (`accept`) with it, and has one more error kind (`not_exported`).
+- **`router.tsx`**: links and history entries are put under the build's base path (`/` here, so
+  every path is unchanged).
+- **`profile.ts`**: the build's profile, base path and export list, read once, and the
+  sentences that name where an answer came from. The api profile's sentences are those of M7.
+  The static profile's code is not in the api build.
+- **`deployment.tsx`**: a static build's deployment is fixed in the build. A served descriptor
+  is validated as before (`ServedDeploymentDescriptor`).
+- **Views**: the Simulator's recorded-scenario explorer (static profile only). Decisions'
+  scenario facts moved to `plan.tsx` (`ScenarioFacts`), unchanged. The footer now also says
+  that ATLAS is not affiliated with or endorsed by the City of New York or NYC Open Data. The
+  Methods list has an M9 entry.
+- **The build**: `vite.config.ts` has the `pages` mode; `playwright.config.ts` has the static
+  projects (`ATLAS_E2E_PAGES=1`), and every project's `testMatch` is anchored to a file name.
+- **Measured on the rebuilt api build** (`npm run size`): initial JavaScript 85.7 KB gzip;
+  initial HTML, CSS and JavaScript 92.1 KB; largest lazy chunk 20.8 KB; font 48.3 KB; the
+  whole build 526.5 KB raw. The 0.8 KB increase over M8's 91.3 KB is the router's base handling,
+  the shared checks and the footer's sentence.
+

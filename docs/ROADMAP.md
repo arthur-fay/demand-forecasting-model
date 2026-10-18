@@ -304,6 +304,22 @@ results):
   evaluation;
 - the generator wording that M8 corrected only by errata (M8-15, M8-17).
 
+## M9: Static read-only demonstration, phase A (under review)
+
+See [STATIC_DEMO.md](STATIC_DEMO.md).
+
+- `atlas static export` and `atlas static verify`: the API's answers to every read the
+  dashboard's pages make, recorded byte for byte from the committed research outputs, with
+  their integrity labels and provenance, nothing operational, local or secret, and a manifest.
+- A static build profile of the same dashboard (`npm run build:pages`): every read served by
+  a recorded answer and checked in the browser against its SHA-256; the repository's path on
+  GitHub Pages; a page file per page and a `404.html` for deep links; the policy in the page;
+  live simulations replaced by the recorded M4 reference scenarios, labelled as such.
+- A GitHub Pages workflow: build and test on every pull request; publication only by a manual,
+  gated dispatch, which the committed approval record refuses until the owner decides the
+  licence, the NYC Open Data terms and the version.
+- Not published; GitHub Pages not enabled. Phase B (activation) needs the owner's approval.
+
 ## Known M0 limitations
 
 - **CI action pinning (resolved in M5):** CI pinned GitHub Actions to major-version tags.

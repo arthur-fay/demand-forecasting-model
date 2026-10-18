@@ -112,6 +112,9 @@ measure reporting behaviour, which differs between communities); agency-level ca
   closed on any mismatch. The files are stored without line-ending conversion (`.gitattributes`).
 - **Distribution.** The tables are committed to this public repository. Their redistribution is
   subject to the NYC Open Data terms above, which have not been confirmed (owner action).
+  **(M9)** The static demonstration would also publish the daily totals, and everything
+  computed from them, on a public web page (GitHub Pages). It is not published, and its
+  publication is gated on the same confirmation ([STATIC_DEMO.md](STATIC_DEMO.md) section 9).
 - **Maintenance.** `legacy-v0` is immutable. New data would be a new snapshot (`legacy-v1` or
   later) with recorded extraction metadata, a pagination and truncation guard and its own
   manifest ([ROADMAP.md](ROADMAP.md), deferred work).

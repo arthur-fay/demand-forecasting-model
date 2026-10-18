@@ -129,6 +129,8 @@ uv run atlas optimize inspect /tmp/m4     # M4: integrity and headline results, 
 uv run atlas api serve                # M5: HTTP API on http://127.0.0.1:8000 (docs at /docs)
 uv run atlas api openapi              # M5: print the OpenAPI contract (never writes)
 uv run atlas api bench                # M5: measured latency and memory on this machine
+uv run atlas static export            # M9: record the API's answers for the static build (web/static-export)
+uv run atlas static verify            # M9: the committed export is what the outputs give, byte for byte
 uv run python -m atlas --version      # module entry point
 ```
 
@@ -555,7 +557,9 @@ configs/uncertainty/  versioned M3 uncertainty configurations (pre-registered pr
 configs/optimization/ versioned M4 decision-simulation configurations (HYPOTHETICAL values)
 docs/api/             the committed OpenAPI contract of the M5 API
 deploy/               M6 deployment templates, host scripts, example configuration, test server
-web/                  M7 dashboard source (src/, e2e/, scripts/) and its committed build (dist/)
+web/                  M7 dashboard source (src/, e2e/, scripts/) and its committed build (dist/);
+                      M9: the static export (static-export/) and the static build's manifest
+                      (atlas-static-site.json; the build, dist-pages/, is not committed)
 docs/                 this guide, architecture, data, limitations, roadmap, backtesting,
                       uncertainty, optimisation, API, deployment, dashboard
 docs/results/         curated reference results of the M2, M3 and M4 runs

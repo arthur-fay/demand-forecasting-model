@@ -352,6 +352,29 @@ served by:    atlas api serve ─► DashboardMiddleware (verified build, from m
 | A deployment descriptor instead of guessing | The interface says when and why simulations are unavailable; the server enforces it regardless |
 | A per-release copy for nginx, switched with the site | Rollback restores the dashboard built with the restored API |
 
+### M9 static demonstration flow
+
+```
+export:   committed outputs ─► reference store (SHA-256 checks) ─► the API in-process
+          ─► GET each read of the static pages ─► integrity, provenance, public-safety checks
+          ─► web/static-export/*.json + atlas-static-export.json  (committed; verify = re-export)
+build:    web/src + the export ─► vite build --mode pages ─► web/dist-pages
+          (<page>.html, 404.html, data/, CSP <meta>) + atlas-static-site.json (= committed copy)
+browser:  <base><page> ─► index.html ─► <base>data/<file> ─► SHA-256 = the build's list?
+          ─► the API's integrity + schema checks ─► the same views as the api profile
+publish:  manual dispatch on main ─► gate (record, variable, phrase) ─► github-pages
+          environment ─► GitHub Pages (not enabled; nothing published in phase A)
+```
+
+| M9 decision | Reason |
+|---|---|
+| Record the API's own answers, byte for byte | One implementation of every label and number: the static site cannot word a caveat differently from the API, and the export is checkable against the API itself |
+| The export list compiled into the build, checked in the browser | A stale, damaged or substituted file is refused, never shown; the code and its data are one version |
+| One transport interface, chosen at build time | Every view, chart and integrity component is shared; neither profile guesses which it is |
+| A page file per page and `404.html` as the app | Deep links and reloads with no server-side rewrite |
+| Recorded reference scenarios instead of simulations | A static host cannot run the engine; nothing is presented as newly computed |
+| Publication gated by a reviewed record, a repository variable and a manual dispatch | Phase A cannot publish; publishing needs the owner's decisions, recorded in the repository |
+
 ### Extending to new snapshots
 
 A new snapshot needs:
