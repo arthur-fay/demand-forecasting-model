@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -65,6 +66,24 @@ describe('verify-dist (the api build)', () => {
     expect(run.stderr).toContain('not a regular file: favicon.svg');
     expect(run.stderr).not.toContain('EISDIR');
   });
+
+  it('reports a manifest that is a link, or no manifest, without following it', () => {
+    const dist = copyOf('dist');
+    const manifest = join(dist, 'atlas-dashboard.json');
+    const outside = join(dist, '..', 'atlas-dashboard.json');
+    cpSync(manifest, outside);
+    rmSync(manifest);
+    symlinkSync(outside, manifest);
+    const linked = verify('verify-dist.mjs', dist);
+    expect(linked.status).toBe(1);
+    expect(linked.stderr).toContain('not a regular file: atlas-dashboard.json');
+    rmSync(manifest);
+    writeFileSync(manifest, '{');
+    const broken = verify('verify-dist.mjs', dist);
+    expect(broken.status).toBe(1);
+    expect(broken.stderr).toContain('not a dashboard manifest');
+    expect(broken.stderr).not.toContain('SyntaxError');
+  });
 });
 
 describe.skipIf(!existsSync(join(WEB, 'dist-pages', 'atlas-static-site.json')))(
@@ -101,16 +120,45 @@ describe.skipIf(!existsSync(join(WEB, 'dist-pages', 'atlas-static-site.json')))(
       const site = copyOf('dist-pages');
       const path = join(site, 'atlas-static-site.json');
       const manifest = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+      // The build's own base is the committed one (only a build under it writes the record).
+      const base = manifest.base as string;
+      const other = base === '/' ? '/other/' : '/';
       writeFileSync(
         path,
-        JSON.stringify({ ...manifest, base: '/', note: 'https://evil.example/' }, null, 2),
+        JSON.stringify({ ...manifest, base: other, note: 'https://evil.example/' }, null, 2),
       );
       const run = verify('verify-pages.mjs', site);
       expect(run.status).toBe(1);
-      expect(run.stderr).toMatch(
-        /built for the base \/, the committed .* for \/demand-forecasting-model\//,
+      expect(run.stderr).toContain(
+        `built for the base ${other}, the committed web/atlas-static-site.json for ${base}`,
       );
       expect(run.stderr).toContain('atlas-static-site.json holds a link to another site');
+    });
+
+    it.each([
+      ['{', 'invalid JSON'],
+      ['{"format":"atlas-static-site/1","files":null}', 'no files'],
+      ['{"format":"atlas-static-site/1","files":{},"base":"/x/"}', 'no pages'],
+    ])('reports a malformed manifest (%s: %s) without a crash', (text) => {
+      const site = copyOf('dist-pages');
+      writeFileSync(join(site, 'atlas-static-site.json'), text);
+      const run = verify('verify-pages.mjs', site);
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('atlas-static-site.json is not a valid atlas-static-site/1');
+      // The difference from the committed record is reported too.
+      expect(run.stderr).toMatch(/differs from the committed|built for the base \/x\//);
+      expect(run.stderr).not.toMatch(/SyntaxError|TypeError|\n\s+at /);
+    });
+
+    it('reports a directory the manifest does not list, and scans its name', () => {
+      const site = copyOf('dist-pages');
+      mkdirSync(join(site, 'owner@example.org'));
+      mkdirSync(join(site, 'assets', 'evil.example'));
+      const run = verify('verify-pages.mjs', site);
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('not in the manifest: owner@example.org/');
+      expect(run.stderr).toContain('the name owner@example.org/ holds an e-mail address');
+      expect(run.stderr).toContain('not in the manifest: assets/evil.example/');
     });
   },
 );

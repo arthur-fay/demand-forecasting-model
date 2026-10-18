@@ -52,36 +52,58 @@ function fail() {
 
 const text = read(NAME);
 if (text === null) fail();
-const manifest = JSON.parse(text.toString('utf-8'));
-if (manifest.format !== 'atlas-static-site/1') problems.push(`${NAME} is not atlas-static-site/1`);
 let committed = null;
 try {
   committed = execFileSync('git', ['show', `HEAD:web/${NAME}`], { cwd: web, maxBuffer: 1 << 24 });
 } catch {
   problems.push(`web/${NAME} cannot be read from git (HEAD): commit it, in a git checkout`);
 }
-if (committed !== null && !text.equals(committed)) {
-  let base = null;
+const parse = (bytes) => {
   try {
-    base = JSON.parse(committed.toString('utf-8')).base;
+    return JSON.parse(bytes.toString('utf-8'));
   } catch {
-    // reported below as a difference
+    return null;
   }
+};
+const plain = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+const manifest = parse(text);
+if (committed !== null && !text.equals(committed)) {
+  const base = parse(committed)?.base;
   problems.push(
-    base !== null && base !== manifest.base
+    typeof base === 'string' &&
+      plain(manifest) &&
+      typeof manifest.base === 'string' &&
+      base !== manifest.base
       ? `${NAME} is built for the base ${manifest.base}, the committed web/${NAME} for ` +
           `${base}: a build for another address needs DEFAULT_PAGES_BASE changed ` +
           '(build/static-site.ts; docs/STATIC_DEMO.md section 6)'
       : `${NAME} differs from the committed web/${NAME}: rebuild and commit it`,
   );
 }
+if (
+  !plain(manifest) ||
+  manifest.format !== 'atlas-static-site/1' ||
+  !plain(manifest.files) ||
+  !plain(manifest.pages) ||
+  typeof manifest.not_found !== 'string' ||
+  typeof manifest.base !== 'string' ||
+  typeof manifest.content_security_policy !== 'string' ||
+  !Object.values(manifest.files).every((entry) => plain(entry))
+) {
+  problems.push(`${NAME} is not a valid atlas-static-site/1 manifest`);
+  fail();
+}
 
+// Files and directories alike: an empty directory, or one whose name holds what a name must
+// not, is part of what is published too.
+const directories = [];
 const walk = (dir) =>
-  readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory()
-      ? walk(join(dir, e.name))
-      : [relative(dist, join(dir, e.name)).split(sep).join('/')],
-  );
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const path = relative(dist, join(dir, e.name)).split(sep).join('/');
+    if (!e.isDirectory()) return [path];
+    directories.push(path);
+    return walk(join(dir, e.name));
+  });
 const onDisk = walk(dist)
   .filter((p) => p !== NAME)
   .sort();
@@ -90,6 +112,12 @@ if (JSON.stringify(onDisk) !== JSON.stringify(listed)) {
   for (const path of onDisk)
     if (!own(manifest.files, path)) problems.push(`not in the manifest: ${path}`);
   for (const path of listed) if (!onDisk.includes(path)) problems.push(`missing: ${path}`);
+}
+for (const directory of directories) {
+  if (!listed.some((path) => path.startsWith(`${directory}/`)))
+    problems.push(`not in the manifest: ${directory}/`);
+  for (const finding of findUnsafe(directory))
+    problems.push(`the name ${directory}/ holds ${finding}`);
 }
 for (const path of listed) {
   if (!onDisk.includes(path)) continue;

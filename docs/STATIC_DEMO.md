@@ -312,10 +312,13 @@ The local stand-in (`web/scripts/pages-server.mjs`) follows the same rules:
   with status 404;
 - only GET and HEAD are answered, no header of the site's own is sent, and `max-age=600`
   with an ETag;
-- an encoded dot, slash or backslash (`%2E`, `%2F`, `%5C`), a backslash, NUL or a dot
-  segment is never a file (404.html): stricter than a host that decodes them;
-- every file it serves, 404.html included, is resolved through its links and must stay in
-  the build.
+- the path is read as the request sent it, before any URL parsing: outside the base it is
+  not the site's (a plain 404); inside it, an encoded dot, slash, backslash or NUL (`%2E`,
+  `%2F`, `%5C`, `%00`), a backslash or a dot segment is never a file (404.html). Browsers
+  resolve dot segments and backslashes before they send a request, so only other clients
+  send those. The stand-in is stricter than a host that decodes them;
+- every file, 404.html included, is resolved through its links each time it is served and
+  must stay in the build.
 
 It is not GitHub Pages: the real behaviour is checked after activation (section 12, step 8).
 
@@ -331,23 +334,32 @@ It holds no credential, key, token, cookie or storage. It makes no POST and need
 and it shows no operational metadata. `verify-pages.mjs` refuses any file of a type a build
 never holds (anything but HTML, JavaScript, CSS, JSON, text, SVG and the woff2 font) and a
 font without the WOFF2 signature. A link or a directory where a file is listed is reported,
-never followed. It then scans every file name and every text file, the site manifest
-included (`web/scripts/unsafe.mjs`, tested pattern by pattern in `build/unsafe.test.ts`;
+never followed; so is a directory the manifest does not account for, empty or not, and a
+manifest that is not well formed. It then scans every file and directory name and every
+text file, the site manifest included (`web/scripts/unsafe.mjs`, tested pattern by pattern in `build/unsafe.test.ts`;
 `build/verifiers.test.ts` plants defects in copies of both builds), for:
 
 - private keys; GitHub, AWS and Slack tokens; API key values; JSON web tokens;
-- credential assignments (quoted, or unquoted values that look like a secret),
-  `Authorization` headers, bearer or basic credentials, the API key header, and URLs with
-  credentials (the user may be empty);
-- `file:` URLs, local paths (Unix, any Windows drive, network shares and CI workspaces),
-  local and internal host names (any case), IPv4 and IPv6 addresses (compressed forms
-  included), and e-mail addresses;
+- credential assignments, the keyword possibly with a suffix (`SECRET_KEY`,
+  `client_secret_value`), with a quoted value or an unquoted one that looks like a secret
+  (with a digit, or long and in both cases); `Authorization` headers, bearer or basic
+  credentials, the API key header, and URLs with credentials (the user may be empty);
+- `file:` URLs, local paths (Unix, a Windows drive with a backslash or a two-segment
+  forward-slash path, network shares and CI workspaces), local and internal host names (any
+  case, and `::1`), IPv4 and IPv6 addresses (compressed forms included, also at the end of a
+  sentence; short hex runs such as `a::b` are not taken for one), and e-mail addresses;
 - links to any site but the four the bundled code and licences name: `www.w3.org` (SVG and
   MathML namespaces), `react.dev` (React's error pages), `github.com` (the repository and the
-  Inter font's source) and `scripts.sil.org` (the font's licence). A link is any scheme
-  followed by two slashes; `https:host` and `https:/host`, which a browser reads as
-  `https://host`; and a protocol-relative `//host` where a link, a source, a CSS `url()`, an
-  `@import` or a string begins.
+  Inter font's source) and `scripts.sil.org` (the font's licence). A link is:
+  - any scheme followed by two slashes (a regex literal after a property name, such as
+    `{test:/\.ts$/}`, is not one);
+  - http, https, ws, wss or ftp with backslashes, or with fewer slashes where a string or a
+    link begins: from this https site `http:host` and `ws:host` reach that host, and so does
+    any of them parsed without a base (the https forms, which a page of the site resolves
+    to itself, are flagged too, to be safe);
+  - a protocol-relative `//host` (or more slashes, backslashes, `\/\/` in a script, a user
+    before the host) where a link, a source, a later `srcset` candidate, a CSS `url()`, an
+    `@import`, a refresh `url=` or a string begins.
 
 These are patterns: a check on mistakes, next to the review of what is committed, not a
 proof that nothing else could be. The export repeats its own checks without the host
@@ -419,9 +431,11 @@ account or organisation used for nothing else.
 `/demand-forecasting-model/`. A custom domain serving the site at its root needs the base
 path `/`:
 
-1. change `DEFAULT_PAGES_BASE` in `web/build/static-site.ts`, the `--base` default of
-   `web/scripts/pages-server.mjs`, `PAGES_BASE` in `web/playwright.config.ts` and `BASE` in
-   the static e2e specs, and the gate's `SITE` and the record's `site`;
+1. change `DEFAULT_PAGES_BASE` in `web/build/static-site.ts` (the Playwright configuration
+   and the static e2e specs import it) and the `--base` default of
+   `web/scripts/pages-server.mjs`; the tests that pin the default
+   (`build/static-site.test.ts`) and the site (`tests/test_m9_pages_workflow.py`); and the
+   gate's `SITE` (`.github/scripts/pages_gate.py`) with the record's `site`;
 2. rebuild (`npm run build:pages`) and commit `web/atlas-static-site.json`.
 
 `ATLAS_PAGES_BASE` alone builds for another base, for a local check, but never rewrites the
@@ -479,7 +493,7 @@ npx vitest run build/verifiers.test.ts   # the verifiers on planted copies (veri
 | `tests/test_m9_static_export.py` | the committed export verifies and reproduces byte for byte; each file is the API's answer to its request, through the test client; the fixtures' bytes; coverage of the static pages' requests, and nothing operational; the history windows equal the Forecasting page's; the scientific status and every label; sources repository-relative and equal to the committed files; no unsafe text, and every unsafe pattern found; every refusal of `check_answer`; nothing written from damaged outputs or on a refused request; the environment ignored; replacing an earlier export, refusing other directories; every difference `verify` must find; the command; the policy equals `DASHBOARD_CSP` without `frame-ancestors`; the line-ending rule |
 | `tests/test_m9_pages_workflow.py` | the command and the tests follow the committed record (phase A's is refused with every switch set; the owner's complete approval passes); each switch and each owner decision is required; unknown fields, impossible dates, dates before M9 or after today, notes that are not text and repeated keys refused; the workflow never publishes on its own, uploads the build straight after its verification, checks the downloaded artifact on the publication job's own runner before publishing it and every served file after, keeps a pull request's runs and each dispatch apart from main's pushes, has minimal permissions, changes no Pages setting and runs every static check; the check of the artifact (exactly the listed files and the manifest; every difference named: altered, missing, extra, a link, a path outside); the check of a published site (every differing file named; a cut-off answer fetched again; its deadline; https only) |
 | Vitest: `src/api/static.test.ts`, `src/m9-static.test.tsx`, `src/router.test.ts`, `build/static-site.test.ts`, `build/unsafe.test.ts`, `build/verifiers.test.ts` | the static reader: the recorded answer after its SHA-256, refusals without a fetch, altered files refused, the API checks, a missing file, network, timeout, cancellation, no Web Crypto, a foreign service worker (and reads where none can control the page); no simulation ever sent; the export answers every request the pages can make; the views in the static profile (badge, wording, links under the base, every page's limitations from the recorded answers, the recorded scenarios, the disabled form, no POST, a missing file); router base paths, canonical forms (repeated slashes and suffixes, query and fragment kept, never fatal, never out of the base); the build plugin's checks of the export, the base path and the site manifest; every pattern of the scan, and none in the committed build and export; both verifiers on planted copies (unlisted files named `constructor` and the like, links, a false font, names and the manifest scanned, a build for another base) |
-| Playwright `pages` (desktop Chromium) | every page from the files, read-only (GET only, never `/api/`), with no console error or CSP violation; deep links and reloads (200); canonical addresses, and none that leaves the site; the 404 page and its links; back and forward; the scientific limitations next to their results, the Overview's erratum pointer and the navigation's line included; the static simulator (nine recorded scenarios, DIAGNOSTIC kept, reload, no POST); every history window and period; a tampered file refused; a missing file reported; the licence notices under the base; axe WCAG 2.2 A/AA on every page in both themes with every table and disclosure open; keyboard (skip link, navigation, the scenario chooser); reflow at 320 px |
+| Playwright `pages` (desktop Chromium) | every page from the files, read-only (GET only, never `/api/`), with no console error or CSP violation; deep links and reloads (200); canonical addresses, and none that leaves the site; the 404 page and its links; back and forward; the scientific limitations next to their results, the Overview's erratum pointer and the navigation's line included; the static simulator (nine recorded scenarios, DIAGNOSTIC kept, reload, no POST); every history window and period; a tampered file refused; a missing file reported; the licence notices under the base; axe WCAG 2.2 A/AA on every page in both themes with every table and disclosure open; keyboard (from the start of the page, the tab key reaches the skip link, the Simulator's navigation link and the scenario chooser, which Enter and the arrow keys then use); reflow at 320 px |
 | Playwright `pages-mobile` (Chromium, Pixel 7) | the functional suite above, and the phone: menu, every page, no sideways scroll, axe |
 | Playwright `pages-firefox`, `pages-webkit` (CI) | the functional suite (`pages.spec.ts`) and keyboard use (`pages-keyboard.spec.ts`); axe, reflow and the phone layout run in Chromium only |
 
@@ -562,7 +576,7 @@ Publication is part B of `.github/workflows/pages.yml`. It runs only when all of
    committed record, which the gate refuses even with every switch set, not on a test: the
    tests follow the record, so the owner's complete approval passes CI.
 5. **GitHub's `github-pages` environment rules: required.** Required reviewers and `main`
-   only (section 12, step 3). The gate's checks run in this repository's workflow, so anyone
+   only (section 12, step 2). The gate's checks run in this repository's workflow, so anyone
    with write access could dispatch a changed workflow from another branch. The environment's
    rules are enforced by GitHub itself, whatever the workflow says, and are what stops that.
    Fork pull requests cannot publish at all: they get a read-only token and no OIDC token.
@@ -583,17 +597,20 @@ It is uploaded only for a publication and kept one day. The one job that holds
 1. on its own runner, which runs no npm code, it downloads the artifact and requires it to be
    the committed build exactly (`.github/scripts/pages_check_artifact.py`): the files the
    committed manifest lists, each with its size and SHA-256, and the manifest itself, and
-   nothing else (no other file, no link, no path outside the archive). The build job's
-   runner ran the dependencies' install scripts, so this check does not trust it;
+   nothing else (no other file, no link, no path outside the archive, nothing after the
+   archive's end). The build job's runner ran the dependencies' install scripts, so this
+   check does not trust it;
 2. deploy-pages publishes that artifact;
 3. it fetches every file of the committed manifest from the published site and requires its
    size and SHA-256 (`.github/scripts/pages_check_site.py`). The check is repeated while the
-   publication reaches every edge, a cut-off answer is fetched again, and the whole check
-   stops after 8 minutes, naming every file that differs.
+   publication reaches every edge, a cut-off answer is fetched again, each fetch has
+   10 seconds in all, and the whole check stops after 8 minutes, naming every file that
+   differs.
 
-Runs do not displace one another: a pull request's runs have a group of their own, and so
+No push displaces a publication: a pull request's runs have a group of their own, and so
 does each dispatch, so no push can replace or cancel a publication that waits for its
-review. Publications themselves run one at a time.
+review. Publications themselves run one at a time, and a later dispatch's publication
+replaces one still pending in that queue.
 
 ## 11. Release and versioning
 
@@ -662,7 +679,8 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
    - set each condition to `true` only if it holds (`pages_settings_configured` now does);
    - set `release_version` to the code's version;
    - set `decided_by`, `decided_on` (YYYY-MM-DD: the day of the decision, not before
-     2026-10-18 and not in the future) and `approval_reference`;
+     2026-10-18 and not after today's date in UTC, which the gate and CI check) and
+     `approval_reference`;
    - rewrite `notes`, which still says that nothing is decided.
 
    Open a pull request and merge it once CI is green. The tests follow the record: one that

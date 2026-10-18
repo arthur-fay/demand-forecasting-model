@@ -26,6 +26,8 @@
  */
 import { defineConfig, devices } from '@playwright/test';
 
+import { DEFAULT_PAGES_BASE } from './build/static-site';
+
 /** A local Chromium (set in the development container); CI uses Playwright's own. */
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 const launchOptions = {
@@ -39,7 +41,7 @@ const launchOptions = {
 };
 export const API_PORT = 8766;
 export const PAGES_PORT = 4180;
-export const PAGES_BASE = '/demand-forecasting-model/';
+export const PAGES_BASE = DEFAULT_PAGES_BASE;
 /** The site's address: page paths in the pages specs are relative to it (no leading slash). */
 export const PAGES_URL = `http://127.0.0.1:${PAGES_PORT}${PAGES_BASE}`;
 export const PRIVATE_PORT = 8443;

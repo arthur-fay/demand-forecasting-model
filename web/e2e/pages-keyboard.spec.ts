@@ -1,53 +1,60 @@
 /**
  * (M9) Keyboard use of the static build, in every engine (Chromium, Firefox, WebKit),
- * served as GitHub Pages serves it: the skip link, the navigation and the static
- * simulator's recorded scenarios by keyboard alone. Axe runs in Chromium only
- * (pages-a11y.spec.ts).
+ * served as GitHub Pages serves it: from the start of the page, the skip link, the
+ * navigation and the static simulator's scenario chooser are each reached with the tab key
+ * and used with Enter or the arrow keys. Axe runs in Chromium only (pages-a11y.spec.ts).
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { DEFAULT_PAGES_BASE as BASE } from '../build/static-site';
 import { open, PAGES, violations } from './helpers';
 
 /**
- * Focus the first link with the key the engine moves to links with: Tab, or in WebKit,
- * where Tab skips links unless the user asks otherwise (Safari's own setting), Option+Tab.
+ * The key that moves to the next link: Tab, or Option+Tab in WebKit on macOS, where Tab
+ * skips links unless the user changes Safari's setting. Playwright's WebKit on Linux, which
+ * CI runs, moves to links with Tab.
  */
-async function tabToFirstLink(page: Page, browserName: string) {
-  const skip = page.getByRole('link', { name: 'Skip to content' });
-  await page.keyboard.press('Tab');
-  if (browserName === 'webkit' && !(await skip.evaluate((e) => e === document.activeElement))) {
-    await page.locator('body').evaluate((body) => {
-      (document.activeElement as HTMLElement | null)?.blur();
-      body.focus();
-    });
-    await page.keyboard.press('Alt+Tab');
+const tabKey = (browserName: string) =>
+  browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab';
+
+/** Press the tab key until `target` has the focus (at most `most` times). */
+async function tabTo(page: Page, key: string, target: Locator, most = 60) {
+  for (let presses = 0; presses < most; presses += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press(key);
   }
-  await expect(skip).toBeFocused();
+  await expect(target).toBeFocused();
 }
 
 test('the skip link, the navigation and the recorded scenarios work from the keyboard', async ({
   page,
   browserName,
 }) => {
+  const key = tabKey(browserName);
   await open(page, '', PAGES[0].heading);
-  await tabToFirstLink(page, browserName);
+  // The first stop is the skip link, and it moves to the content.
+  await page.keyboard.press(key);
+  await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#main$/);
 
+  // From the start of the page, the tab key reaches the navigation's Simulator link.
+  await open(page, '', PAGES[0].heading);
   const link = page
     .getByRole('navigation', { name: 'Dashboard sections' })
     .getByRole('link', { name: /Simulator/ });
-  await link.focus();
+  await tabTo(page, key, link);
   await page.keyboard.press('Enter');
   await expect(
     page.getByRole('heading', { level: 1, name: 'Hypothetical simulator' }),
   ).toBeVisible();
   await expect(page.getByRole('main')).toBeFocused();
-  await expect(page).toHaveURL(/\/demand-forecasting-model\/simulator$/);
+  await expect(page).toHaveURL(new RegExp(`${BASE}simulator$`));
 
-  // The scenario list is a native select: the arrow keys choose, and the result follows.
+  // The scenario list is a native select, reached from the page's content: the arrow keys
+  // choose, and the result follows.
   const select = page.getByLabel('Reference scenario', { exact: true });
-  await select.focus();
+  await tabTo(page, key, select);
   const outline = await select.evaluate((element) => getComputedStyle(element).outlineStyle);
   expect(outline).not.toBe('none');
   await expect(select).toHaveValue('normal');

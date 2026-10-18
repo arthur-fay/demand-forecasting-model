@@ -32,13 +32,22 @@ USER_AGENT = "atlas-pages-check/1"
 
 
 def fetch(url: str, timeout: float) -> bytes | None:
-    """The body served at ``url``, or None: no answer, an error status, a cut-off body."""
+    """The body served at ``url`` within ``timeout`` seconds in all, or None: no answer, an
+    error status, a cut-off body, or one still arriving when the time is up."""
     if timeout <= 0:
         return None
+    end = time.monotonic() + timeout
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})  # noqa: S310
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-            return bytes(response.read())
+            chunks: list[bytes] = []
+            while chunk := response.read1(65536):
+                if time.monotonic() > end:
+                    return None
+                chunks.append(chunk)
+            if response.length:  # the connection closed before the announced length
+                return None
+            return b"".join(chunks)
     except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, ValueError):
         return None
 

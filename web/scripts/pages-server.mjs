@@ -8,13 +8,17 @@
 //   `forecasting.html`); anything else is the site's 404.html, with status 404;
 // - no rewrite, no header of the site's own: no Content-Security-Policy (the build carries
 //   its policy in the page), `Cache-Control: max-age=600` and an ETag, as Pages sends;
-// - GET and HEAD only; a path with an encoded dot, slash or backslash (`%2E`, `%2F`, `%5C`),
-//   a backslash, NUL or a dot segment is never a file: it is answered with 404.html (a
-//   stand-in stricter than a host that decodes them is the safer one to test against).
+// - GET and HEAD only. The path is read as the request sent it, before any URL parsing
+//   (which would resolve dot segments and turn a backslash into a slash): outside the base
+//   it is not the site's (plain 404); inside it, an encoded dot, slash, backslash or NUL
+//   (`%2E`, `%2F`, `%5C`, `%00`), a backslash or a dot segment is never a file and gets
+//   404.html. Browsers resolve dot segments and backslashes before sending, so only other
+//   clients send those; a stand-in stricter than a host that decodes them is the safer one
+//   to test against.
 //
-// It reads nothing outside the build directory: every file it serves, 404.html and
-// index.html included, is resolved through its links and must stay inside. It is not GitHub Pages: the real behaviour
-// is verified once Pages is enabled (docs/STATIC_DEMO.md, "After activation").
+// It reads nothing outside the build directory: every file, 404.html included, is resolved
+// through its links each time it is served and must stay inside. It is not GitHub Pages:
+// the real behaviour is verified once Pages is enabled (docs/STATIC_DEMO.md, section 12).
 //
 //   node scripts/pages-server.mjs [--dir dist-pages] [--base /demand-forecasting-model/]
 //                                 [--host 127.0.0.1] [--port 4180]
@@ -66,8 +70,11 @@ function file(relative) {
   return null;
 }
 
-const NOT_FOUND = file('404.html');
-if (file('index.html') === null || NOT_FOUND === null || NOT_FOUND === 'directory') {
+const page = (path) => {
+  const found = file(path);
+  return found === 'directory' ? null : found;
+};
+if (page('index.html') === null || page('404.html') === null) {
   console.error(`${root} holds no static build: run \`npm run build:pages\` first`);
   process.exit(2);
 }
@@ -91,8 +98,16 @@ function send(request, response, status, path, extra = {}) {
   response.end(request.method === 'HEAD' ? undefined : body);
 }
 
+function plainNotFound(response) {
+  response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  response.end('404: not part of this site\n');
+}
+
+/** The site's 404.html, resolved now (it may have changed since the start). */
 function notFound(request, response) {
-  send(request, response, 404, NOT_FOUND);
+  const found = page('404.html');
+  if (found === null) plainNotFound(response);
+  else send(request, response, 404, found);
 }
 
 const server = createServer((request, response) => {
@@ -101,30 +116,31 @@ const server = createServer((request, response) => {
     response.end('405 method not allowed\n');
     return;
   }
-  const url = new URL(request.url ?? '/', 'http://pages.invalid');
-  if (/%(?:2e|2f|5c)/i.test(url.pathname)) {
+  const target = request.url ?? '/';
+  const raw = target.split(/[?#]/, 1)[0];
+  const query = target.slice(raw.length).split('#', 1)[0];
+  if (raw === base.slice(0, -1) && base !== '/') {
+    response.writeHead(301, { Location: `${base}${query}` });
+    response.end();
+    return;
+  }
+  if (!raw.startsWith(base)) {
+    plainNotFound(response);
+    return;
+  }
+  const rest = raw.slice(base.length);
+  if (/%(?:2e|2f|5c|00)|\\/i.test(rest) || rest.split('/').some((p) => p === '.' || p === '..')) {
     notFound(request, response);
     return;
   }
-  let path;
+  let relative;
   try {
-    path = decodeURIComponent(url.pathname);
+    relative = decodeURIComponent(rest);
   } catch {
     notFound(request, response);
     return;
   }
-  if (path === base.slice(0, -1) && base !== '/') {
-    response.writeHead(301, { Location: `${base}${url.search}` });
-    response.end();
-    return;
-  }
-  if (!path.startsWith(base)) {
-    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    response.end('404: not part of this site\n');
-    return;
-  }
-  const relative = path.slice(base.length);
-  if (/\\|\0/.test(relative) || relative.split('/').some((p) => p === '..' || p === '.')) {
+  if (relative.includes('\0')) {
     notFound(request, response);
     return;
   }
@@ -132,13 +148,13 @@ const server = createServer((request, response) => {
     relative === '' || relative.endsWith('/') ? `${relative}index.html` : relative,
   );
   if (direct === 'directory') {
-    response.writeHead(301, { Location: `${path}/${url.search}` });
+    response.writeHead(301, { Location: `${raw}/${query}` });
     response.end();
   } else if (direct !== null) {
     send(request, response, 200, direct);
   } else {
-    const page = relative.endsWith('/') ? null : file(`${relative}.html`);
-    if (page !== null && page !== 'directory') send(request, response, 200, page);
+    const html = relative.endsWith('/') ? null : page(`${relative}.html`);
+    if (html !== null) send(request, response, 200, html);
     else notFound(request, response);
   }
 });

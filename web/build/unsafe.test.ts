@@ -59,8 +59,27 @@ describe('what a published file must not hold', () => {
     ['D:/projects/atlas', 'a Windows path'],
     ['LOCALHOST', 'a local host'],
     ['token=abcdefgh1234', 'a credential assignment'],
-    ['api_key: abcdefghijklmnop', 'a credential assignment'],
+    ['api_key: AbCdEfGhIjKlMnOp', 'a credential assignment'],
     ['redis://:password@cache.example.org:6379', 'a URL with credentials'],
+    // Third check: forms the second round's patterns missed (each loads a foreign host).
+    ['<script src="///evil.example/x.js">', 'a link to another site'],
+    ['import("\\/\\/evil.example/x.js")', 'a link to another site'],
+    ['<img src="/\t/evil.example/f.png">', 'a link to another site'],
+    ['<img src="//@evil.example/e.png">', 'a link to another site'],
+    ['<img srcset="a.png 1x, //evil.example/b.png 2x">', 'a link to another site'],
+    ['<meta http-equiv="refresh" content="0;url=//evil.example">', 'a link to another site'],
+    ['<a ping=//evil.example/p href="#">', 'a link to another site'],
+    ['"http:evil.example/x"', 'a link to another site'],
+    ['"wss:evil.example"', 'a link to another site'],
+    ['https:\\\\evil.example/x', 'a link to another site'],
+    ['The server is 2001:db8::abcd.', 'an IPv6 address'],
+    ['listening on ::1 port 8000', 'a local host'],
+    ['SECRET_KEY = "wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY"', 'a credential assignment'],
+    ['aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'a credential assignment'],
+    ['client_secret_value: "abcdefgh1234"', 'a credential assignment'],
+    ['D:\\atlas', 'a Windows path'],
+    ['C:\\secrets.txt', 'a Windows path'],
+    ['"D:\\\\atlas"', 'a Windows path'],
   ])('%s is %s', (text, what) => {
     expect(found(text)).toContain(what);
   });
@@ -81,6 +100,18 @@ describe('what a published file must not hold', () => {
       '{token:e.value,secret:t,password:n}',
       'protocol==="https:"&&x; e=/^https?:\\/\\//',
       "'//' + path; s.split('//')",
+      // Third check: regex literals after a property name, object keys named after schemes,
+      // prose, expressions, JS escapes and short hex runs.
+      '{test:/\\.ts$/,id:/\\.[jt]sx?$/}',
+      'a?b:/\\d+/.test(n)',
+      '{path:/\\//g,evaluate:/\\{\\{/g,pathname:/\\/$/}',
+      '/^https:\\/\\//i.test(e)',
+      '{http:t.http,https:t.https}; ws:e.ws',
+      'Note: // see below; served over https: github.io pages',
+      'token=createTokenizer(e); {tokenType:e.type}',
+      'secret: understanding the model',
+      'A:\\n\\tB',
+      'a::b, 12::30, C::9bb',
     ])
       expect(findUnsafe(text), text).toEqual([]);
     expect(ALLOWED_HOSTS).toEqual(['www.w3.org', 'react.dev', 'github.com', 'scripts.sil.org']);

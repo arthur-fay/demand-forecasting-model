@@ -1,6 +1,7 @@
 /** (M9) The static build on a phone (Pixel 7), served as GitHub Pages serves it. */
 import { expect, test } from '@playwright/test';
 
+import { DEFAULT_PAGES_BASE as BASE } from '../build/static-site';
 import { horizontalOverflow, open, PAGES, violations } from './helpers';
 
 const at = (path: string) => path.slice(1);
@@ -26,7 +27,7 @@ test('the navigation opens from the menu and moves between static pages', async 
     await nav.getByRole('link', { name: label }).click();
     await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
     await expect(nav).toBeHidden();
-    await expect(page).toHaveURL(new RegExp(`/demand-forecasting-model/${path}$`));
+    await expect(page).toHaveURL(new RegExp(`${BASE}${path}$`));
   }
   await page.goBack();
   await expect(

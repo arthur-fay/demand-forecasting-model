@@ -10,7 +10,21 @@ import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dist = process.argv[2] ?? fileURLToPath(new URL('../dist/', import.meta.url));
-const manifest = JSON.parse(readFileSync(join(dist, 'atlas-dashboard.json'), 'utf-8'));
+// The manifest, too, must be a regular file of the build (a link is reported, not followed).
+let manifest;
+try {
+  if (!lstatSync(join(dist, 'atlas-dashboard.json')).isFile())
+    throw new Error('not a regular file: atlas-dashboard.json');
+  manifest = JSON.parse(readFileSync(join(dist, 'atlas-dashboard.json'), 'utf-8'));
+  if (typeof manifest.files !== 'object' || manifest.files === null) throw new Error('no files');
+} catch (error) {
+  console.error(
+    error instanceof Error && error.message.startsWith('not a regular file')
+      ? error.message
+      : 'atlas-dashboard.json is missing, unreadable or not a dashboard manifest',
+  );
+  process.exit(1);
+}
 const walk = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory()

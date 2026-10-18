@@ -276,6 +276,9 @@ def test_nothing_operational_local_or_secret_is_published() -> None:
         ("2001:db8:85a3::8a2e:370:7334", "an IPv6 address"),
         ("D:/projects/atlas", "a Windows path"),
         ("redis://:password@cache.example.org:6379", "a URL with credentials"),
+        # Third check.
+        ("The server is 2001:db8::abcd.", "an IPv6 address"),
+        (r"D:\atlas", "a Windows path"),
     ],
 )
 def test_unsafe_text_is_found(text: str, finding: str) -> None:
@@ -290,7 +293,15 @@ def test_the_repository_path_and_keys_are_searched_too() -> None:
 
 
 def test_times_ratios_and_labels_are_no_address_or_path() -> None:
-    for text in ("12:30:00", "1:2:3", "Model::fit", "H1: not significant", "MAE 1:30 days", "::"):
+    for text in (
+        "12:30:00",
+        "1:2:3",
+        "Model::fit",
+        "a::b, 12::30, C::9bb",
+        "H1: not significant",
+        "MAE 1:30 days",
+        "::",
+    ):
         assert unsafe_text({"note": text}, REPO_ROOT) == [], text
 
 

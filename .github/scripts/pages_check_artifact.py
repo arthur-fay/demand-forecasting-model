@@ -6,7 +6,8 @@ before deploy-pages publishes it. The archive (``artifact.tar``, written by
 actions/upload-pages-artifact) must hold exactly the files the committed manifest
 (web/atlas-static-site.json) lists, each with its recorded size and SHA-256, and that
 manifest itself, byte for byte: no other file, no link or special file, no path that leaves
-the archive. It names every difference.
+the archive, and nothing after the archive's end (tarfile stops reading at a damaged header
+or an early end marker, where another reader might go on). It names every difference.
 
 Standard library only. Usage::
 
@@ -67,8 +68,16 @@ def problems(committed: bytes, archive: Path) -> list[str]:
                 else:
                     stream = tar.extractfile(member)
                     contents[name] = stream.read() if stream is not None else b""
+            end = tar.offset
+        with archive.open("rb") as raw:
+            raw.seek(end)
+            rest = raw.read()
     except (OSError, tarfile.TarError) as exc:
         return [f"the artifact cannot be read ({exc})"]
+    # A well-formed archive ends with two zero blocks (and zero padding): anything else after
+    # the last member read is data a more lenient reader could extract.
+    if len(rest) < 2 * tarfile.BLOCKSIZE or rest.strip(b"\0"):
+        found.append("data after the last member that is not the end of the archive")
     if NAME not in contents:
         found.append(f"missing: {NAME}")
     elif contents[NAME] != committed:

@@ -337,17 +337,22 @@ def unsafe_text(document: object, repo_root: Path) -> list[str]:
     return found
 
 
-#: A candidate for a compressed IPv6 address (with ``::``), confirmed by ``ipaddress``.
+#: A candidate for a compressed IPv6 address (with ``::``), confirmed by ``ipaddress``. It may
+#: end a sentence (a final ``.`` not followed by a digit).
 _IPV6_CANDIDATE: Final = re.compile(
-    r"(?<![\w:.])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:.])", re.I
+    r"(?<![\w:.])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w]|:[\w:]|\.\d)", re.I
 )
 
 
 def _compressed_ipv6(text: str) -> str | None:
+    """The first compressed IPv6 address in ``text``. Short hex runs (``a::b``, ``C::9bb``)
+    are not taken for one: an address needs a group of four digits, or three groups."""
     for match in _IPV6_CANDIDATE.finditer(text):
         candidate = match.group(0)
         groups = [group for group in candidate.split(":") if group]
         if "::" not in candidate or len(groups) < 2:
+            continue
+        if len(groups) < 3 and not any(len(group) == 4 for group in groups):
             continue
         try:
             ipaddress.IPv6Address(candidate)

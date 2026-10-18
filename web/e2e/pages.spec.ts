@@ -1,15 +1,15 @@
 /**
  * (M9) The static build in a real browser, served as GitHub Pages serves a project site
- * (scripts/pages-server.mjs, under /demand-forecasting-model/): no API, no Python, no
+ * (scripts/pages-server.mjs, under the build's base path): no API, no Python, no
  * rewrites. Page paths are relative to the site's address (no leading slash).
  */
 import { readFileSync } from 'node:fs';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { DEFAULT_PAGES_BASE as BASE } from '../build/static-site';
 import { clean, open, PAGES, watch } from './helpers';
 
-const BASE = '/demand-forecasting-model/';
 /** A page's path relative to the site: '/forecasting' is 'forecasting', '/' is ''. */
 const at = (path: string) => path.slice(1);
 

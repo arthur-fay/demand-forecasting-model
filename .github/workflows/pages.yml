@@ -40,8 +40,9 @@ permissions:
 # A pull request's runs share a group of their own (a fork's branch may be called main),
 # and a newer run cancels the one in progress. Pushes are grouped by ref and never cancelled
 # while they run, but GitHub keeps one pending run per group: a newer push replaces a push
-# run still waiting. A dispatch has a group of its own, so no push or other run can replace
-# or cancel it; the publication job's own group serialises publications.
+# run still waiting. A dispatch has a group of its own, so no push can replace or cancel it.
+# Publications run one at a time in their own group, where a later dispatch's publication
+# replaces one still pending.
 concurrency:
   group: pages-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.run_id) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

@@ -184,7 +184,7 @@ def test_a_decision_day_before_m9_or_after_today_is_refused() -> None:
 def test_notes_are_plain_text(notes: object) -> None:
     assert "the record's notes are not plain text" in _open(_without("notes", notes))
     record = _approved()
-    del record["notes"]
+    record.pop("notes", None)
     assert _open(record) == []
 
 
@@ -416,6 +416,47 @@ def test_a_cut_off_answer_is_fetched_again(tmp_path: Path) -> None:
         server.server_close()
 
 
+def test_an_answer_that_trickles_is_cut_off_at_the_deadline(tmp_path: Path) -> None:
+    """The timeout bounds a whole fetch, not only a pause between bytes."""
+    body = b'{"a": 1, "padding": "' + b"x" * 40 + b'"}'
+    manifest = {"files": {"data/x.json": {"sha256": hashlib.sha256(body).hexdigest(), "bytes": 0}}}
+    manifest["files"]["data/x.json"]["bytes"] = len(body)
+    committed = json.dumps(manifest).encode()
+
+    class Handler(_Quiet):
+        def do_GET(self) -> None:
+            payload = committed if self.path.endswith("atlas-static-site.json") else body
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            if payload is committed:
+                self.wfile.write(payload)
+                return
+            for byte in payload:  # one byte every 0.2 s: about 12 s in all
+                try:
+                    self.wfile.write(bytes([byte]))
+                    self.wfile.flush()
+                except OSError:
+                    return
+                time.sleep(0.2)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        path = tmp_path / "atlas-static-site.json"
+        path.write_bytes(committed)
+        url = f"http://127.0.0.1:{server.server_address[1]}/"
+        arguments = ["--manifest", str(path), "--url", url, "--allow-http", "--attempts", "10"]
+        start = time.monotonic()
+        extra = ["--wait", "0.5", "--timeout", "1", "--deadline", "3"]
+        assert CHECK.main([*arguments, *extra]) == 1
+        assert time.monotonic() - start < 8
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_check_stops_at_its_deadline(
     site: tuple[Path, Path, str], capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -495,6 +536,45 @@ def test_every_difference_of_the_artifact_is_named(
         "a path outside the site: ../outside.txt",
     ):
         assert problem in err, problem
+
+
+def _with_trailer(archive: Path, trailer: bytes) -> Path:
+    """The archive with ``trailer`` written over its end-of-archive blocks."""
+    data = archive.read_bytes()
+    with tarfile.open(archive) as tar:
+        for _ in tar:
+            pass
+        end = tar.offset
+    archive.write_bytes(data[:end] + trailer + b"\0" * (2 * tarfile.BLOCKSIZE))
+    return archive
+
+
+def _member(name: str, body: bytes) -> bytes:
+    info = tarfile.TarInfo(name)
+    info.size = len(body)
+    padding = b"\0" * (-len(body) % tarfile.BLOCKSIZE)
+    return info.tobuf(format=tarfile.GNU_FORMAT) + body + padding
+
+
+@pytest.mark.parametrize(
+    "trailer",
+    [
+        # A member after the end-of-archive blocks.
+        b"\0" * (2 * tarfile.BLOCKSIZE) + _member("./evil.html", b"<p>not verified</p>"),
+        # A member after a single zero block.
+        b"\0" * tarfile.BLOCKSIZE + _member("./evil.html", b"<p>not verified</p>"),
+        # A member after a header with a bad checksum.
+        b"x" * tarfile.BLOCKSIZE + _member("./evil.html", b"<p>not verified</p>"),
+    ],
+    ids=["after-end", "after-one-zero-block", "after-bad-header"],
+)
+def test_nothing_may_follow_the_archive(
+    build: tuple[Path, Path], tmp_path: Path, trailer: bytes, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, committed = build
+    archive = _with_trailer(_tar(root, tmp_path / "a.tar"), trailer)
+    assert _artifact(committed, archive) == 1
+    assert "data after the last member" in capsys.readouterr().err
 
 
 def test_the_artifact_must_carry_the_committed_manifest(
