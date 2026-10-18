@@ -695,7 +695,8 @@ export type ErrorResponse = z.infer<typeof ErrorResponse>;
 
 // --- The deployment descriptor (served next to the dashboard, not part of the API) -----------
 
-export const DeploymentDescriptor = z.object({
+/** What a server says about its deployment (`atlas.dashboard.descriptor`): validated. */
+export const ServedDeploymentDescriptor = z.object({
   format: z.literal('atlas-deployment/1'),
   /** local: the API serves the dashboard itself (development, SSH tunnel). */
   profile: z.enum(['local', 'private', 'public-demo']),
@@ -704,4 +705,17 @@ export const DeploymentDescriptor = z.object({
   /** Whether /api/v1/system and /health/ready are reachable (operational detail). */
   operational_detail: z.boolean(),
 });
-export type DeploymentDescriptor = z.infer<typeof DeploymentDescriptor>;
+export type ServedDeploymentDescriptor = z.infer<typeof ServedDeploymentDescriptor>;
+
+/**
+ * (M9) The static profile's deployment, fixed in the build (no server sends it): read-only,
+ * no simulation, no operational detail. A served descriptor can never claim it.
+ */
+export const STATIC_DEPLOYMENT = {
+  format: 'atlas-deployment/1',
+  profile: 'static',
+  simulations: 'disabled_static_site',
+  operational_detail: false,
+} as const;
+
+export type DeploymentDescriptor = ServedDeploymentDescriptor | typeof STATIC_DEPLOYMENT;

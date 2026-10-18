@@ -12,8 +12,9 @@ import type {
 } from '../api/schemas';
 import { Callout } from '../components/Callout';
 import { DataTable } from '../components/DataTable';
+import { Panel } from '../components/Panel';
 import { Evidence, ProvenanceFooter } from '../components/Provenance';
-import { Async } from '../components/States';
+import { Async, Loading } from '../components/States';
 import { HypotheticalTag, IntegrityTags, Tag } from '../components/Tag';
 import { useDeployment } from '../deployment';
 import {
@@ -24,10 +25,11 @@ import {
   humanise,
   shortHash,
 } from '../lib/format';
-import { Link } from '../router';
+import { STATIC } from '../profile';
+import { Link, setQueryParam, useQueryParam } from '../router';
 import { intervalsWithStatus, PageHeader } from './common';
-import { useSimulationParameters } from './data';
-import { FeasibilityTag, PlanOutcome } from './plan';
+import { useScenario, useScenarios, useSimulationParameters } from './data';
+import { FeasibilityTag, PlanOutcome, ScenarioFacts } from './plan';
 import {
   changedFields,
   fieldOfDetail,
@@ -748,6 +750,121 @@ function SimulationResult({
   );
 }
 
+/**
+ * (M9) Where no simulation can run (the static profile), the committed M4 reference
+ * scenarios are what can be explored: choosing one shows the result the M4 engine computed
+ * when the reference run was made, exactly as the API recorded it. Nothing is computed,
+ * and a choice is never presented as a new optimisation: the panel names the run and its
+ * fingerprint, and the result keeps its HYPOTHETICAL and DIAGNOSTIC labels.
+ */
+function ReferenceScenarios() {
+  const scenarios = useScenarios();
+  const requested = useQueryParam('scenario');
+  const list = scenarios.data?.data;
+  const ids = list?.scenarios.map((s) => s.scenario_id) ?? [];
+  const id = requested !== null && ids.includes(requested) ? requested : (ids[0] ?? null);
+  const detail = useScenario(id);
+  const shown = detail.data ?? detail.previous;
+  return (
+    <Panel
+      id="reference-scenarios"
+      title="Explore the recorded reference scenarios"
+      subtitle="Results the M4 engine computed once, when the committed reference run was made: choosing one shows its recorded result and computes nothing"
+      tags={
+        <span className="tag-row">
+          <Tag tone="neutral">Recorded result</Tag>
+          <HypotheticalTag />
+        </span>
+      }
+      actions={
+        ids.length > 0 && id !== null ? (
+          <div className="field">
+            <label className="field-label" htmlFor="reference-scenario">
+              Reference scenario
+            </label>
+            <select
+              id="reference-scenario"
+              className="select"
+              value={id}
+              onChange={(event) => {
+                setQueryParam('scenario', event.target.value);
+              }}
+            >
+              {ids.map((value) => (
+                <option key={value} value={value}>
+                  {humanise(value)}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : undefined
+      }
+    >
+      {list !== undefined && (
+        <Callout tone="warning" title="A recorded result, not a new simulation">
+          <p>
+            These are the {ids.length} scenarios of the committed M4 reference run{' '}
+            <span className="mono">{list.run_id}</span> (result fingerprint{' '}
+            <span className="mono" title={list.result_fingerprint}>
+              {shortHash(list.result_fingerprint)}
+            </span>
+            ), each solved and certified when that run was made. Choosing one shows its recorded
+            result exactly as the API served it: it does not run the optimisation, and no input can
+            be changed here. Every input is HYPOTHETICAL, and nothing shown is a staffing, budget or
+            capacity recommendation.
+          </p>
+        </Callout>
+      )}
+      {requested !== null && ids.length > 0 && !ids.includes(requested) && (
+        <Callout tone="info" title={`There is no reference scenario named “${requested}”`}>
+          <p>Showing {humanise(id ?? '')} instead.</p>
+        </Callout>
+      )}
+      {scenarios.snapshot.status === 'error' ? (
+        <Async resource={scenarios} label="the reference scenarios">
+          {() => null}
+        </Async>
+      ) : detail.snapshot.status === 'error' ? (
+        <Async resource={detail} label="the reference scenario">
+          {() => null}
+        </Async>
+      ) : shown === undefined ? (
+        <Loading
+          label="the reference scenario"
+          slow={[scenarios.snapshot, detail.snapshot].some(
+            (snapshot) => snapshot.status === 'loading' && snapshot.slow,
+          )}
+        />
+      ) : (
+        <div className="stack-4" data-stale={detail.data === undefined ? 'true' : undefined}>
+          <div className="stack-2">
+            <h3>
+              Recorded result: {humanise(shown.data.outcome.scenario_id)}{' '}
+              <FeasibilityTag feasibility={shown.data.outcome.feasibility} />
+            </h3>
+            <p className="secondary">{shown.data.outcome.description}</p>
+            <ScenarioFacts outcome={shown.data.outcome} />
+          </div>
+          <PlanOutcome
+            outcome={shown.data.outcome}
+            plans={shown.data.plans}
+            daily={shown.data.daily_plans}
+            headingLevel={4}
+          />
+          <p className="small">
+            <Link href={`/decisions?scenario=${shown.data.outcome.scenario_id}`}>
+              Compare it with the other reference scenarios
+            </Link>{' '}
+            on the Decision optimisation page, with its HYPOTHETICAL parameters and the model&apos;s
+            structural assumptions.
+          </p>
+          <Evidence integrity={shown.integrity} provenance={shown.provenance} />
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 export default function Simulator() {
   const parameters = useSimulationParameters();
   const { simulationsBlocked, loading } = useDeployment();
@@ -777,11 +894,19 @@ export default function Simulator() {
         ) : (
           <Callout tone="info" title="Interactive simulations are disabled in this deployment">
             <p>{simulationsBlocked}</p>
-            <p>
-              The form below shows what could be adjusted and the reference values. The committed
-              reference scenarios are on the <Link href="/decisions">Decision optimisation</Link>{' '}
-              page.
-            </p>
+            {STATIC ? (
+              <p>
+                The recorded reference scenarios can be explored below, and the form after them
+                shows what a simulation could adjust, with the reference values and ranges. The full
+                simulator runs wherever ATLAS runs with its API (docs/DASHBOARD.md).
+              </p>
+            ) : (
+              <p>
+                The form below shows what could be adjusted and the reference values. The committed
+                reference scenarios are on the <Link href="/decisions">Decision optimisation</Link>{' '}
+                page.
+              </p>
+            )}
           </Callout>
         ))}
       <Callout tone="warning" title="Simulations are exploratory, not operational advice">
@@ -792,6 +917,7 @@ export default function Simulator() {
           is not a validated staffing, budget or service-capacity recommendation.
         </p>
       </Callout>
+      {STATIC && <ReferenceScenarios />}
       <Async resource={parameters} label="the simulation inputs">
         {({ data, provenance }) => (
           <SimulatorForm spec={data} provenance={provenance} blocked={simulationsBlocked} />

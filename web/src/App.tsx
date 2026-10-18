@@ -6,6 +6,7 @@ import { Tag } from './components/Tag';
 import { DeploymentContext, useDeploymentResource, type Deployment } from './deployment';
 import { FONT_LICENCE, THIRD_PARTY_NOTICES } from './notices';
 import { PAGES, type PagePath } from './pages';
+import { BASE, ORIGIN_TEXT } from './profile';
 import { Link, useLocation } from './router';
 
 const VIEWS: Record<PagePath, React.LazyExoticComponent<() => React.ReactNode>> = {
@@ -58,6 +59,15 @@ class PageBoundary extends Component<{ children: React.ReactNode }, { failed: bo
 
 function DeploymentBadge({ deployment }: { deployment: Deployment }) {
   const profile = deployment.descriptor?.profile;
+  if (profile === 'static')
+    return (
+      <Tag
+        tone="neutral"
+        title="A static copy: recorded research outputs, no server, nothing computed live"
+      >
+        Static demo · read-only
+      </Tag>
+    );
   if (profile === 'public-demo') return <Tag tone="neutral">Public demo · read-only</Tag>;
   if (profile === 'private') return <Tag tone="neutral">Private deployment</Tag>;
   // A local API with a key (also behind the SSH tunnel) refuses the browser's simulations.
@@ -231,8 +241,7 @@ export function App() {
             <p>
               ATLAS research dashboard {__ATLAS_DASHBOARD_VERSION__}. Data: NYC Open Data, 311
               Service Requests (dataset erm2-nwe9), frozen and hash-verified as the legacy-v0
-              snapshot. Every number is served by the ATLAS API from committed, verified research
-              outputs.
+              snapshot. {ORIGIN_TEXT.footer}
             </p>
             <p>
               Nothing here is a validated staffing, budget or service-capacity recommendation for
@@ -240,9 +249,9 @@ export function App() {
             </p>
             <p>
               Software in this dashboard:{' '}
-              <a href={`/${THIRD_PARTY_NOTICES}`}>third-party licences</a> (React, zod and d3: MIT
-              and ISC) and the <a href={`/${FONT_LICENCE}`}>Inter font licence</a> (SIL Open Font
-              License 1.1).
+              <a href={`${BASE}${THIRD_PARTY_NOTICES}`}>third-party licences</a> (React, zod and d3:
+              MIT and ISC) and the <a href={`${BASE}${FONT_LICENCE}`}>Inter font licence</a> (SIL
+              Open Font License 1.1).
             </p>
           </div>
         </footer>

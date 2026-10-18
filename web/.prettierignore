@@ -5,3 +5,6 @@ test-results/
 coverage/
 src/api/openapi.gen.ts
 src/test/fixtures/
+# (M9) Recorded API answers, byte for byte, and the static build.
+static-export/
+dist-pages/

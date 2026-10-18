@@ -8,6 +8,7 @@ import { Async } from '../components/States';
 import { Tag } from '../components/Tag';
 import { useDeployment } from '../deployment';
 import { formatDate, formatInteger, humanise, shortHash } from '../lib/format';
+import { ORIGIN_TEXT, STATIC } from '../profile';
 import { PageHeader } from './common';
 import {
   useComparison,
@@ -66,6 +67,12 @@ const METHODS = [
     text: 'A static React build served from the same origin as the API, validating every response against the committed contract, with its own Content-Security-Policy and no credential in the browser.',
     doc: 'DASHBOARD.md',
   },
+  {
+    milestone: 'M9',
+    title: 'Static read-only demonstration',
+    text: "The same dashboard as static files with no server: the API's recorded answers, exported byte for byte from the committed outputs and checked in the browser against their SHA-256, with live simulations replaced by the recorded reference scenarios.",
+    doc: 'STATIC_DEMO.md',
+  },
 ] as const;
 
 function SystemPanel() {
@@ -76,9 +83,11 @@ function SystemPanel() {
       <Panel title="Service" subtitle="Versions, components and limits">
         <Callout tone="info" title="Operational detail is not exposed in this deployment">
           <p>
-            {descriptor?.profile === 'public-demo'
-              ? 'The public demonstration serves the precomputed research outputs only; component readiness, worker state and limits stay private.'
-              : 'The deployment descriptor could not be read, so the dashboard does not ask for operational detail.'}
+            {descriptor?.profile === 'static'
+              ? 'This static copy holds recorded research outputs only: there is no server whose components, workers or limits could be shown, and that operational detail was not exported.'
+              : descriptor?.profile === 'public-demo'
+                ? 'The public demonstration serves the precomputed research outputs only; component readiness, worker state and limits stay private.'
+                : 'The deployment descriptor could not be read, so the dashboard does not ask for operational detail.'}
           </p>
         </Callout>
       </Panel>
@@ -191,10 +200,7 @@ function SourcesPanel() {
   const failed = resources.filter((r) => r.snapshot.status === 'error').length;
   const first = blocks[0];
   return (
-    <Panel
-      title="Sources of every view"
-      subtitle="Each committed file behind the numbers, with the fingerprints the server verified at startup"
-    >
+    <Panel title="Sources of every view" subtitle={ORIGIN_TEXT.sources}>
       {first !== undefined && (
         <p className="small secondary">
           Every source was made from the {first.snapshot_id} snapshot, data fingerprint{' '}
@@ -258,8 +264,9 @@ function DashboardPanel() {
       <dl className="kv">
         <dt>Build</dt>
         <dd>
-          atlas-dashboard {__ATLAS_DASHBOARD_VERSION__}: a static build, verified against its
-          manifest by the server
+          {STATIC
+            ? `atlas-dashboard ${__ATLAS_DASHBOARD_VERSION__}, static profile: files on a static host, listed with their SHA-256 in its atlas-static-site.json`
+            : `atlas-dashboard ${__ATLAS_DASHBOARD_VERSION__}: a static build, verified against its manifest by the server`}
         </dd>
         <dt>Deployment</dt>
         <dd>
@@ -269,14 +276,15 @@ function DashboardPanel() {
         </dd>
         <dt>Data</dt>
         <dd>
-          Same-origin reads of /api/v1 only; every answer validated against the committed OpenAPI
-          contract
+          {STATIC
+            ? "Recorded answers of the ATLAS API (/api/v1 GET requests), exported byte for byte from the committed research outputs by atlas static export and read from this site's data/ directory; each checked against the SHA-256 compiled into this build, then validated against the committed OpenAPI contract"
+            : 'Same-origin reads of /api/v1 only; every answer validated against the committed OpenAPI contract'}
         </dd>
         <dt>Security</dt>
         <dd>
-          A strict Content-Security-Policy (same-origin scripts, styles and requests; no inline
-          code, no eval, Trusted Types), no cookies, no storage of your inputs, no credential: the
-          private deployment's proxy adds the simulation key itself
+          {STATIC
+            ? 'A strict Content-Security-Policy in the page itself (same-origin scripts, styles and requests; no inline code, no eval, Trusted Types; a static host cannot send it as a header, so framing is not restricted), no cookies, no storage of your inputs, no credential and no server to send one to'
+            : "A strict Content-Security-Policy (same-origin scripts, styles and requests; no inline code, no eval, Trusted Types), no cookies, no storage of your inputs, no credential: the private deployment's proxy adds the simulation key itself"}
         </dd>
       </dl>
     </Panel>
@@ -288,10 +296,9 @@ function MethodsPanel() {
   return (
     <Panel title="Methods" subtitle="What each milestone did, and where its full documentation is">
       <p className="small secondary">
-        The links open the current documentation on the repository's main branch, which may have
-        changed since this release. The documentation of this release is in the docs/ directory of
-        the release (or checkout) that serves this dashboard; a server release records its commit in
-        release.json.
+        {STATIC
+          ? "The links open the current documentation on the repository's main branch, which may have changed since this copy was built. The documentation of this copy is in the docs/ directory of the commit it was built from, which the repository's deployment history names."
+          : "The links open the current documentation on the repository's main branch, which may have changed since this release. The documentation of this release is in the docs/ directory of the release (or checkout) that serves this dashboard; a server release records its commit in release.json."}
       </p>
       <ol className="methods-list">
         {METHODS.map((m) => (

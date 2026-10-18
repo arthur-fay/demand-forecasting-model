@@ -26,6 +26,7 @@ import {
   humanise,
   shortHash,
 } from '../lib/format';
+import { ORIGIN_TEXT } from '../profile';
 import { Link } from '../router';
 import { ArchivedProjectionCallout, HistoryProjectionChart, PageHeader } from './common';
 import {
@@ -341,10 +342,7 @@ function LimitationsPanel() {
         ].join(' and ')
       : '';
   return (
-    <Panel
-      title="Warnings and limitations"
-      subtitle="As the API states them; each also appears next to the numbers it qualifies"
-    >
+    <Panel title="Warnings and limitations" subtitle={ORIGIN_TEXT.limitations}>
       {limitations.length === 0 ? (
         waiting ? (
           <p className="muted small">Loading the limitations…</p>
@@ -384,8 +382,7 @@ export default function Overview() {
           ATLAS turns a legacy 30-day demand forecast for New York City's 311 service requests into
           reproducible, tested software: rolling-origin backtests against baselines (M2), prediction
           intervals with a pre-registered calibration test (M3), and a linear-programming model of
-          HYPOTHETICAL resources (M4), served by a verified API. Every number below comes from that
-          API, with its status and its sources.
+          HYPOTHETICAL resources (M4), served by a verified API. {ORIGIN_TEXT.overview}
         </p>
       </PageHeader>
       <StatusStrip />

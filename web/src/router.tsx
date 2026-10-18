@@ -3,8 +3,18 @@
  * anchors (they work without JavaScript as full page loads: the servers answer every
  * page path with index.html). Navigation moves focus to the new page's heading and
  * updates the document title, so screen-reader users hear the page change.
+ *
+ * (M9) The app's own paths (`/`, `/forecasting`, ...) are the same in every profile; the
+ * URL puts them under the build's base path (`profile.ts`: `/` for the API and nginx, the
+ * repository's path on GitHub Pages). A static host cannot rewrite a request, so the
+ * static build also has each page as `<page>.html` and a `404.html` that is the app itself
+ * (`build/static-site.ts`); here a page reached as `forecasting.html`, `index.html` or with
+ * a trailing slash is shown at its canonical address. In the api profile the base is `/`
+ * and every path is used exactly as it is.
  */
 import { useSyncExternalStore } from 'react';
+
+import { BASE, STATIC } from './profile';
 
 const EVENT = 'atlas:navigate';
 
@@ -22,24 +32,67 @@ export interface Location {
   readonly search: string;
 }
 
+/**
+ * The app path of a URL path under `base`: `/demand-forecasting-model/forecasting` is
+ * `/forecasting`, and the base itself, with or without its slash, is `/`. A path outside
+ * the base is returned as it is (no page has it). With `canonical` (static hosts), the
+ * forms a static host also answers (`/forecasting.html`, `/index.html`, `/forecasting/`)
+ * are the page they name.
+ */
+export function appPath(pathname: string, base = BASE, canonical = STATIC): string {
+  let path = pathname;
+  if (base !== '/') {
+    if (pathname === base.slice(0, -1)) path = '/';
+    else if (pathname.startsWith(base)) path = pathname.slice(base.length - 1);
+    else return pathname;
+  }
+  if (!canonical) return path;
+  if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+  if (path.endsWith('.html')) path = path.slice(0, -'.html'.length);
+  return path === '/index' ? '/' : path;
+}
+
+/** The URL of an app path (with an optional query or fragment) under `base`. */
+export function appHref(path: string, base = BASE): string {
+  if (!path.startsWith('/') || path.startsWith('//'))
+    throw new Error(`not an in-app path: ${path}`);
+  return base === '/' ? path : `${base}${path.slice(1)}`;
+}
+
 let cached: Location = { pathname: '/', search: '' };
 
 function snapshot(): Location {
-  const { pathname, search } = window.location;
+  const pathname = appPath(window.location.pathname);
+  const { search } = window.location;
   if (cached.pathname !== pathname || cached.search !== search) cached = { pathname, search };
   return cached;
 }
+
+/**
+ * (static profile) Show the page at its canonical address once, before the first render:
+ * `.../forecasting.html` becomes `.../forecasting`, so links, reloads and the back button
+ * all use one address per page.
+ */
+export function canonicalise(): void {
+  const { pathname, search, hash } = window.location;
+  const path = appPath(pathname);
+  if (pathname.startsWith(BASE) || `${pathname}/` === BASE) {
+    const href = appHref(path);
+    if (href !== pathname) window.history.replaceState(null, '', `${href}${search}${hash}`);
+  }
+}
+
+if (STATIC) canonicalise();
 
 export function useLocation(): Location {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
-/** Go to `href` (same origin, a path with an optional query). */
+/** Go to `href` (an app path with an optional query). */
 export function navigate(href: string, { replace = false }: { replace?: boolean } = {}): void {
-  if (!href.startsWith('/') || href.startsWith('//'))
-    throw new Error(`not an in-app path: ${href}`);
-  if (replace) window.history.replaceState(null, '', href);
-  else window.history.pushState(null, '', href);
+  const url = appHref(href);
+  if (replace) window.history.replaceState(null, '', url);
+  else window.history.pushState(null, '', url);
   window.dispatchEvent(new Event(EVENT));
 }
 
@@ -54,7 +107,7 @@ export function setQueryParam(name: string, value: string | null): void {
   const url = new URL(window.location.href);
   if (value === null) url.searchParams.delete(name);
   else url.searchParams.set(name, value);
-  navigate(`${url.pathname}${url.search}`, { replace: true });
+  navigate(`${appPath(url.pathname)}${url.search}`, { replace: true });
 }
 
 export function Link({
@@ -72,7 +125,7 @@ export function Link({
 }) {
   return (
     <a
-      href={href}
+      href={appHref(href)}
       className={className}
       aria-current={current === true ? 'page' : undefined}
       onClick={(event) => {

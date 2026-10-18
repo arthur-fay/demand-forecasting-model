@@ -13,15 +13,14 @@ import {
   formatDate,
   formatInteger,
   formatNumber,
-  formatSigned,
   formatUnit,
   formatUsd,
   humanise,
 } from '../lib/format';
-import { setQueryParam, useQueryParam } from '../router';
+import { appHref, setQueryParam, useQueryParam } from '../router';
 import { intervalsWithStatus, PageHeader } from './common';
 import { useComparison, useScenario, useScenarios } from './data';
-import { FeasibilityTag, formatSignedUsd, PlanOutcome } from './plan';
+import { FeasibilityTag, formatSignedUsd, PlanOutcome, ScenarioFacts } from './plan';
 
 const METRICS = [
   { value: 'discretionary_cost', label: 'Discretionary cash' },
@@ -191,7 +190,7 @@ function FeasibilityTable({ data }: { data: ScenarioListData }) {
           rowHeader: true,
           cell: (s) => (
             <a
-              href={`/decisions?scenario=${s.scenario_id}#scenario-detail`}
+              href={appHref(`/decisions?scenario=${s.scenario_id}#scenario-detail`)}
               onClick={(event) => {
                 // A modified click keeps the browser's own behaviour (a new tab or window).
                 if (
@@ -321,37 +320,7 @@ function ScenarioDetailPanel() {
               <FeasibilityTag feasibility={shown.data.outcome.feasibility} />
             </h3>
             <p className="secondary">{shown.data.outcome.description}</p>
-            <dl className="kv">
-              <dt>Demand</dt>
-              <dd>
-                {shown.data.outcome.demand_basis === 'point_forecast'
-                  ? 'The M2 point forecast'
-                  : `Per-day marginal M3 quantile ${shown.data.outcome.quantile ?? ''} (a stress path with no probability)`}
-                : {formatInteger(shown.data.outcome.demand_total_requests)} requests in total (
-                {formatSigned(shown.data.outcome.demand_total_vs_point_forecast_pct, 1)} % against
-                the point forecast)
-              </dd>
-              <dt>Regular capacity</dt>
-              <dd>
-                {formatInteger(shown.data.outcome.regular_capacity_mean_requests_per_day)}{' '}
-                requests/day on average (HYPOTHETICAL)
-              </dd>
-              <dt>Budget</dt>
-              <dd>
-                {shown.data.outcome.discretionary_budget_usd === null
-                  ? 'no limit'
-                  : `${formatUsd(shown.data.outcome.discretionary_budget_usd)} for overtime and surge (HYPOTHETICAL)`}
-              </dd>
-              {Object.entries(shown.data.outcome.adjustments).map(([name, quantity]) => (
-                <AdjustmentRow
-                  key={name}
-                  name={name}
-                  value={quantity.value}
-                  unit={quantity.unit}
-                  assumption={quantity.assumption}
-                />
-              ))}
-            </dl>
+            <ScenarioFacts outcome={shown.data.outcome} />
           </div>
           <PlanOutcome
             outcome={shown.data.outcome}
@@ -407,28 +376,6 @@ function ScenarioDetailPanel() {
         </div>
       )}
     </Panel>
-  );
-}
-
-function AdjustmentRow({
-  name,
-  value,
-  unit,
-  assumption,
-}: {
-  name: string;
-  value: number;
-  unit: string;
-  assumption: string;
-}) {
-  return (
-    <>
-      <dt>{humanise(name)}</dt>
-      <dd>
-        {formatNumber(value, value % 1 === 0 ? 0 : 2)} {formatUnit(unit)}{' '}
-        <Tag tone="warning">HYPOTHETICAL</Tag> <span className="muted">{assumption}</span>
-      </dd>
-    </>
   );
 }
 

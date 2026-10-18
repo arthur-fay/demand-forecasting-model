@@ -4,3 +4,6 @@ test-results/
 coverage/
 *.tsbuildinfo
 # dist/ IS committed: the release ships the verified build (docs/DASHBOARD.md).
+# (M9) The static build for GitHub Pages is built in CI and checked against the committed
+# atlas-static-site.json; it is not committed.
+dist-pages/

@@ -21,6 +21,8 @@ import {
   formatSigned,
   formatUsd,
   formatUsdCompact,
+  formatNumber,
+  formatUnit,
   formatWeekdayDate,
   humanise,
   isoDay,
@@ -55,6 +57,65 @@ function afterTieBreaks(variant: PlanVariant): string {
     : variant.unique_after_tie_breaks === false
       ? ', and even after them its daily overtime and surge are not determined'
       : '';
+}
+
+/** One HYPOTHETICAL adjustment of a scenario, as a description-list row. */
+function AdjustmentRow({
+  name,
+  value,
+  unit,
+  assumption,
+}: {
+  name: string;
+  value: number;
+  unit: string;
+  assumption: string;
+}) {
+  return (
+    <>
+      <dt>{humanise(name)}</dt>
+      <dd>
+        {formatNumber(value, value % 1 === 0 ? 0 : 2)} {formatUnit(unit)}{' '}
+        <Tag tone="warning">HYPOTHETICAL</Tag> <span className="muted">{assumption}</span>
+      </dd>
+    </>
+  );
+}
+
+/** What a scenario assumes: its demand path, capacity, budget and HYPOTHETICAL adjustments. */
+export function ScenarioFacts({ outcome }: { outcome: ScenarioOutcome }) {
+  return (
+    <dl className="kv">
+      <dt>Demand</dt>
+      <dd>
+        {outcome.demand_basis === 'point_forecast'
+          ? 'The M2 point forecast'
+          : `Per-day marginal M3 quantile ${outcome.quantile ?? ''} (a stress path with no probability)`}
+        : {formatInteger(outcome.demand_total_requests)} requests in total (
+        {formatSigned(outcome.demand_total_vs_point_forecast_pct, 1)} % against the point forecast)
+      </dd>
+      <dt>Regular capacity</dt>
+      <dd>
+        {formatInteger(outcome.regular_capacity_mean_requests_per_day)} requests/day on average
+        (HYPOTHETICAL)
+      </dd>
+      <dt>Budget</dt>
+      <dd>
+        {outcome.discretionary_budget_usd === null
+          ? 'no limit'
+          : `${formatUsd(outcome.discretionary_budget_usd)} for overtime and surge (HYPOTHETICAL)`}
+      </dd>
+      {Object.entries(outcome.adjustments).map(([name, quantity]) => (
+        <AdjustmentRow
+          key={name}
+          name={name}
+          value={quantity.value}
+          unit={quantity.unit}
+          assumption={quantity.assumption}
+        />
+      ))}
+    </dl>
+  );
 }
 
 /** The daily-plan name of the reported plan (strict: optimised; otherwise the relaxed plan). */
