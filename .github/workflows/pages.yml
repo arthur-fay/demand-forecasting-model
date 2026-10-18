@@ -1,0 +1,186 @@
+name: Static demo (GitHub Pages, M9)
+
+# The static, read-only ATLAS dashboard for GitHub Pages (docs/STATIC_DEMO.md), in two
+# separate parts:
+#
+# A. Build and test, on every pull request and push to main: the static export reproduced
+#    from the committed research outputs, the static build reproduced (its manifest equals
+#    the committed web/atlas-static-site.json), verified file by file and for credentials,
+#    within its size budgets, and every page tested in a real browser against a local
+#    stand-in for GitHub Pages. Nothing is uploaded or published.
+#
+# B. Publication, only when the owner dispatches this workflow by hand on main with
+#    `publish` ticked and the confirmation phrase typed, and only after the gate passes:
+#    the repository variable ATLAS_PAGES_PUBLICATION is "approved" and the reviewed record
+#    docs/release/PAGES_PUBLICATION.json states every owner decision (licence, data terms,
+#    version, limitations, approval). M9 phase A commits that record with every condition
+#    false, so this workflow cannot publish. GitHub's own `github-pages` environment rules
+#    (required reviewers, main only) apply on top, and publication fails anyway until the
+#    owner sets Settings > Pages > Source to "GitHub Actions". This workflow never changes
+#    a Pages setting (no `enablement`).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the verified build to GitHub Pages (every gate must pass)"
+        type: boolean
+        default: false
+      confirm:
+        description: 'To publish, type: publish the ATLAS static demo'
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: "A. Build and test the static site (no publication)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      UV_PYTHON: "3.12"
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python (the export check only; the site runs no Python)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js (build and test tooling only)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install hash-pinned uv and the locked Python dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r ../.github/ci-requirements.txt
+          uv sync --locked
+
+      - name: Install the locked npm dependencies (package-lock.json, integrity-checked)
+        run: npm ci
+
+      - name: No known high-severity vulnerability in the locked dependencies
+        run: npm audit --audit-level=high
+
+      - name: The static export is the API's answers over the committed research outputs
+        run: uv run atlas static verify
+
+      - name: The static build is reproducible (its manifest equals the committed one)
+        run: |
+          npm run build:pages
+          git diff --exit-code -- atlas-static-site.json
+          test -z "$(git status --porcelain -- atlas-static-site.json)"
+
+      - name: Every file as recorded, the export byte for byte, no credential, within budgets
+        run: |
+          npm run verify:pages
+          npm run size:pages
+
+      - name: Playwright's browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Every page in Chromium (desktop and a phone) against a local GitHub Pages stand-in
+        env:
+          ATLAS_E2E_PAGES: "1"
+        run: npx playwright test
+
+      - name: The static pages in Firefox and WebKit
+        # WebKit is Safari's engine, not Safari; real Safari and real phones stay untested.
+        env:
+          ATLAS_E2E_PAGES: "1"
+          ATLAS_E2E_ALL_BROWSERS: "1"
+        run: npx playwright test --project pages-firefox --project pages-webkit
+
+      - name: Keep the Playwright report of a failed run
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pages-playwright-report
+          path: web/playwright-report
+          retention-days: 14
+
+      - name: Hand the verified build to the publication job (only when publishing)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: web/dist-pages
+          retention-days: 1
+
+  gate:
+    name: "B1. Publication gate (owner decisions recorded and approved)"
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Every publication condition holds
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          SWITCH: ${{ vars.ATLAS_PAGES_PUBLICATION }}
+        run: |
+          python3 .github/scripts/pages_gate.py --record docs/release/PAGES_PUBLICATION.json \
+            --ref "$GITHUB_REF" --confirm "$CONFIRM" --switch "$SWITCH"
+
+  deploy:
+    name: "B2. Publish to GitHub Pages"
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: [build, gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Only this job may publish: the Pages deployment and its OIDC token, and reading the
+    # repository for the committed manifest.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages-publication
+      cancel-in-progress: false
+    steps:
+      - name: Check out repository (the committed site manifest)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Publish the artifact the build job verified
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+      - name: The published site serves the committed build
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          expected="$(sha256sum web/atlas-static-site.json | cut -d' ' -f1)"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            served="$(curl -fsSL --proto '=https' "${PAGE_URL%/}/atlas-static-site.json" | sha256sum | cut -d' ' -f1)" || served=""
+            [ "$served" = "$expected" ] && { echo "the site serves the committed build"; exit 0; }
+            sleep 15
+          done
+          echo "the site does not serve the committed build's manifest" >&2
+          exit 1

@@ -1,0 +1,18 @@
+{
+  "format": "atlas-pages-publication/1",
+  "site": "https://arthur-fay.github.io/demand-forecasting-model/",
+  "conditions": {
+    "project_licence_decided": false,
+    "nyc_open_data_terms_confirmed": false,
+    "release_version_decided": false,
+    "limitations_accepted": false,
+    "public_static_profile_approved": false,
+    "pages_settings_configured": false,
+    "publication_approved": false
+  },
+  "release_version": null,
+  "decided_by": null,
+  "decided_on": null,
+  "approval_reference": null,
+  "notes": "M9 phase A: nothing is decided and nothing may be published. The owner records each decision here in a reviewed commit (docs/STATIC_DEMO.md, sections 9 and 10); the publication workflow (.github/workflows/pages.yml) refuses to publish until every condition is true, the repository variable ATLAS_PAGES_PUBLICATION is 'approved' and the run is dispatched by hand on main with the confirmation phrase."
+}

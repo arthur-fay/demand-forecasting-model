@@ -90,6 +90,10 @@ FIRST_NODE24_MAJOR = {
     "actions/setup-python": 6,
     "actions/setup-node": 5,
     "actions/upload-artifact": 6,
+    # (M9) deploy-pages 4.x runs on node20, 5.0.0 on node24; upload-pages-artifact is a
+    # composite action whose 4.x calls upload-artifact 4.6.2 (node20), 5.0.0 7.0.0 (node24).
+    "actions/deploy-pages": 5,
+    "actions/upload-pages-artifact": 5,
 }
 _USES = re.compile(r"\s*(?:-\s+)?uses:\s*(?P<action>[^@\s]+)@(?P<ref>\S+)(?:\s+#\s*(?P<tag>\S+))?")
 
