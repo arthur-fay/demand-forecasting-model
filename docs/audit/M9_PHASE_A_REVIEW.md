@@ -84,8 +84,9 @@ The reviewers verified, among other things:
 
 Every finding above was corrected on `5dc7837`, and the suites were run again on it. A second,
 independent round then checked the corrections and looked for what the first had missed
-(section 5): R03, R04, R09, R13 and R14 held only in part, and are completed by S02 to S07,
-S17 and S18. R06's claim that pushes are "never cancelled" was too strong (S09).
+(section 5). Several held only in part, and are completed there: R03 (S03, S04), R04 (S02,
+S13), R05 (S05), R09 (S07), R13 (S18), R14 (S17), R15 (S20), R17 (S16) and R19 (S15). R06's
+claim that pushes are "never cancelled" was too strong (S09).
 
 ## 5. Second round
 
@@ -106,9 +107,11 @@ no reviewer had covered. They worked read-only, on copies, with their own ports.
 
 **Round-1 corrections that held**, each re-tested: R01 (59 malformed addresses, none blank
 or with `//` left), R02 (a real worker of another page of the origin: every panel refused),
-R05, R06 for forks, R07, R08, R10, R11 (the code), R12, R15, R16 (sizes re-measured), R17
-(present in both builds), R18 (mutations of the checked code make each assertion fail), R19
-and R20 (a checkout path with a space). No reviewer could make phase A publish.
+R05 in `verify-pages` and the build plugin, R06 for forks, R07, R08, R10, R11 (the code; its
+test see S17), R12, R15 (its words; the navigation line see S20), R16 (sizes re-measured), R17
+(present in both builds; its wording see S16), R18 (mutations of the checked code make each
+assertion fail), R19 (the code; its documentation see S15) and R20 (a checkout path with a
+space). No reviewer could make phase A publish.
 
 **Findings**, consolidated (one entry per defect). Two are MEDIUM; none is CRITICAL or HIGH.
 
@@ -175,4 +178,15 @@ introduced or left the defects below.
 | T11 | LOW | The artifact check read the archive only as far as Python's `tarfile` does: a member after a damaged header, a lone zero block or the end-of-archive blocks was never checked, while GNU tar extracts it (S10 in part) | publication | Nothing may follow the last member but the end-of-archive zero blocks | `tests/test_m9_pages_workflow.py` (three crafted archives; they pass the old check); a GNU tar artifact of the build passes |
 | T12 | LOW | The site check's timeout bounded only a pause between bytes: an answer trickling in held the step past its 8-minute deadline (S11 in part) | publication | Each fetch has its timeout in all, read in chunks; a body short of its announced length is a difference | `tests/test_m9_pages_workflow.py` (a trickling answer stops at the deadline; the reviewer's trickling server held the old check for 62 s against a 5 s deadline) |
 | T13 | LOW | A test assumed the record has `notes`, which the gate allows to be absent: an approval without notes would have turned CI red | publication | `pop` instead of `del` | `tests/test_m9_pages_workflow.py` |
-| T14 | LOW | Wording left by S13 and S09: section 10 pointed at step 3 for the environment (now step 2); step 4 did not say that "today" is UTC; the workflow's comment said no other run could replace a dispatch, though a later publication replaces a pending one | publication | Each corrected | documentation |
+| T14 | LOW | Wording left by S13 and S09: section 10 pointed at step 3 for the environment (now step 2); step 4 did not say that "today" is UTC; the workflow's comment said no other run could replace a dispatch, though a later publication replaces a pending one; section 10's "runs do not displace one another" was broader than the workflow | publication, documentation | Each corrected | documentation |
+| T15 | LOW | STATIC_DEMO.md section 14 gave the counts of `21ee567`, which the next head changed; its coverage figures varied by a few tenths between runs (load-order branches of the Forecasting view); a skipped test's reason overstated what the phone spec covers (it goes back, never forward) | documentation | Section 14 is measured on the final head, gives coverage as measured with its thresholds, and states what the phone spec covers | documentation |
+| T16 | LOW | This record listed R15, R17 and R19 as held, though S15, S16 and S20 corrected them, and its list of completions left out S13, S15, S16 and S20 | documentation | Sections 4 and 5 list every round-1 correction that held only in part | documentation |
+| T17 | LOW | Smaller statements: `profile.ts` said every build-time constant is read there (the dashboard's version is read elsewhere); section 8 said the browser suite runs "against" the preview stand-in (it starts its own on port 4180); section 14 said the pull request records CI's runs, while its description was still a placeholder | documentation | Each corrected; the pull request's description records CI's runs of its final head | documentation |
+
+The documentation reviewer also reproduced, on `21ee567`, three defects `4bb9447` had already
+corrected (the incomplete procedure for another address, T08, which turned five tests red
+when followed; the stale step pointer and the UTC wording, T14).
+
+**After the corrections.** The suites were run again on the head that corrects the third
+check; their results are in STATIC_DEMO.md section 14, and CI's runs in the pull request's
+description.

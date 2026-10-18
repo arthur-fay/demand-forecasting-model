@@ -483,7 +483,7 @@ npm run build:pages            # dist-pages/, and web/atlas-static-site.json (de
 npm run verify:pages           # every file as recorded; the manifest = git's committed copy; the export, the policy, the scan
 npm run size:pages             # the size budgets, with the data
 npm run preview:pages          # http://127.0.0.1:4180/demand-forecasting-model/ (the local Pages stand-in)
-npm run test:e2e:pages         # the browser suite against it (ATLAS_E2E_PAGES=1; Chromium and a phone)
+npm run test:e2e:pages         # the browser suite, on a stand-in of its own at port 4180 (stop preview:pages first; Chromium and a phone)
 ATLAS_E2E_PAGES=1 ATLAS_E2E_ALL_BROWSERS=1 npx playwright test --project pages-firefox --project pages-webkit
 npx vitest run build/verifiers.test.ts   # the verifiers on planted copies (verify-pages needs dist-pages/)
 ```
@@ -759,8 +759,9 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
 ## 14. Measured results
 
 Measured on the development container (Chromium 141, Node.js 22.22, Python 3.12) on
-2026-10-18, on the head that corrects the second review round (section 15). Firefox and
-WebKit run in CI only; the pull request records CI's runs of each head.
+2026-10-18, on the head that corrects the third check of the review (section 15). Firefox
+and WebKit run in CI only. GitHub's checks on the pull request show CI's runs of each head,
+and its description records those of its final head.
 
 | Check | Result |
 |---|---|
@@ -771,13 +772,15 @@ WebKit run in CI only; the pull request records CI's runs of each head.
 | Size, static build (gzip: Node's zlib, level 9, `npm run size:pages`) | initial JavaScript 88.0 KB (budget 110); initial HTML, CSS and JS 94.5 KB (125); largest lazy chunk 20.8 KB (30); font 48.3 KB (50); build without data 543.8 KB raw (1,000); largest data file 17.8 KB (30); all data 181.7 KB (300) |
 | Data a page reads on a first visit (gzip level 9, Python's `gzip`) | Overview 12.5 KB; Forecasting 35.9 KB; Uncertainty 10.0 KB; Decisions 15.6 KB; Simulator 15.0 KB; Provenance 32.3 KB. The whole history (9.1 KB) only with "All"; one scenario (about 9 KB) at a time |
 
-| Suite | Result on this head |
+| Suite | Result |
 |---|---|
-| pytest, M9: `tests/test_m9_static_export.py`, `tests/test_m9_pages_workflow.py` | 69 and 46 passed |
-| Vitest, the whole suite (25 files) | 293 passed; coverage 95.3 % statements, 84.6 % branches, 94.0 % functions, 96.6 % lines |
-| Vitest, M9 (six files of section 8) | 100 passed |
-| Playwright, static: `pages` (desktop Chromium) and `pages-mobile` | 49 passed, 1 skipped (back and forward on the phone, covered by `pages-mobile.spec.ts`) |
+| pytest, the whole suite (M0 to M9, with coverage) | 3105 passed, 103 skipped (nginx and an opt-in study), coverage 96.05 %: the last complete local run, on `21ee567`; this head adds six M9 tests, counted above, and CI runs the whole suite on it |
+| pytest, M9: `tests/test_m9_static_export.py`, `tests/test_m9_pages_workflow.py` | 71 and 50 passed |
+| Vitest, the whole suite (25 files) | 316 passed; coverage 95.2 % statements, 84.3 % branches, 94.0 % functions, 96.6 % lines (thresholds 85, 75, 85, 85; the first two vary by a few tenths between runs, with the order in which the Forecasting view's answers arrive) |
+| Vitest, M9 (the six files of section 8) | 123 passed |
+| Playwright, static: `pages` (desktop Chromium) and `pages-mobile` | 49 passed, 1 skipped: the back and forward buttons on the phone (`pages-mobile.spec.ts` goes back through the menu; forward is tested on desktop) |
 | Playwright, api profile (`ATLAS_E2E_API_ONLY=1`) | 56 passed |
+| Playwright, `pages-firefox` and `pages-webkit` | CI only: 15 and 15 passed on the previous head (`21ee567`), and passed again on each later head |
 
 ## 15. Independent review
 

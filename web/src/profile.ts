@@ -14,8 +14,8 @@
  * Both profiles share every view, chart and integrity component. They differ in the
  * transport (api/endpoints.ts), the base path (router.tsx), the deployment (deployment.tsx),
  * the words that say where an answer came from (below and in the Provenance view), and the
- * Simulator (the recorded reference scenarios). Every build-time constant is read here and
- * nowhere else.
+ * Simulator (the recorded reference scenarios). Every M9 build-time constant (the profile,
+ * the export list and the base path) is read here and nowhere else.
  */
 import type { StaticIndex } from './api/static';
 
