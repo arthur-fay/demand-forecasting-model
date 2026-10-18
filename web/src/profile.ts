@@ -3,14 +3,18 @@
  * are fixed when it is built (vite.config.ts); a build never guesses its profile.
  *
  * - `api` (the committed web/dist, `npm run build`): the ATLAS API on the same origin, at
- *   `/`, served by the API itself or by nginx (M7). Unchanged by M9.
+ *   `/`, served by the API itself or by nginx (M7). M9 changes no behaviour of it; it adds
+ *   two caveats every profile shows (the footer's non-affiliation sentence and, on the
+ *   Overview, the M8 erratum next to the recommendation) and the Methods list's M9 entry.
  * - `static` (`npm run build:pages`): the API's recorded answers (web/static-export), read
  *   as files from a static host with no server behind it, under a path such as
  *   `/demand-forecasting-model/` (GitHub Pages). Read-only: nothing is computed.
  *
- * Both profiles share every view, chart and integrity component; only the transport
- * (api/endpoints.ts), the base path (router.tsx) and the words that say where an answer
- * came from (below) differ. Every build-time constant is read here and nowhere else.
+ * Both profiles share every view, chart and integrity component. They differ in the
+ * transport (api/endpoints.ts), the base path (router.tsx), the deployment (deployment.tsx),
+ * the words that say where an answer came from (below and in the Provenance view), and the
+ * Simulator (the recorded reference scenarios). Every build-time constant is read here and
+ * nowhere else.
  */
 import type { StaticIndex } from './api/static';
 

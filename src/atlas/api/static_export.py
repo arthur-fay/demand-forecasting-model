@@ -108,14 +108,34 @@ _SHA256: Final = re.compile(r"[0-9a-f]{64}")
 _UNSAFE: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     (
         "an absolute local path",
-        re.compile(r"(?<![\w.:/])/(?:home|root|Users|tmp|var|etc|opt|srv|mnt|private|run)/"),
+        re.compile(
+            r"(?<![\w.:/])/(?:home|root|Users|tmp|var|etc|opt|srv|mnt|private|run|usr|nix|"
+            r"Volumes|workspace|__w)/"
+        ),
     ),
-    ("a Windows path", re.compile(r"\b[A-Za-z]:\\")),
+    ("a Windows path", re.compile(r"\b[A-Za-z]:(?:\\|/(?:Users|Windows|Program Files))")),
+    ("a network share", re.compile(r"\\\\[A-Za-z0-9.-]+\\")),
     ("a file URL", re.compile(r"file:/", re.IGNORECASE)),
+    ("a URL with credentials", re.compile(r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@", re.I)),
     ("a local host name", re.compile(r"\blocalhost\b|\.local\b|\.internal\b", re.IGNORECASE)),
+    (
+        "an internal host name",
+        re.compile(
+            r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:localdomain|corp|lan|intranet|home\.arpa)\b", re.I
+        ),
+    ),
     ("an IP address", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b|\[?::1\]?")),
+    ("an IPv6 address", re.compile(r"\b(?:[0-9a-f]{1,4}:){5,7}[0-9a-f]{1,4}\b", re.IGNORECASE)),
     ("an e-mail address", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    (
+        "a token",
+        re.compile(
+            r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{30,}|(?:AKIA|ASIA)[0-9A-Z]{16}|"
+            r"xox[abprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}|"
+            r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.)"
+        ),
+    ),
     (
         "a credential word",
         re.compile(
@@ -394,9 +414,15 @@ def _scientific_status(by_file: Mapping[str, Mapping[str, Any]]) -> dict[str, An
         None,
     )
     notices = models["integrity"]["notices"]
+    integrity = [document["integrity"] for document in by_file.values()]
     return {
-        "point_forecast_validated": False,
-        "validated_recommendation": False,
+        # True if any answer claimed it (check_answer refuses such an answer first).
+        "point_forecast_validated": any(
+            i["point_forecast_validated"] is not False for i in integrity
+        ),
+        "validated_recommendation": any(
+            i["validated_recommendation"] is not False for i in integrity
+        ),
         "uncertainty_interval_status": status["interval_status"],
         "uncertainty_decision_grade": status["decision_grade"],
         "m2_recommended_model": models["data"]["recommended_model"],

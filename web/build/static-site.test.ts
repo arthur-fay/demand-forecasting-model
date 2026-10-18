@@ -52,6 +52,10 @@ describe('the static export the build accepts', () => {
     const missing = copy();
     rmSync(join(missing, 'scenarios.json'));
     expect(() => readExport(missing)).toThrow(/scenarios.json/);
+    // A file named after an inherited property is no entry of the manifest.
+    const inherited = copy();
+    writeFileSync(join(inherited, 'constructor'), '{}');
+    expect(() => readExport(inherited)).toThrow(/does not list: constructor/);
   });
 
   it('refuses a manifest of another format or an unsafe entry', () => {

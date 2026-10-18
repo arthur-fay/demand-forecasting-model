@@ -258,6 +258,18 @@ def test_nothing_operational_local_or_secret_is_published() -> None:
         ("the password is", "a credential word"),
         ("Authorization: Bearer x", "a credential word"),
         ("access token", "a credential word"),
+        ("/var/lib/atlas", "an absolute local path"),
+        ("/__w/demand-forecasting-model", "an absolute local path"),
+        ("/usr/local/share", "an absolute local path"),
+        ("C:/Users/alice", "a Windows path"),
+        (r"\\fileserver\share", "a network share"),
+        ("https://alice:secret@example.org/", "a URL with credentials"),
+        ("build-07.corp", "an internal host name"),
+        ("2001:0db8:85a3:0000:0000:8a2e:0370:7334", "an IPv6 address"),
+        ("ghp_abcdefghijklmnopqrstuvwxyz0123456789", "a token"),
+        ("AKIAIOSFODNN7EXAMPLE", "a token"),
+        ("xoxb-1234567890-abcdefghij", "a token"),
+        ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig", "a token"),
     ],
 )
 def test_unsafe_text_is_found(text: str, finding: str) -> None:

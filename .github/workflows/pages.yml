@@ -37,8 +37,10 @@ on:
 permissions:
   contents: read
 
+# A pull request's runs share a group of their own (a fork's branch may be called main);
+# pushes and dispatches are grouped by ref and never cancelled.
 concurrency:
-  group: pages-${{ github.head_ref || github.ref_name }}
+  group: pages-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -94,6 +96,15 @@ jobs:
           npm run verify:pages
           npm run size:pages
 
+      # Uploaded straight after its verification, before anything else runs on this runner
+      # (the browsers' installation, the tests): what is published is what was verified.
+      - name: Hand the verified build to the publication job (only when publishing)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: web/dist-pages
+          retention-days: 1
+
       - name: Playwright's browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
@@ -117,12 +128,6 @@ jobs:
           path: web/playwright-report
           retention-days: 14
 
-      - name: Hand the verified build to the publication job (only when publishing)
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: web/dist-pages
-          retention-days: 1
 
   gate:
     name: "B1. Publication gate (owner decisions recorded and approved)"
@@ -172,15 +177,9 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
-      - name: The published site serves the committed build
+      - name: The published site serves every file of the committed build, byte for byte
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
-          expected="$(sha256sum web/atlas-static-site.json | cut -d' ' -f1)"
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            served="$(curl -fsSL --proto '=https' "${PAGE_URL%/}/atlas-static-site.json" | sha256sum | cut -d' ' -f1)" || served=""
-            [ "$served" = "$expected" ] && { echo "the site serves the committed build"; exit 0; }
-            sleep 15
-          done
-          echo "the site does not serve the committed build's manifest" >&2
-          exit 1
+          python3 .github/scripts/pages_check_site.py --manifest web/atlas-static-site.json \
+            --url "$PAGE_URL" --attempts 10 --wait 15

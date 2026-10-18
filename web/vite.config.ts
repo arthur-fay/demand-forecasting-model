@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 import { atlasManifest } from './build/atlas-manifest.ts';
@@ -37,7 +38,7 @@ const proxy = {
  */
 export default defineConfig(({ mode }) => {
   const pages = mode === 'pages';
-  const root = new URL('.', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('.', import.meta.url));
   const exported = pages ? readExport(`${root}${EXPORT_DIRECTORY}`) : null;
   const base = pages ? pagesBase(process.env) : '/';
   return {

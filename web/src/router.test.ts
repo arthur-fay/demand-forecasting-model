@@ -1,7 +1,9 @@
 /** (M9) App paths under a base path, and the addresses a static host also answers. */
 import { describe, expect, it } from 'vitest';
 
-import { appHref, appPath, navigate } from './router';
+import { afterEach } from 'vitest';
+
+import { appHref, appPath, canonicalise, navigate } from './router';
 
 const BASE = '/demand-forecasting-model/';
 
@@ -34,6 +36,16 @@ describe('the static profile', () => {
     expect(appPath(`${BASE}404.html`, BASE, true)).toBe('/404');
   });
 
+  it('reads repeated slashes, suffixes and trailing slashes as one page', () => {
+    expect(appPath(`${BASE}/forecasting`, BASE, true)).toBe('/forecasting');
+    expect(appPath(`${BASE}//forecasting`, BASE, true)).toBe('/forecasting');
+    expect(appPath(`${BASE}forecasting//`, BASE, true)).toBe('/forecasting');
+    expect(appPath(`${BASE}forecasting.html.html`, BASE, true)).toBe('/forecasting');
+    expect(appPath(`${BASE}forecasting.html/`, BASE, true)).toBe('/forecasting');
+    expect(appPath(`${BASE}.html`, BASE, true)).toBe('/');
+    expect(appPath(`${BASE}decisions/scenario//x`, BASE, true)).toBe('/decisions/scenario/x');
+  });
+
   it('links app paths under the base', () => {
     expect(appHref('/', BASE)).toBe(BASE);
     expect(appHref('/simulator?scenario=normal', BASE)).toBe(`${BASE}simulator?scenario=normal`);
@@ -46,5 +58,30 @@ describe('the static profile', () => {
         navigate(href);
       }).toThrow(/not an in-app path/);
     }
+  });
+});
+
+describe('the canonical address of a page (static profile)', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  const at = (href: string) => {
+    window.history.replaceState(null, '', href);
+    canonicalise(BASE);
+    return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  };
+
+  it('keeps the query and the fragment', () => {
+    expect(at(`${BASE}forecasting.html?window=90#frag`)).toBe(`${BASE}forecasting?window=90#frag`);
+    expect(at(`${BASE}index.html?x=1#y`)).toBe(`${BASE}?x=1#y`);
+    expect(at(`${BASE}uncertainty/`)).toBe(`${BASE}uncertainty`);
+  });
+
+  it('never fails on an address it cannot use, and leaves other paths alone', () => {
+    expect(at(`${BASE}/forecasting`)).toBe(`${BASE}forecasting`);
+    expect(at(`${BASE}//evil.example/x`)).toBe(`${BASE}evil.example/x`);
+    expect(at('/elsewhere//x.html')).toBe('/elsewhere//x.html');
+    expect(at(`${BASE}forecasting`)).toBe(`${BASE}forecasting`);
   });
 });

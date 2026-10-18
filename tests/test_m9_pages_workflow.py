@@ -2,15 +2,23 @@
 
 Phase A must not publish: the GitHub Pages workflow builds and tests on every pull request
 and push, and publishes only on a manual dispatch on main that passes the gate
-(.github/scripts/pages_gate.py), whose committed record states no owner decision yet.
+(.github/scripts/pages_gate.py), whose committed record states no owner decision yet. The
+tests hold for the record as it stands, so the owner's later approval (every condition
+true, in a reviewed commit) passes them too, while any incomplete record is refused.
+After a publication, .github/scripts/pages_check_site.py compares the site with the build.
 """
 
 from __future__ import annotations
 
 import copy
+import functools
+import hashlib
+import http.server
 import importlib.util
 import json
 import re
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -23,9 +31,9 @@ WORKFLOW = REPO_ROOT / ".github" / "workflows" / "pages.yml"
 RECORD = REPO_ROOT / "docs" / "release" / "PAGES_PUBLICATION.json"
 
 
-def _gate() -> ModuleType:
+def _script(name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(
-        "pages_gate", REPO_ROOT / ".github" / "scripts" / "pages_gate.py"
+        name, REPO_ROOT / ".github" / "scripts" / f"{name}.py"
     )
     assert spec is not None
     assert spec.loader is not None
@@ -34,7 +42,8 @@ def _gate() -> ModuleType:
     return module
 
 
-GATE = _gate()
+GATE = _script("pages_gate")
+CHECK = _script("pages_check_site")
 VERSION = GATE.code_version(REPO_ROOT)
 
 
@@ -62,16 +71,21 @@ def _open(record: dict[str, Any], **changes: str) -> list[str]:
     return list(GATE.gate_problems(record, VERSION, **arguments))
 
 
-def test_the_committed_record_allows_no_publication() -> None:
+def test_the_committed_record_publishes_only_what_it_approves() -> None:
+    """Phase A's record (no decision) is refused; a record that approves everything must be
+    complete and well formed, and is the only one that passes."""
     record = _record()
     assert record["format"] == GATE.FORMAT
     assert record["site"] == "https://arthur-fay.github.io/demand-forecasting-model/"
     assert set(record["conditions"]) == set(GATE.CONDITIONS)
-    assert not any(record["conditions"].values()), "phase A records no owner decision"
     problems = _open(record)
-    for name in GATE.CONDITIONS:
-        assert f"condition not met: {name}" in problems
-    assert "the record names no release version (MAJOR.MINOR.PATCH)" in problems
+    unmet = [name for name in GATE.CONDITIONS if record["conditions"][name] is not True]
+    if unmet:
+        for name in unmet:
+            assert f"condition not met: {name}" in problems
+    else:
+        assert problems == [], problems
+    assert GATE.load_record(RECORD) == record
 
 
 def test_a_complete_record_on_main_with_every_switch_passes() -> None:
@@ -128,6 +142,27 @@ def test_a_condition_the_gate_does_not_know_is_refused() -> None:
     record["conditions"]["anything_else"] = True
     assert any("unknown conditions" in p for p in _open(record))
     assert GATE.record_problems([], VERSION) == ["the publication record is not a JSON object"]
+    extra = _approved()
+    extra["approved"] = True
+    assert any("unknown fields in the record: approved" in p for p in _open(extra))
+
+
+@pytest.mark.parametrize("day", ["9999-99-99", "2026-02-30", "2026-13-01"])
+def test_an_impossible_date_is_refused(day: str) -> None:
+    assert any("no decided_on date" in p for p in _open(_without("decided_on", day)))
+
+
+def test_a_key_given_twice_is_refused(tmp_path: Path) -> None:
+    """A reviewer reading the first `false` must not be overruled by a later `true`."""
+    conditions = ", ".join(f'"{name}": false, "{name}": true' for name in GATE.CONDITIONS)
+    approved = _approved()
+    text = json.dumps(approved).replace(json.dumps(approved["conditions"]), "{" + conditions + "}")
+    record = tmp_path / "record.json"
+    record.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="repeated keys"):
+        GATE.load_record(record)
+    common = ["--confirm", GATE.PHRASE, "--switch", "approved", "--root", str(REPO_ROOT)]
+    assert GATE.main(["--record", str(record), "--ref", "refs/heads/main", *common]) == 1
 
 
 def test_the_command_refuses_the_committed_record(
@@ -171,11 +206,21 @@ def test_the_workflow_never_publishes_on_its_own() -> None:
     assert "needs: [build, gate]" in jobs["deploy"]
     assert "pages_gate.py --record docs/release/PAGES_PUBLICATION.json" in jobs["gate"]
     assert "vars.ATLAS_PAGES_PUBLICATION" in jobs["gate"]
-    # The artifact is uploaded only for a publication, and only the deploy job publishes.
-    upload = jobs["build"].split("actions/upload-pages-artifact", 1)[0].rsplit("- name:", 1)[1]
+    # The artifact is uploaded only for a publication, straight after its verification and
+    # before anything else runs; only the deploy job publishes, then checks every file.
+    before, _ = jobs["build"].split("actions/upload-pages-artifact", 1)
+    upload = before.rsplit("- name:", 1)[1]
     assert manual in upload
+    steps = re.findall(r"- name: (.+)", jobs["build"])
+    verify = next(i for i, name in enumerate(steps) if name.startswith("Every file as recorded"))
+    assert steps[verify + 1].startswith("Hand the verified build to the publication job")
+    assert "playwright" not in before.split("npm run verify:pages", 1)[1].split("- name:")[1]
     assert "actions/deploy-pages" in jobs["deploy"]
     assert "actions/deploy-pages" not in jobs["build"] + jobs["gate"]
+    assert "pages_check_site.py --manifest web/atlas-static-site.json" in jobs["deploy"]
+    # A pull request's group is its own: a fork's branch named main cannot cancel main's run.
+    top = text.split("\njobs:\n", 1)[0]
+    assert "format('pr-{0}', github.event.pull_request.number) || github.ref" in top
 
 
 def test_the_workflow_has_minimal_permissions_and_changes_no_setting() -> None:
@@ -208,3 +253,72 @@ def test_the_build_job_runs_every_static_check() -> None:
         "npx playwright test --project pages-firefox --project pages-webkit",
     ):
         assert command in build, command
+
+
+# --- The check of a published site -------------------------------------------------------
+
+
+class _Quiet(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture
+def site(tmp_path: Path) -> Iterator[tuple[Path, Path, str]]:
+    """A tiny static site served on this machine, and its committed manifest."""
+    root = tmp_path / "site"
+    (root / "data").mkdir(parents=True)
+    files = {"index.html": b"<!doctype html>", "data/models.json": b'{"a": 1}'}
+    for name, body in files.items():
+        (root / name).write_bytes(body)
+    manifest = {
+        "format": "atlas-static-site/1",
+        "files": {
+            name: {"sha256": hashlib.sha256(body).hexdigest(), "bytes": len(body)}
+            for name, body in files.items()
+        },
+    }
+    committed = tmp_path / "atlas-static-site.json"
+    committed.write_text(json.dumps(manifest), encoding="utf-8")
+    (root / "atlas-static-site.json").write_bytes(committed.read_bytes())
+    handler = functools.partial(_Quiet, directory=str(root))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield root, committed, f"http://127.0.0.1:{server.server_address[1]}/"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _check(committed: Path, url: str, *extra: str) -> int:
+    arguments = ["--manifest", str(committed), "--url", url, "--attempts", "1", "--wait", "0"]
+    return int(CHECK.main([*arguments, *extra]))
+
+
+def test_a_site_serving_the_committed_build_passes(site: tuple[Path, Path, str]) -> None:
+    _, committed, url = site
+    assert _check(committed, url, "--allow-http") == 0
+    assert _check(committed, url.rstrip("/"), "--allow-http") == 0
+
+
+def test_every_differing_file_is_named(
+    site: tuple[Path, Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, committed, url = site
+    (root / "data" / "models.json").write_bytes(b'{"a": 2}')
+    (root / "index.html").unlink()
+    assert _check(committed, url, "--allow-http") == 1
+    err = capsys.readouterr().err
+    assert "- data/models.json" in err
+    assert "- index.html" in err
+    (root / "atlas-static-site.json").write_text("{}", encoding="utf-8")
+    assert _check(committed, url, "--allow-http") == 1
+    assert "- atlas-static-site.json" in capsys.readouterr().err
+
+
+def test_only_an_https_site_is_checked_for_real(site: tuple[Path, Path, str]) -> None:
+    _, committed, url = site
+    assert _check(committed, url) == 1
+    assert _check(committed, "ftp://example.org/", "--allow-http") == 1

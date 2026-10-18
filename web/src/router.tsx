@@ -47,9 +47,15 @@ export function appPath(pathname: string, base = BASE, canonical = STATIC): stri
     else return pathname;
   }
   if (!canonical) return path;
-  if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
-  if (path.endsWith('.html')) path = path.slice(0, -'.html'.length);
-  return path === '/index' ? '/' : path;
+  // Repeated slashes are one (a static host answers `//forecasting` with 404.html, and
+  // `//...` is no app path), then every trailing slash and `.html` comes off.
+  path = path.replace(/\/{2,}/g, '/');
+  for (let before = ''; before !== path;) {
+    before = path;
+    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+    if (path.endsWith('.html')) path = path.slice(0, -'.html'.length);
+  }
+  return path === '' || path === '/index' ? '/' : path;
 }
 
 /** The URL of an app path (with an optional query or fragment) under `base`. */
@@ -73,13 +79,15 @@ function snapshot(): Location {
  * `.../forecasting.html` becomes `.../forecasting`, so links, reloads and the back button
  * all use one address per page.
  */
-export function canonicalise(): void {
+export function canonicalise(base = BASE): void {
   const { pathname, search, hash } = window.location;
-  const path = appPath(pathname);
-  if (pathname.startsWith(BASE) || `${pathname}/` === BASE) {
-    const href = appHref(path);
-    if (href !== pathname) window.history.replaceState(null, '', `${href}${search}${hash}`);
-  }
+  if (!pathname.startsWith(base) && `${pathname}/` !== base) return;
+  const path = appPath(pathname, base, true);
+  // Never fatal: an address the router cannot rewrite stays as it is (its page, or "Page
+  // not found", still shows).
+  if (!path.startsWith('/') || path.startsWith('//')) return;
+  const href = appHref(path, base);
+  if (href !== pathname) window.history.replaceState(null, '', `${href}${search}${hash}`);
 }
 
 if (STATIC) canonicalise();

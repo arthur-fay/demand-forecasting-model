@@ -50,13 +50,19 @@ const TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-/** The regular file at `relative` below the build, or null. */
+/**
+ * The regular file at `relative` below the build, or null. Resolved through every link:
+ * a link that leads out of the build is not there.
+ */
 function file(relative) {
+  const inside = (path) => path === root || path.startsWith(root + sep);
   const target = resolve(root, relative);
-  if (target !== root && !target.startsWith(root + sep)) return null;
+  if (!inside(target)) return null;
   try {
-    const stat = statSync(target);
-    if (stat.isFile()) return target;
+    const real = realpathSync(target);
+    if (!inside(real)) return null;
+    const stat = statSync(real);
+    if (stat.isFile()) return real;
     if (stat.isDirectory()) return 'directory';
   } catch {
     // not there

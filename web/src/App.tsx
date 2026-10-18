@@ -5,8 +5,8 @@ import { Loading } from './components/States';
 import { Tag } from './components/Tag';
 import { DeploymentContext, useDeploymentResource, type Deployment } from './deployment';
 import { FONT_LICENCE, THIRD_PARTY_NOTICES } from './notices';
-import { PAGES, type PagePath } from './pages';
-import { BASE, ORIGIN_TEXT } from './profile';
+import { PAGES, type PageInfo, type PagePath } from './pages';
+import { BASE, ORIGIN_TEXT, STATIC } from './profile';
 import { Link, useLocation } from './router';
 
 const VIEWS: Record<PagePath, React.LazyExoticComponent<() => React.ReactNode>> = {
@@ -214,7 +214,9 @@ export function App() {
                   }}
                 >
                   <span className="nav-label">{item.label}</span>
-                  <span className="nav-summary">{item.summary}</span>
+                  <span className="nav-summary">
+                    {(STATIC ? (item as PageInfo).staticSummary : undefined) ?? item.summary}
+                  </span>
                 </Link>
               </li>
             ))}

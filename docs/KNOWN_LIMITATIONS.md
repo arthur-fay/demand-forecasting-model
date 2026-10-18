@@ -104,7 +104,8 @@ is listed in section 10.
   - a static host sends no headers of the site's own, so there is no framing protection
     (`frame-ancestors`, `X-Frame-Options`); the policy is in the page;
   - the project site shares the `arthur-fay.github.io` origin with the owner's other Pages
-    sites;
+    sites, so what it shows is only as trustworthy as every one of them (a page of the same
+    origin can rewrite it after its checks); the owner reviews this before publication;
   - publication needs the licence and NYC Open Data decisions below (section 9).
 
 ## 7. Deployment and security (M6, [DEPLOYMENT.md](DEPLOYMENT.md) section 17)

@@ -188,7 +188,11 @@ function ForecastSummaryPanel() {
                 <dt>Model</dt>
                 <dd>
                   {data.model_id}{' '}
-                  <span className="muted">(recommended by the pre-registered M2 protocol)</span>
+                  <span className="muted">
+                    (recommended by the pre-registered M2 protocol as computed; its statistical
+                    support is weak, as the M8 erratum on the{' '}
+                    <Link href="/forecasting">Forecasting</Link> page explains)
+                  </span>
                 </dd>
                 <dt>Origin</dt>
                 <dd>{formatDate(data.origin)}</dd>

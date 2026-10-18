@@ -4,8 +4,9 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const dist = new URL('../dist/', import.meta.url).pathname;
+const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(dist, 'atlas-dashboard.json'), 'utf-8'));
 const walk = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>

@@ -15,6 +15,12 @@
  * 4. then applies the checks every API answer gets (`accept`: no claim of a validated
  *    forecast or recommendation, and the schema).
  *
+ * This site never registers a service worker. One that controls the page can only come from
+ * another site on the same origin (every GitHub Pages site of an account shares one), and
+ * could serve other files than these: then nothing is read (`integrity`). A worker that
+ * means harm can change the code as well, so this guards against accidents only; the
+ * isolation of the origin is the owner's decision (docs/STATIC_DEMO.md section 6).
+ *
  * No write, no POST, no computation: a simulation is refused as `not_exported`.
  */
 import { ApiError, DEFAULT_TIMEOUT_MS, accept, type RequestOptions } from './client';
@@ -54,6 +60,16 @@ export function staticReader(index: StaticIndex, base: string): StaticReader {
         throw new ApiError(
           'not_exported',
           'This static copy of the dashboard holds no recorded answer for this request, so nothing is shown in its place.',
+          path,
+        );
+      }
+      const navigatorObject = (
+        globalThis as { navigator?: { serviceWorker?: { controller?: unknown } } }
+      ).navigator;
+      if (navigatorObject?.serviceWorker?.controller) {
+        throw new ApiError(
+          'integrity',
+          'A service worker controls this page, but this site never registers one: it may come from another site on the same origin and serve other files, so nothing is shown.',
           path,
         );
       }

@@ -16,6 +16,8 @@ export interface PageInfo {
   readonly title: string;
   /** One line under the label in the navigation. */
   readonly summary: string;
+  /** (M9) The line in the static profile, where it differs (nothing runs there). */
+  readonly staticSummary?: string;
 }
 
 export const PAGES = [
@@ -48,6 +50,7 @@ export const PAGES = [
     label: 'Simulator',
     title: 'Hypothetical simulator',
     summary: 'Bounded what-if runs of the M4 engine',
+    staticSummary: 'Recorded M4 reference scenarios',
   },
   {
     path: '/provenance',

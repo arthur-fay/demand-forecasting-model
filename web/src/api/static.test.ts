@@ -179,6 +179,17 @@ describe('a static read', () => {
     expect((await refusal(cancelled)).kind).toBe('aborted');
   });
 
+  it('reads nothing while a service worker this site never registered controls the page', async () => {
+    const fetchMock = serve();
+    vi.stubGlobal('navigator', { serviceWorker: { controller: {} } });
+    const error = await refusal(reader.read('/api/v1/models', ModelsResponse));
+    expect(error.kind).toBe('integrity');
+    expect(error.message).toMatch(/service worker/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.stubGlobal('navigator', { serviceWorker: { controller: null } });
+    await expect(reader.read('/api/v1/models', ModelsResponse)).resolves.toBeTruthy();
+  });
+
   it('shows nothing where the browser cannot check a file (no Web Crypto)', async () => {
     serve();
     vi.stubGlobal('crypto', {});

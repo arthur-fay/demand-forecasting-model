@@ -6,10 +6,11 @@
 // data files too (GitHub Pages compresses JSON as it sends it).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 const pages = process.argv.includes('--pages');
-const dist = new URL(pages ? '../dist-pages/' : '../dist/', import.meta.url).pathname;
+const dist = fileURLToPath(new URL(pages ? '../dist-pages/' : '../dist/', import.meta.url));
 const manifest = JSON.parse(
   readFileSync(join(dist, pages ? 'atlas-static-site.json' : 'atlas-dashboard.json'), 'utf-8'),
 );

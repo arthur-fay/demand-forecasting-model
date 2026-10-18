@@ -13,8 +13,8 @@ and by nginx in the private and public-demo deployments. The server needs no Nod
 >
 > **(M9)** The same dashboard also builds as a static, read-only site for GitHub Pages, from
 > the API's recorded answers ([STATIC_DEMO.md](STATIC_DEMO.md)). This document describes the
-> api profile, the committed `web/dist`, whose behaviour M9 does not change; section 18 lists
-> what M9 changed in the shared sources.
+> api profile, the committed `web/dist`. M9 changes no behaviour of it, and adds three things
+> it shows too (section 18).
 >
 > **What the dashboard shows** is research output, labelled as such next to every number:
 > - The forecast is an archived, unvalidated point forecast (M2). The model's lead over the
@@ -779,17 +779,20 @@ this document describes, it changed:
   every path is unchanged).
 - **`profile.ts`**: the build's profile, base path and export list, read once, and the
   sentences that name where an answer came from. The api profile's sentences are those of M7.
-  The static profile's code is not in the api build.
+  The static transport, reader, recorded-scenario panel and static wording are not in the api
+  build; a few static-only constants and error messages are, and cannot be reached there.
 - **`deployment.tsx`**: a static build's deployment is fixed in the build. A served descriptor
   is validated as before (`ServedDeploymentDescriptor`).
 - **Views**: the Simulator's recorded-scenario explorer (static profile only). Decisions'
-  scenario facts moved to `plan.tsx` (`ScenarioFacts`), unchanged. The footer now also says
-  that ATLAS is not affiliated with or endorsed by the City of New York or NYC Open Data. The
-  Methods list has an M9 entry.
+  scenario facts moved to `plan.tsx` (`ScenarioFacts`), unchanged. Three additions show in
+  both profiles: the footer now also says that ATLAS is not affiliated with or endorsed by the
+  City of New York or NYC Open Data; on the Overview, the recommended model now carries a
+  pointer to the M8 erratum ("its statistical support is weak"); and the Methods list has an M9
+  entry.
 - **The build**: `vite.config.ts` has the `pages` mode; `playwright.config.ts` has the static
   projects (`ATLAS_E2E_PAGES=1`), and every project's `testMatch` is anchored to a file name.
 - **Measured on the rebuilt api build** (`npm run size`): initial JavaScript 85.7 KB gzip;
   initial HTML, CSS and JavaScript 92.1 KB; largest lazy chunk 20.8 KB; font 48.3 KB; the
-  whole build 526.5 KB raw. The 0.8 KB increase over M8's 91.3 KB is the router's base handling,
-  the shared checks and the footer's sentence.
+  whole build 526.8 KB raw. The 0.8 KB increase over M8's 91.3 KB (initial, gzip) is the
+  router's base handling, the shared checks and the two added caveats.
 

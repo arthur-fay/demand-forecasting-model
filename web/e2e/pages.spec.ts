@@ -245,9 +245,15 @@ test('a data file that differs from the build record is refused, never shown', a
     );
     await route.fulfill({ response, body });
   });
+  // The Overview's H1 tile and the Forecasting tests both come from this file: neither verdict
+  // may appear, only the refusal.
+  await open(page, '', PAGES[0].heading, { failures: true });
+  await expect(page.getByText(/is not the one this build recorded/).first()).toBeVisible();
+  await expect(page.getByText('Significant after Holm', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Not significant after Holm', { exact: true })).toHaveCount(0);
   await open(page, 'forecasting', 'Forecasting', { failures: true });
   await expect(page.getByText(/is not the one this build recorded/).first()).toBeVisible();
-  await expect(page.getByText('Significant after Holm')).toHaveCount(0);
+  await expect(page.getByText(/significant after the Holm adjustment/)).toHaveCount(0);
 });
 
 test('a missing data file is reported where its numbers would be', async ({ page }) => {

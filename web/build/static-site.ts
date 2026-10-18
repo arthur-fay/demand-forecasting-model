@@ -20,9 +20,10 @@
  *   static host cannot send it as a header: the dashboard's HTML policy without
  *   `frame-ancestors`, which a policy in the page cannot carry;
  * - records `atlas-static-site.json` (format `atlas-static-site/1`): every file with its
- *   SHA-256 and size, the base path, the pages and the export manifest's SHA-256. The build
- *   also writes it to `web/atlas-static-site.json`, which is committed: CI rebuilds and
- *   requires the same bytes, and the publication workflow checks the artifact against it.
+ *   SHA-256 and size, the base path, the pages and the export manifest's SHA-256. A build
+ *   under the default base also writes it to `web/atlas-static-site.json`, which is
+ *   committed: CI rebuilds and requires the same bytes (`git diff`), verify-pages compares
+ *   the build with git's committed copy, and the publication checks the site against it.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -97,7 +98,7 @@ export function readExport(directory: string): StaticExport {
     throw new Error(`${EXPORT_MANIFEST} is not an ${EXPORT_FORMAT} manifest`);
   const listed = parsed.files ?? {};
   const present = readdirSync(directory).filter((name) => name !== EXPORT_MANIFEST);
-  const unlisted = present.filter((name) => !(name in listed));
+  const unlisted = present.filter((name) => !Object.hasOwn(listed, name));
   if (unlisted.length > 0)
     throw new Error(`files the export manifest does not list: ${unlisted.join(', ')}`);
   const files = new Map<string, { entry: ExportEntry; bytes: Buffer }>();
@@ -108,7 +109,7 @@ export function readExport(directory: string): StaticExport {
     const bytes = readFileSync(join(directory, name));
     if (bytes.length !== entry.bytes || sha256(bytes) !== entry.sha256)
       throw new Error(`${name} differs from the SHA-256 or size the export manifest records`);
-    if (entry.request in index) throw new Error(`two files answer ${entry.request}`);
+    if (Object.hasOwn(index, entry.request)) throw new Error(`two files answer ${entry.request}`);
     files.set(name, { entry, bytes });
     index[entry.request] = { file: name, sha256: entry.sha256, bytes: entry.bytes };
   }
@@ -216,7 +217,13 @@ export function staticSite(options: {
       const manifest = buildSiteManifest(outDir, version, base, exported.manifest);
       const text = JSON.stringify(manifest, null, 2) + '\n';
       writeFileSync(join(outDir, SITE_MANIFEST), text);
-      writeFileSync(record, text);
+      // The committed record is the default base's (the published site); a build under
+      // another base (ATLAS_PAGES_BASE) leaves it alone.
+      if (base === DEFAULT_PAGES_BASE) writeFileSync(record, text);
+      else
+        this.warn(
+          `base ${base}: web/${SITE_MANIFEST} not rewritten (it records ${DEFAULT_PAGES_BASE})`,
+        );
     },
   };
 }

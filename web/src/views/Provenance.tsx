@@ -204,8 +204,8 @@ function SourcesPanel() {
       {first !== undefined && (
         <p className="small secondary">
           Every source was made from the {first.snapshot_id} snapshot, data fingerprint{' '}
-          <span className="mono">{first.data_fingerprint ?? 'unavailable'}</span>, and is served by
-          ATLAS {first.atlas_version}.
+          <span className="mono">{first.data_fingerprint ?? 'unavailable'}</span>,{' '}
+          {STATIC ? 'and was recorded from' : 'and is served by'} ATLAS {first.atlas_version}.
         </p>
       )}
       {loading && <p className="small muted">Collecting sources…</p>}
@@ -297,7 +297,7 @@ function MethodsPanel() {
     <Panel title="Methods" subtitle="What each milestone did, and where its full documentation is">
       <p className="small secondary">
         {STATIC
-          ? "The links open the current documentation on the repository's main branch, which may have changed since this copy was built. The documentation of this copy is in the docs/ directory of the commit it was built from, which the repository's deployment history names."
+          ? "The links open the current documentation on the repository's main branch, which may have changed since this copy was built. The documentation of this copy is in the docs/ directory of the commit it was built from: once the site is published, GitHub's record of its deployment (the github-pages environment) names that commit."
           : "The links open the current documentation on the repository's main branch, which may have changed since this release. The documentation of this release is in the docs/ directory of the release (or checkout) that serves this dashboard; a server release records its commit in release.json."}
       </p>
       <ol className="methods-list">

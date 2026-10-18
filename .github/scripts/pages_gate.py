@@ -9,8 +9,10 @@ It names every unmet condition and exits 1 unless all of them hold:
    setting only a repository administrator can change, outside the code;
 4. the committed record ``docs/release/PAGES_PUBLICATION.json`` (a reviewed commit) states
    every owner decision: the project licence, the NYC Open Data terms, the version the site
-   shows (which must be the code's), the accepted limitations, the Pages settings and the
-   approval itself, with who decided, when, and where it is recorded.
+   shows (which must be the code's), the accepted limitations, the review of the origin the
+   site shares, the Pages and environment settings and the approval itself, with who
+   decided, when, and where it is recorded. The record is read strictly: a repeated key, an
+   unknown field or an impossible date is refused, so what a reviewer reads is what counts.
 
 Phase A commits that record with every condition false, so no run can publish, whatever is
 dispatched. The protection rules of the ``github-pages`` environment (required reviewers,
@@ -29,6 +31,7 @@ import json
 import re
 import sys
 import tomllib
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +46,22 @@ CONDITIONS = (
     "release_version_decided",
     "limitations_accepted",
     "public_static_profile_approved",
+    "shared_origin_reviewed",
     "pages_settings_configured",
     "publication_approved",
+)
+#: The record's fields (any other is refused).
+FIELDS = frozenset(
+    {
+        "format",
+        "site",
+        "conditions",
+        "release_version",
+        "decided_by",
+        "decided_on",
+        "approval_reference",
+        "notes",
+    }
 )
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
@@ -60,6 +77,9 @@ def record_problems(record: Any, version: str) -> list[str]:
     if not isinstance(record, dict):
         return ["the publication record is not a JSON object"]
     problems: list[str] = []
+    unknown_fields = sorted(set(record) - FIELDS)
+    if unknown_fields:
+        problems.append(f"unknown fields in the record: {', '.join(unknown_fields)}")
     if record.get("format") != FORMAT:
         problems.append(f"the publication record is not {FORMAT}")
     if record.get("site") != SITE:
@@ -84,9 +104,30 @@ def record_problems(record: Any, version: str) -> list[str]:
         if not (isinstance(value, str) and value.strip()):
             problems.append(f"the record names no {field}")
     decided_on = record.get("decided_on")
-    if not (isinstance(decided_on, str) and _DATE.fullmatch(decided_on)):
+    if not (isinstance(decided_on, str) and _DATE.fullmatch(decided_on) and _real(decided_on)):
         problems.append("the record has no decided_on date (YYYY-MM-DD)")
     return problems
+
+
+def _real(day: str) -> bool:
+    try:
+        date.fromisoformat(day)
+    except ValueError:
+        return False
+    return True
+
+
+def _unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [key for key, _ in pairs]
+    repeated = sorted({key for key in keys if keys.count(key) > 1})
+    if repeated:
+        raise ValueError(f"repeated keys: {', '.join(repeated)}")
+    return dict(pairs)
+
+
+def load_record(path: Path) -> Any:
+    """The record, refusing a key given twice anywhere in it."""
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique)
 
 
 def gate_problems(record: Any, version: str, *, ref: str, confirm: str, switch: str) -> list[str]:
@@ -112,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--switch", default="")
     args = parser.parse_args(argv)
     try:
-        record = json.loads(args.record.read_text(encoding="utf-8"))
+        record = load_record(args.record)
     except (OSError, ValueError) as exc:
         print(f"pages gate: the publication record cannot be read ({exc})", file=sys.stderr)
         return 1
