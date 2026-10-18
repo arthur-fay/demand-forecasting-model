@@ -98,6 +98,21 @@ test('the other addresses of a page show it at its one canonical address', async
   await expect(page).toHaveURL(new RegExp(`${BASE}$`));
 });
 
+test('an address that a rewrite would resolve out of the site stays in it, as no page', async ({
+  page,
+}) => {
+  // Stripping `.html` from `...html` would leave `..`, which a URL resolves to the
+  // origin's root, outside the site.
+  for (const rest of ['...html', '...html?x=1#y', '%2e%2e.html', 'forecasting/...html']) {
+    const response = await page.goto(rest);
+    await heading(page, 'Page not found');
+    // The address is the one requested (the browser's own form of it), not rewritten.
+    const requested = new URL(response?.url() ?? '');
+    expect(new URL(page.url()).pathname, rest).toBe(requested.pathname);
+    expect(new URL(page.url()).pathname.startsWith(BASE), rest).toBe(true);
+  }
+});
+
 test('an unknown address is a 404 that lists the pages, and its links work', async ({ page }) => {
   const response = await page.goto('no-such-page');
   expect(response?.status()).toBe(404);
@@ -124,7 +139,10 @@ test('the back and forward buttons move between pages', async ({ page, isMobile 
   await expect(page).toHaveURL(new RegExp(`${BASE}forecasting$`));
 });
 
-test('the scientific limitations are next to the results they qualify', async ({ page }) => {
+test('the scientific limitations are next to the results they qualify', async ({
+  page,
+  isMobile,
+}) => {
   expect(exported.scientific_status).toMatchObject({
     uncertainty_interval_status: 'failed_calibration',
     m2_h1_significant_after_holm: false,
@@ -145,6 +163,17 @@ test('the scientific limitations are next to the results they qualify', async ({
     page.getByText(/^ARCHIVED PROJECTION: issued from the frozen snapshot/).first(),
   ).toBeVisible();
   await expect(page.getByText(/This is a static, archived copy/)).toBeVisible();
+  // The M8 erratum's conclusion next to the recommended model, and the navigation's line
+  // for the Simulator, which runs nothing here (the phone's menu is closed).
+  await expect(
+    page.getByText(/a correctly sized selection test would most likely have kept/),
+  ).toContainText('M2 SELECTION EVIDENCE notice');
+  if (!isMobile)
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Dashboard sections' })
+        .getByText('Simulations off here; explore recorded results'),
+    ).toBeVisible();
 
   await open(page, 'forecasting', 'Forecasting');
   const tests = page.locator('section', {

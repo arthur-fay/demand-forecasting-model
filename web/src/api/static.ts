@@ -43,6 +43,21 @@ function hex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Whether a service worker controls this page. Where the browser refuses to say (it throws:
+ * a sandboxed frame, or storage blocked), no worker can control the page either.
+ */
+function controlledByWorker(): boolean {
+  try {
+    const navigatorObject = (
+      globalThis as { navigator?: { serviceWorker?: { controller?: unknown } } }
+    ).navigator;
+    return Boolean(navigatorObject?.serviceWorker?.controller);
+  } catch {
+    return false;
+  }
+}
+
 export interface StaticReader {
   read<S extends z.core.$ZodType>(
     path: string,
@@ -63,10 +78,7 @@ export function staticReader(index: StaticIndex, base: string): StaticReader {
           path,
         );
       }
-      const navigatorObject = (
-        globalThis as { navigator?: { serviceWorker?: { controller?: unknown } } }
-      ).navigator;
-      if (navigatorObject?.serviceWorker?.controller) {
+      if (controlledByWorker()) {
         throw new ApiError(
           'integrity',
           'A service worker controls this page, but this site never registers one: it may come from another site on the same origin and serve other files, so nothing is shown.',

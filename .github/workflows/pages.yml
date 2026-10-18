@@ -37,10 +37,13 @@ on:
 permissions:
   contents: read
 
-# A pull request's runs share a group of their own (a fork's branch may be called main);
-# pushes and dispatches are grouped by ref and never cancelled.
+# A pull request's runs share a group of their own (a fork's branch may be called main),
+# and a newer run cancels the one in progress. Pushes are grouped by ref and never cancelled
+# while they run, but GitHub keeps one pending run per group: a newer push replaces a push
+# run still waiting. A dispatch has a group of its own, so no push or other run can replace
+# or cancel it; the publication job's own group serialises publications.
 concurrency:
-  group: pages-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  group: pages-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.run_id) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -105,6 +108,9 @@ jobs:
           path: web/dist-pages
           retention-days: 1
 
+      - name: The verifiers refuse planted defects (links, unlisted files, foreign names)
+        run: npx vitest run build/verifiers.test.ts
+
       - name: Playwright's browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
@@ -113,8 +119,9 @@ jobs:
           ATLAS_E2E_PAGES: "1"
         run: npx playwright test
 
-      - name: The static pages in Firefox and WebKit
-        # WebKit is Safari's engine, not Safari; real Safari and real phones stay untested.
+      - name: The static pages and their keyboard use in Firefox and WebKit
+        # WebKit is Safari's engine, not Safari; real Safari and real phones stay untested,
+        # and axe, reflow and the phone layout run in Chromium only.
         env:
           ATLAS_E2E_PAGES: "1"
           ATLAS_E2E_ALL_BROWSERS: "1"
@@ -154,7 +161,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.publish
     needs: [build, gate]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # deploy-pages waits up to 10 minutes for the deployment, the site check up to 8.
+    timeout-minutes: 25
     # Only this job may publish: the Pages deployment and its OIDC token, and reading the
     # repository for the committed manifest.
     permissions:
@@ -168,10 +176,23 @@ jobs:
       group: github-pages-publication
       cancel-in-progress: false
     steps:
-      - name: Check out repository (the committed site manifest)
+      - name: Check out repository (the committed site manifest and the checks)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # On this runner, which runs no npm code: what deploy-pages publishes (this run's
+      # github-pages artifact) is the committed build, file for file, and nothing else.
+      - name: Download the artifact to publish
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/pages-artifact
+
+      - name: The artifact is the committed build (every file, size and SHA-256, nothing else)
+        run: |
+          python3 .github/scripts/pages_check_artifact.py --manifest web/atlas-static-site.json \
+            --artifact "$RUNNER_TEMP/pages-artifact/artifact.tar"
 
       - name: Publish the artifact the build job verified
         id: deployment
@@ -182,4 +203,4 @@ jobs:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
           python3 .github/scripts/pages_check_site.py --manifest web/atlas-static-site.json \
-            --url "$PAGE_URL" --attempts 10 --wait 15
+            --url "$PAGE_URL" --attempts 10 --wait 15 --timeout 10 --deadline 480

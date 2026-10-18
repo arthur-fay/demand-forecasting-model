@@ -32,19 +32,22 @@ export interface Location {
   readonly search: string;
 }
 
+/** A dot segment, as a URL reads it (`%2e` is a dot). */
+const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
+
 /**
  * The app path of a URL path under `base`: `/demand-forecasting-model/forecasting` is
  * `/forecasting`, and the base itself, with or without its slash, is `/`. A path outside
- * the base is returned as it is (no page has it). With `canonical` (static hosts), the
- * forms a static host also answers (`/forecasting.html`, `/index.html`, `/forecasting/`)
- * are the page they name.
+ * the base has none: `''`, which no page has. With `canonical` (static hosts), the forms
+ * a static host also answers (`/forecasting.html`, `/index.html`, `/forecasting/`) are
+ * the page they name.
  */
 export function appPath(pathname: string, base = BASE, canonical = STATIC): string {
   let path = pathname;
   if (base !== '/') {
     if (pathname === base.slice(0, -1)) path = '/';
     else if (pathname.startsWith(base)) path = pathname.slice(base.length - 1);
-    else return pathname;
+    else return '';
   }
   if (!canonical) return path;
   // Repeated slashes are one (a static host answers `//forecasting` with 404.html, and
@@ -55,7 +58,10 @@ export function appPath(pathname: string, base = BASE, canonical = STATIC): stri
     if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
     if (path.endsWith('.html')) path = path.slice(0, -'.html'.length);
   }
-  return path === '' || path === '/index' ? '/' : path;
+  // What is left may hold a dot segment (`...html` leaves `..`), which a URL resolves
+  // away, out of the base: such an address is no page.
+  if (path.split('/').some((segment) => DOT_SEGMENT.test(segment))) return '';
+  return path === '/index' ? '/' : path;
 }
 
 /** The URL of an app path (with an optional query or fragment) under `base`. */
@@ -80,14 +86,15 @@ function snapshot(): Location {
  * all use one address per page.
  */
 export function canonicalise(base = BASE): void {
-  const { pathname, search, hash } = window.location;
-  if (!pathname.startsWith(base) && `${pathname}/` !== base) return;
+  const { href: current, pathname, search, hash } = window.location;
   const path = appPath(pathname, base, true);
-  // Never fatal: an address the router cannot rewrite stays as it is (its page, or "Page
-  // not found", still shows).
+  // Never fatal, never out of the base: an address the router cannot rewrite stays as it
+  // is (its page, or "Page not found", still shows), and so does one whose rewritten
+  // form a URL would read as another path.
   if (!path.startsWith('/') || path.startsWith('//')) return;
   const href = appHref(path, base);
-  if (href !== pathname) window.history.replaceState(null, '', `${href}${search}${hash}`);
+  if (href === pathname || new URL(href, current).pathname !== href) return;
+  window.history.replaceState(null, '', `${href}${search}${hash}`);
 }
 
 if (STATIC) canonicalise();

@@ -94,6 +94,8 @@ FIRST_NODE24_MAJOR = {
     # composite action whose 4.x calls upload-artifact 4.6.2 (node20), 5.0.0 7.0.0 (node24).
     "actions/deploy-pages": 5,
     "actions/upload-pages-artifact": 5,
+    # (M9) download-artifact 4.x to 6.x run on node20, 7.0.0 on node24.
+    "actions/download-artifact": 7,
 }
 _USES = re.compile(r"\s*(?:-\s+)?uses:\s*(?P<action>[^@\s]+)@(?P<ref>\S+)(?:\s+#\s*(?P<tag>\S+))?")
 

@@ -70,14 +70,18 @@ const pagesProject = (name: string, device: string, testMatch: RegExp, options =
   use: { ...devices[device], baseURL: PAGES_URL, ...options },
 });
 const pagesProjects = [
-  pagesProject('pages', 'Desktop Chrome', /\/pages(-a11y)?\.spec\.ts$/, { launchOptions }),
+  pagesProject('pages', 'Desktop Chrome', /\/pages(-a11y|-keyboard)?\.spec\.ts$/, {
+    launchOptions,
+  }),
   pagesProject('pages-mobile', 'Pixel 7', /\/pages(-mobile)?\.spec\.ts$/, { launchOptions }),
   ...(otherEngines
     ? [
-        pagesProject('pages-firefox', 'Desktop Firefox', /\/pages\.spec\.ts$/, {
+        pagesProject('pages-firefox', 'Desktop Firefox', /\/pages(-keyboard)?\.spec\.ts$/, {
           launchOptions: {},
         }),
-        pagesProject('pages-webkit', 'Desktop Safari', /\/pages\.spec\.ts$/, { launchOptions: {} }),
+        pagesProject('pages-webkit', 'Desktop Safari', /\/pages(-keyboard)?\.spec\.ts$/, {
+          launchOptions: {},
+        }),
       ]
     : []),
 ];

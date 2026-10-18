@@ -78,14 +78,16 @@ differs:
 
 - the footer's sentence that ATLAS is not affiliated with or endorsed by the City of New York
   or NYC Open Data;
-- on the Overview, next to the recommended model, a pointer to the M8 erratum ("its
-  statistical support is weak");
+- on the Overview, next to the recommended model, the M8 erratum's conclusion ("after the M8
+  size correction, a correctly sized selection test would most likely have kept the
+  same-weekday median baseline") and where it is shown in full;
 - an M9 entry in the Methods list.
 
 Its committed build is rebuilt from the refactored sources, and the M7 tests run against it.
-The static transport, reader, recorded-scenario panel and static wording are not in it. A few
-static-only constants and error messages remain, and cannot be reached there: a served
-descriptor can never claim the static profile.
+The static transport, reader and recorded-scenario panel are not in it. Some static-only
+wording is, and is never shown there: the navigation line, the deployment badge, the
+Provenance and Simulator explanations, and two error messages. A served descriptor can never
+claim the static profile.
 
 ## 2. Architecture
 
@@ -126,7 +128,8 @@ uv run atlas static export     # writes web/static-export (replaces an earlier e
 uv run atlas static verify     # exit 0: the committed export is what the outputs give
 ```
 
-**What is exported**: 24 answers, 1.07 MB raw (1.09 MB with the manifest) and 182 KB gzip in all.
+**What is exported**: 24 answers, 1.07 MB raw (1.09 MB with the manifest) and 182 KB gzip in
+all (Node's zlib at level 9, as `npm run size:pages` measures).
 
 | Files | Requests (the exact paths and queries the api profile sends) |
 |---|---|
@@ -176,10 +179,17 @@ written:
   hashes to the SHA-256 its answer names; this repeats the API's startup check
   independently.
 - **Public safety.** No string or key looks like:
-  - an absolute local path, a Windows path or a `file:` URL;
-  - a local host name or an IP address;
-  - an e-mail address, a private key or a credential word;
+  - an absolute local path (Unix roots and CI workspaces), a Windows path (any drive), a
+    network share or a `file:` URL;
+  - a URL with credentials, a local or internal host name, or an IPv4 or IPv6 address
+    (compressed forms included);
+  - an e-mail address, a private key, a token (GitHub, AWS, Slack, API key, JSON web token)
+    or a credential word;
   - or contains the repository's local path.
+
+  These are patterns: they find what they describe, as a check on mistakes next to the
+  review of what is committed. The export has no allow-list of hosts; the build's scan
+  (section 6) has one, and scans the exported files too.
 
 **The manifest**, `atlas-static-export.json` (format `atlas-static-export/1`), records:
 
@@ -238,7 +248,9 @@ rewrite a request, so the build:
   "Page not found" view, with links to every page, under a 404 status.
 
 A page reached as `forecasting.html`, `index.html` or `forecasting/` is shown at its
-canonical address (`history.replaceState`), so one page has one address. The back and
+canonical address (`history.replaceState`), so one page has one address. An address whose
+rewritten form a URL would read as another path (a dot segment: `...html` would leave `..`,
+which resolves out of the site) is left as it is and shows "Page not found". The back and
 forward buttons, reloads, query strings (`?scenario=reduced_budget`, `?window=365`) and the
 skip link all work, as in the api profile.
 
@@ -252,8 +264,8 @@ therefore:
   its assumptions, feasibility (DIAGNOSTIC when relaxed), plan, daily resources and backlog,
   policy comparison and evidence. These are the panels of the Decision optimisation page's
   scenario detail, except its table of HYPOTHETICAL parameters and the model's structural
-  assumptions, which a link opens on that page (the form below also lists every
-  assumption);
+  assumptions, which a link opens on that page (the form below lists the reference
+  assumption of each adjustable input);
 - **never presents a choice as a new optimisation**: the panel is titled "Explore the recorded
   reference scenarios", tagged "Recorded result" and HYPOTHETICAL. Its callout names the
   committed run and its result fingerprint, and says that choosing a scenario "does not run
@@ -272,10 +284,10 @@ static profile says what happened instead:
 - each provenance footer: verified at export, and checked by the browser against this build;
 - the Methods and provenance page: the build, the data ("recorded from ATLAS 1.0.0"), a
   policy carried in the page, no server;
-- the navigation's line under Simulator: "Recorded M4 reference scenarios".
+- the navigation's line under Simulator: "Simulations off here; explore recorded results".
 
 The api profile's sentences are M7's, plus the two caveats of section 1 that both profiles
-show.
+show; the static wording in its build is never shown (section 1).
 
 ## 5. GitHub Pages compatibility
 
@@ -299,9 +311,13 @@ The local stand-in (`web/scripts/pages-server.mjs`) follows the same rules:
 - a path is a file, else a directory (with its slash), else `<path>.html`, else `404.html`
   with status 404;
 - only GET and HEAD are answered, no header of the site's own is sent, and `max-age=600`
-  with an ETag.
+  with an ETag;
+- an encoded dot, slash or backslash (`%2E`, `%2F`, `%5C`), a backslash, NUL or a dot
+  segment is never a file (404.html): stricter than a host that decodes them;
+- every file it serves, 404.html included, is resolved through its links and must stay in
+  the build.
 
-It is not GitHub Pages: the real behaviour is checked after activation (section 12, step 7).
+It is not GitHub Pages: the real behaviour is checked after activation (section 12, step 8).
 
 ## 6. Security and public information
 
@@ -313,28 +329,43 @@ It is not GitHub Pages: the real behaviour is checked after activation (section 
 
 It holds no credential, key, token, cookie or storage. It makes no POST and needs no server,
 and it shows no operational metadata. `verify-pages.mjs` refuses any file of a type a build
-never holds (anything but HTML, JavaScript, CSS, JSON, text, SVG and the woff2 font). It then
-scans every text file (`web/scripts/unsafe.mjs`, tested pattern by pattern in
-`build/unsafe.test.ts`) for:
+never holds (anything but HTML, JavaScript, CSS, JSON, text, SVG and the woff2 font) and a
+font without the WOFF2 signature. A link or a directory where a file is listed is reported,
+never followed. It then scans every file name and every text file, the site manifest
+included (`web/scripts/unsafe.mjs`, tested pattern by pattern in `build/unsafe.test.ts`;
+`build/verifiers.test.ts` plants defects in copies of both builds), for:
 
 - private keys; GitHub, AWS and Slack tokens; API key values; JSON web tokens;
-- credential assignments, `Authorization` headers, bearer or basic credentials, the API key
-  header, and URLs with a user and password;
-- `file:` URLs, local paths (Unix, Windows, network shares and CI workspaces), local and
-  internal host names, IPv4 and IPv6 addresses, and e-mail addresses;
+- credential assignments (quoted, or unquoted values that look like a secret),
+  `Authorization` headers, bearer or basic credentials, the API key header, and URLs with
+  credentials (the user may be empty);
+- `file:` URLs, local paths (Unix, any Windows drive, network shares and CI workspaces),
+  local and internal host names (any case), IPv4 and IPv6 addresses (compressed forms
+  included), and e-mail addresses;
 - links to any site but the four the bundled code and licences name: `www.w3.org` (SVG and
   MathML namespaces), `react.dev` (React's error pages), `github.com` (the repository and the
-  Inter font's source) and `scripts.sil.org` (the font's licence).
+  Inter font's source) and `scripts.sil.org` (the font's licence). A link is any scheme
+  followed by two slashes; `https:host` and `https:/host`, which a browser reads as
+  `https://host`; and a protocol-relative `//host` where a link, a source, a CSS `url()`, an
+  `@import` or a string begins.
 
-The export repeats its own public-safety checks with the same kinds of patterns (section 3).
-Both pass on the committed build and export.
+These are patterns: a check on mistakes, next to the review of what is committed, not a
+proof that nothing else could be. The export repeats its own checks without the host
+allow-list (section 3); the build's scan covers the exported files too, as `data/`. Both pass
+on the committed build and export.
 
 **Information published.** Only what the public repository already holds: the snapshot's
 daily totals, as observed history, and the committed M2, M3 and M4 results, each with
 repository-relative provenance. Publishing the site redistributes these derived NYC 311 data
 on a public web page; section 9 explains why that needs the owner's decision first. The
-pages keep `noindex, nofollow` (unchanged from M7) and `Referrer-Policy: no-referrer` (a
-`<meta>`).
+HTML pages keep `noindex, nofollow` and `Referrer-Policy: no-referrer`, as `<meta>` elements.
+Only HTML can carry them: M7's nginx sends `X-Robots-Tag: noindex, nofollow` on every
+response, while the static site's JSON answers, its manifest and the licence texts carry no
+robots directive, and a project site cannot publish a `robots.txt` (crawlers read it only at
+the origin's root, which belongs to the account's user site). Search engines can therefore
+index the recorded figures apart from the pages that show their limitations; each JSON
+answer still carries its own integrity notices. The owner accepts this with
+`public_static_profile_approved`.
 
 **Differences from the M7/M8 nginx deployment.** GitHub Pages cannot send response headers of
 the site's own. The static build therefore applies what a page can carry:
@@ -345,8 +376,10 @@ the site's own. The static build therefore applies what a page can carry:
 | `frame-ancestors 'none'`, `X-Frame-Options: DENY` | **none** | another site can frame the pages. They hold no session, form or action to hijack: risk low, recorded |
 | `X-Content-Type-Options: nosniff` | GitHub's own headers (not ours; verify after activation) | — |
 | `Referrer-Policy: no-referrer` | `<meta name="referrer">` | same |
+| `X-Robots-Tag: noindex, nofollow` (every response) | `<meta name="robots">` in the HTML pages only | the JSON data, the manifest and the licence texts can be indexed (above) |
 | `Permissions-Policy` (camera, microphone, …) | none | the pages use none of these features |
-| `Cross-Origin-Opener-Policy`, `-Resource-Policy` | none | no cross-origin state to protect |
+| `Cross-Origin-Opener-Policy: same-origin` | none (a `<meta>` cannot carry it) | a page on another site that opened the dashboard keeps a handle on its tab and can later send that tab to a look-alike page (tabnabbing). With COOP, nginx cuts that handle. The review demonstrated both locally. An origin of its own does not change this |
+| `Cross-Origin-Resource-Policy` | none | other sites can load the files; they are public, and GitHub already allows any origin to read them |
 | HSTS | GitHub's (on `github.io`) | — |
 | Cache policy (`immutable` assets, `no-cache` pages) | GitHub's (about 10 minutes) | integrity is held by SHA-256, not by caching |
 | Accounts, per-client rate limits, allow-lists | none | the site is public and read-only; GitHub's limits apply |
@@ -369,12 +402,31 @@ those sites load:
   a service worker controls the page (an error explains why). That catches an accidental or
   stale worker, but not one written to deceive, which could change the code as well.
 
+The origin can also move. If the account's user site has, or later gets, a custom domain,
+GitHub serves every project site that has no custom domain of its own under that domain, at
+`/demand-forecasting-model/`. The dashboard then shares that domain's origin, with whatever
+it serves at its root, and its published address changes (the workflow's check follows the
+address GitHub reports).
+
 So publishing needs the owner to review the origin first (condition `shared_origin_reviewed`,
 section 10). Either no other Pages site of the account exists, or none of them registers a
 service worker or loads a script from another site and the owner accepts that they share the
-origin. Better still, the site gets an origin of its own: a custom domain, or an account or
-organisation used for nothing else. A custom domain at its root changes the base path
-(`ATLAS_PAGES_BASE=/`, then a new build and a new committed manifest).
+origin; and the user site has no custom domain, or the owner reviews what that domain serves.
+Better still, the site gets an origin of its own: a custom domain for this repository, or an
+account or organisation used for nothing else.
+
+**Another address.** The build and its committed record are for
+`/demand-forecasting-model/`. A custom domain serving the site at its root needs the base
+path `/`:
+
+1. change `DEFAULT_PAGES_BASE` in `web/build/static-site.ts`, the `--base` default of
+   `web/scripts/pages-server.mjs`, `PAGES_BASE` in `web/playwright.config.ts` and `BASE` in
+   the static e2e specs, and the gate's `SITE` and the record's `site`;
+2. rebuild (`npm run build:pages`) and commit `web/atlas-static-site.json`.
+
+`ATLAS_PAGES_BASE` alone builds for another base, for a local check, but never rewrites the
+committed record, and `verify-pages` names the mismatch ("built for the base /, the committed
+… for /demand-forecasting-model/"). The workflow builds for the default base.
 
 **Dependencies.** The static build ships the packages the api build already ships, with the
 same third-party licence notices. CI runs `npm audit --audit-level=high` on every build, and
@@ -391,17 +443,18 @@ approval: the condition `public_static_profile_approved` (section 10).
 The static site serves the same answers, so every statement of M7's table
 ([DASHBOARD.md](DASHBOARD.md) section 6) is shown in the same place, from the same field.
 Both the browser tests (`e2e/pages.spec.ts`) and the component tests of the static profile
-(`src/m9-static.test.tsx`) check each one on the static pages:
+(`src/m9-static.test.tsx`) check each one on the static pages; the Overview's pointer to the
+erratum is also checked in the api profile (`src/views/m8-audit.test.tsx`):
 
 | Conclusion | Where it is shown |
 |---|---|
 | M2's lead over the best baseline is not established | Overview status ("Not significant after Holm"); Forecasting tests panel (H1 "not statistically significant after the Holm adjustment") |
-| The M8 statistical erratum | Forecasting tests panel, with the selection: the API's "M2 SELECTION EVIDENCE" notice ("a correctly sized test would most likely have kept …"); since M9, on the Overview next to the recommended model: "its statistical support is weak, as the M8 erratum on the Forecasting page explains" |
+| The M8 statistical erratum | Forecasting tests panel, with the selection: the API's "M2 SELECTION EVIDENCE" notice ("a correctly sized test would most likely have kept …"); since M9, on the Overview next to the recommended model: "after the M8 size correction, a correctly sized selection test would most likely have kept the same-weekday median baseline: see the M2 SELECTION EVIDENCE notice in the Forecasting page's 'Is the model better than the baselines?' panel" |
 | M3: FAILED_CALIBRATION | Overview status; Uncertainty page ("Interval status: FAILED_CALIBRATION"), every band and coverage chart |
-| M4: HYPOTHETICAL, DIAGNOSTIC plans | Overview scenarios; Decisions callout; every scenario; the static simulator's recorded results |
+| M4: HYPOTHETICAL, DIAGNOSTIC plans | Overview scenarios; Decisions callout; every scenario (the six relaxed plans tagged DIAGNOSTIC, from the recorded answers); the static simulator's recorded results |
 | The forecast is historical and archived | "An archived projection, not a live forecast"; the API's "ARCHIVED PROJECTION" notice; the footer's "static, archived copy" |
 | Research software, not an operational tool | the top bar's "Research software"; the footer; the Overview text |
-| A recorded scenario is not a new optimisation | the static simulator's callout and labels; the navigation's "Recorded M4 reference scenarios" |
+| A recorded scenario is not a new optimisation | the static simulator's callout and labels; the navigation's "Simulations off here; explore recorded results" |
 
 The export records these facts in `scientific_status`. Two tests require them there:
 `tests/test_m9_static_export.py` and `src/api/static.test.ts`. A change to the results that
@@ -418,14 +471,17 @@ npm run size:pages             # the size budgets, with the data
 npm run preview:pages          # http://127.0.0.1:4180/demand-forecasting-model/ (the local Pages stand-in)
 npm run test:e2e:pages         # the browser suite against it (ATLAS_E2E_PAGES=1; Chromium and a phone)
 ATLAS_E2E_PAGES=1 ATLAS_E2E_ALL_BROWSERS=1 npx playwright test --project pages-firefox --project pages-webkit
+npx vitest run build/verifiers.test.ts   # the verifiers on planted copies (verify-pages needs dist-pages/)
 ```
 
 | Suite | What it checks |
 |---|---|
 | `tests/test_m9_static_export.py` | the committed export verifies and reproduces byte for byte; each file is the API's answer to its request, through the test client; the fixtures' bytes; coverage of the static pages' requests, and nothing operational; the history windows equal the Forecasting page's; the scientific status and every label; sources repository-relative and equal to the committed files; no unsafe text, and every unsafe pattern found; every refusal of `check_answer`; nothing written from damaged outputs or on a refused request; the environment ignored; replacing an earlier export, refusing other directories; every difference `verify` must find; the command; the policy equals `DASHBOARD_CSP` without `frame-ancestors`; the line-ending rule |
-| `tests/test_m9_pages_workflow.py` | the committed record publishes only what it approves (phase A's is refused; a complete approval passes); each switch and each owner decision is required; unknown fields, impossible dates and repeated keys refused; the command; the workflow never publishes on its own, uploads the build straight after its verification, checks every served file after a publication, keeps a pull request's runs apart from main's, has minimal permissions, changes no Pages setting and runs every static check; the check of a published site (every differing file named; https only) |
-| Vitest: `src/api/static.test.ts`, `src/m9-static.test.tsx`, `src/router.test.ts`, `build/static-site.test.ts`, `build/unsafe.test.ts` | the static reader: the recorded answer after its SHA-256, refusals without a fetch, altered files refused, the API checks, a missing file, network, timeout, cancellation, no Web Crypto, a foreign service worker; no simulation ever sent; the export answers every request the pages can make; the views in the static profile (badge, wording, links under the base, every page's limitations, the recorded scenarios, the disabled form, no POST, a missing file); router base paths, canonical forms (repeated slashes and suffixes, query and fragment kept, never fatal); the build plugin's checks of the export, the base path and the site manifest; every pattern of the scan, and none in the committed build and export |
-| Playwright, `pages`, `pages-mobile` (and `pages-firefox`, `pages-webkit` in CI) | every page from the files, read-only (GET only, never `/api/`), with no console error or CSP violation; deep links and reloads (200); canonical addresses; the 404 page and its links; back and forward; the scientific limitations next to their results; the static simulator (nine recorded scenarios, DIAGNOSTIC kept, reload, no POST); every history window and period; a tampered file refused; a missing file reported; the licence notices under the base; axe WCAG 2.2 A/AA on every page in both themes with every table and disclosure open; keyboard (skip link, navigation, the scenario chooser); reflow at 320 px; a phone (menu, every page, no sideways scroll, axe) |
+| `tests/test_m9_pages_workflow.py` | the command and the tests follow the committed record (phase A's is refused with every switch set; the owner's complete approval passes); each switch and each owner decision is required; unknown fields, impossible dates, dates before M9 or after today, notes that are not text and repeated keys refused; the workflow never publishes on its own, uploads the build straight after its verification, checks the downloaded artifact on the publication job's own runner before publishing it and every served file after, keeps a pull request's runs and each dispatch apart from main's pushes, has minimal permissions, changes no Pages setting and runs every static check; the check of the artifact (exactly the listed files and the manifest; every difference named: altered, missing, extra, a link, a path outside); the check of a published site (every differing file named; a cut-off answer fetched again; its deadline; https only) |
+| Vitest: `src/api/static.test.ts`, `src/m9-static.test.tsx`, `src/router.test.ts`, `build/static-site.test.ts`, `build/unsafe.test.ts`, `build/verifiers.test.ts` | the static reader: the recorded answer after its SHA-256, refusals without a fetch, altered files refused, the API checks, a missing file, network, timeout, cancellation, no Web Crypto, a foreign service worker (and reads where none can control the page); no simulation ever sent; the export answers every request the pages can make; the views in the static profile (badge, wording, links under the base, every page's limitations from the recorded answers, the recorded scenarios, the disabled form, no POST, a missing file); router base paths, canonical forms (repeated slashes and suffixes, query and fragment kept, never fatal, never out of the base); the build plugin's checks of the export, the base path and the site manifest; every pattern of the scan, and none in the committed build and export; both verifiers on planted copies (unlisted files named `constructor` and the like, links, a false font, names and the manifest scanned, a build for another base) |
+| Playwright `pages` (desktop Chromium) | every page from the files, read-only (GET only, never `/api/`), with no console error or CSP violation; deep links and reloads (200); canonical addresses, and none that leaves the site; the 404 page and its links; back and forward; the scientific limitations next to their results, the Overview's erratum pointer and the navigation's line included; the static simulator (nine recorded scenarios, DIAGNOSTIC kept, reload, no POST); every history window and period; a tampered file refused; a missing file reported; the licence notices under the base; axe WCAG 2.2 A/AA on every page in both themes with every table and disclosure open; keyboard (skip link, navigation, the scenario chooser); reflow at 320 px |
+| Playwright `pages-mobile` (Chromium, Pixel 7) | the functional suite above, and the phone: menu, every page, no sideways scroll, axe |
+| Playwright `pages-firefox`, `pages-webkit` (CI) | the functional suite (`pages.spec.ts`) and keyboard use (`pages-keyboard.spec.ts`); axe, reflow and the phone layout run in Chromium only |
 
 The M0-M8 suites run as before. The api profile's build is rebuilt and checked byte for
 byte, and its browser suite runs against it.
@@ -436,7 +492,9 @@ byte, and its browser suite runs against it.
 - the reproducible static build, which must equal the committed manifest;
 - `verify-pages` and the size budgets;
 - `npm audit`;
-- the browser suite in Chromium, a phone, Firefox and WebKit.
+- the verifiers on planted copies (`build/verifiers.test.ts`);
+- the browser suite: desktop Chromium (functional, axe, keyboard, reflow), a phone
+  (Chromium), and Firefox and WebKit (functional and keyboard).
 
 `ci.yml` keeps its jobs. Its pytest and Vitest runs include the M9 tests.
 
@@ -494,12 +552,15 @@ Publication is part B of `.github/workflows/pages.yml`. It runs only when all of
      `github-pages` environment allows `main` only and requires the owner's review
      (section 12, steps 2 and 3);
    - `publication_approved`;
-   - with `decided_by`, `decided_on` (a real date) and `approval_reference` (where the approval
-     is recorded, for example the pull request).
+   - with `decided_by`, `decided_on` and `approval_reference` (where the approval is
+     recorded, for example the pull request).
 
-   The record is read strictly: a key given twice, an unknown field or an impossible date is
-   refused, so what a reviewer reads is what counts. **M9 phase A commits the record with
-   every condition false. No run can publish.**
+   The record is read strictly, so what a reviewer reads is what counts: a key given twice,
+   an unknown field, notes that are not plain text, and a `decided_on` that is not a real
+   date between 2026-10-18 (M9 phase A) and the day of the run (UTC) are refused. **M9 phase
+   A commits the record with every condition false. No run can publish.** That rests on the
+   committed record, which the gate refuses even with every switch set, not on a test: the
+   tests follow the record, so the owner's complete approval passes CI.
 5. **GitHub's `github-pages` environment rules: required.** Required reviewers and `main`
    only (section 12, step 3). The gate's checks run in this repository's workflow, so anyone
    with write access could dispatch a changed workflow from another branch. The environment's
@@ -514,13 +575,25 @@ The artifact that is published is the one part A built and verified in the same 
 - the build whose manifest equals the committed one, verified file by file and scanned;
 - uploaded straight after that verification, before anything else runs on the runner (the
   browsers' installation, the tests);
-- then tested in four browsers. If any test fails, nothing is published.
+- then tested in four browser projects. If any test fails, nothing is published.
 
-It is uploaded only for a publication, kept one day, and published by the one job that holds
-`pages: write` and `id-token: write`. That job then fetches every file of the committed
-manifest from the published site and requires its size and SHA-256
-(`.github/scripts/pages_check_site.py`, repeated for a few minutes while the publication
-reaches every edge).
+It is uploaded only for a publication and kept one day. The one job that holds
+`pages: write` and `id-token: write` publishes it, in three steps:
+
+1. on its own runner, which runs no npm code, it downloads the artifact and requires it to be
+   the committed build exactly (`.github/scripts/pages_check_artifact.py`): the files the
+   committed manifest lists, each with its size and SHA-256, and the manifest itself, and
+   nothing else (no other file, no link, no path outside the archive). The build job's
+   runner ran the dependencies' install scripts, so this check does not trust it;
+2. deploy-pages publishes that artifact;
+3. it fetches every file of the committed manifest from the published site and requires its
+   size and SHA-256 (`.github/scripts/pages_check_site.py`). The check is repeated while the
+   publication reaches every edge, a cut-off answer is fetched again, and the whole check
+   stops after 8 minutes, naming every file that differs.
+
+Runs do not displace one another: a pull request's runs have a group of their own, and so
+does each dispatch, so no push can replace or cancel a publication that waits for its
+review. Publications themselves run one at a time.
 
 ## 11. Release and versioning
 
@@ -557,9 +630,13 @@ The recommendation:
 
 M9 phase A **does not bump the version**: the version is the owner's decision. Until then the
 code still says 1.0.0. The publication gate turns this into an explicit choice: the record's
-`release_version` must equal the code's version. Publishing therefore means either recording
-1.0.0, which folds M9 into 1.0.0 and needs a new candidate `rc.2`, or bumping the code first.
-It never happens silently.
+`release_version` must equal the code's version, so publishing means bumping the code first
+(to 1.1.0, as recommended) or recording 1.0.0 for content that is not rc.1. The repository's
+tooling supports only the first: `rc_manifest.py` names its candidate `rc.1`, and on M9
+content at 1.0.0 its `--write` would overwrite the M8 manifest
+(`atlas-1.0.0-rc.1.json`). A `1.0.0-rc.2` would first need that tool to take a candidate
+name and to refuse to overwrite another candidate's manifest. Either way, it never happens
+silently.
 
 ## 12. Owner instructions: activating GitHub Pages
 
@@ -569,24 +646,27 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
 1. **Decide.** The project licence and the NYC Open Data terms (section 9), the version
    (section 11), the limitations ([KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)), the shared
    origin (section 6), and the static profile itself. If the version changes, bump it first
-   (section 11), export again, rebuild both profiles and merge that.
-2. **Enable Pages with Actions as its source.** Settings > Pages > Build and deployment >
-   Source: **GitHub Actions**. Do not choose "Deploy from a branch". Leave "Custom domain"
-   empty: the build's base path assumes the project address. Pages for this repository is
-   public whatever the repository's visibility, unless the account's plan offers private
-   Pages.
-3. **Protect the environment.** Settings > Environments > `github-pages`. GitHub creates it
-   when Pages uses Actions, or at the first deployment; to set its rules first, click New
-   environment and name it `github-pages`. Then:
+   ([DEVELOPMENT.md](DEVELOPMENT.md) "Versioning": export again, rebuild both profiles) and
+   merge that.
+2. **Protect the environment first.** Settings > Environments > New environment, named
+   `github-pages` (GitHub would otherwise create it, without rules, once Pages uses Actions).
+   Then:
    - "Deployment branches and tags": **Selected branches and tags**, add `main`;
    - "Required reviewers": add yourself.
+3. **Enable Pages with Actions as its source.** Settings > Pages > Build and deployment >
+   Source: **GitHub Actions**. Do not choose "Deploy from a branch". Leave "Custom domain"
+   empty: the build's base path assumes the project address (section 6, "Another address").
+   Pages for this repository is public whatever the repository's visibility, unless the
+   account's plan offers private Pages.
 4. **Record the decisions.** On a branch, edit `docs/release/PAGES_PUBLICATION.json`:
    - set each condition to `true` only if it holds (`pages_settings_configured` now does);
    - set `release_version` to the code's version;
-   - set `decided_by`, `decided_on` (YYYY-MM-DD) and `approval_reference`.
+   - set `decided_by`, `decided_on` (YYYY-MM-DD: the day of the decision, not before
+     2026-10-18 and not in the future) and `approval_reference`;
+   - rewrite `notes`, which still says that nothing is decided.
 
-   Open a pull request and merge it once CI is green. The tests accept a record that approves
-   everything only when it is complete, and refuse any other that would pass the gate.
+   Open a pull request and merge it once CI is green. The tests follow the record: one that
+   sets every condition must also be complete and pass the gate, and any other is refused.
 5. **Set the switch.** Settings > Secrets and variables > Actions > Variables > New repository
    variable: name `ATLAS_PAGES_PUBLICATION`, value `approved`.
 6. **Publish.** Actions > "Static demo (GitHub Pages, M9)" > Run workflow:
@@ -596,9 +676,12 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
    - Run.
 
    Part A builds and tests; the gate checks; approve the `github-pages` deployment when
-   GitHub asks.
-7. **Check the run.** The last step, "The published site serves every file of the committed
-   build, byte for byte", must pass.
+   GitHub asks, **within 24 hours**: the build to publish is kept one day. After that the
+   publication fails for want of its artifact; dispatch again (it rebuilds and retests).
+7. **Check the run.** The step "The artifact is the committed build" runs before anything is
+   published, and the last step, "The published site serves every file of the committed
+   build, byte for byte", after. If the last one fails, the site is already live: unpublish it
+   (step 9), then read the files the step names.
 8. **Check the site** (the things only the real host can show):
    - `https://arthur-fay.github.io/demand-forecasting-model/` loads, with "Static demo ·
      read-only", and no error in the browser console;
@@ -617,7 +700,10 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
      or set it to anything but `approved`, so that no dispatch can publish again;
    - in a pull request, set the record's `publication_approved` back to `false`.
 10. **To update the site later:**
-    - a pull request that exports again and rebuilds (CI requires both);
+    - a pull request that exports again and rebuilds (CI requires both). If it bumps the
+      version, the same pull request updates the record's `release_version` (the gate
+      refuses a record for another version) and, when the approval is renewed for the new
+      content, `decided_on` and `approval_reference`;
     - merge it;
     - dispatch the workflow again, as in step 6.
 
@@ -627,8 +713,13 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
   authorised. Three behaviours are checked only against the local stand-in: extensionless
   pages, the 404 page, and GitHub's headers and caching. Step 8 of section 12 checks them on
   the real host.
-- **No framing protection**: a static host cannot send `frame-ancestors` or
-  `X-Frame-Options` (section 6).
+- **No framing or opener protection**: a static host cannot send `frame-ancestors`,
+  `X-Frame-Options` or `Cross-Origin-Opener-Policy`. Another site can frame the pages, and a
+  site that opened the dashboard can later send its tab to a look-alike page (section 6).
+- **No robots directive outside the HTML pages**: the JSON answers and the licence texts can
+  be indexed apart from the pages that qualify them (section 6).
+- **The shared origin can move**: a custom domain on the account's user site would move the
+  dashboard under that domain (section 6).
 - **Shared origin** with the owner's other GitHub Pages sites. What the site shows is only as
   trustworthy as every one of them and every script they load: a page of the same origin can
   rewrite the dashboard after its checks (section 6). The owner reviews this before
@@ -636,8 +727,12 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
 - **No live simulation**, by design: the recorded reference scenarios only.
 - **A page open across a publication** may refuse a data file whose SHA-256 changed. It says
   so, and a reload loads the new version. Nothing wrong is shown.
-- **Browsers.** Chromium, a Pixel 7 profile, and Playwright's Firefox and WebKit (in CI) are
-  tested. Real Safari, real phones and screen readers are not, as in M8.
+- **Browsers.** Desktop Chromium (every check), a Pixel 7 profile in Chromium (the phone
+  layout), and Playwright's Firefox and WebKit (in CI: the functional suite and keyboard
+  use) are tested. Axe and reflow run in Chromium only. Real Safari, real phones and screen
+  readers are not tested, as in M8.
+- **The scans are patterns** (sections 3 and 6): they catch the mistakes they describe, not
+  every possible secret or link.
 - **The static site inherits every limitation of the results** it shows
   ([KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)). It shows a frozen snapshot that ends
   2026-06-30.
@@ -645,19 +740,26 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
 
 ## 14. Measured results
 
-Measured on the development container (Chromium 141, Node.js 22.22, Python 3.12)
-on 2026-10-18. CI's results, including Firefox and WebKit, are recorded in the pull request.
+Measured on the development container (Chromium 141, Node.js 22.22, Python 3.12) on
+2026-10-18, on the head that corrects the second review round (section 15). Firefox and
+WebKit run in CI only; the pull request records CI's runs of each head.
 
 | Check | Result |
 |---|---|
 | `atlas static export` | 24 answers, 1.07 MB (1.09 MB with the manifest); deterministic (two exports byte-identical) |
 | `atlas static verify` | PASS (files, reproduction) |
 | Static build | reproducible (`atlas-static-site.json` identical across two builds, and to the committed one); `verify-pages` PASS: 49 files under `/demand-forecasting-model/`, 25 data files, no credential, local detail or foreign link |
-| api build (`web/dist`) | reproducible; `verify:dist` PASS; the static transport, reader, recorded-scenario panel and static wording are not in it |
-| Size, static build (gzip) | initial JavaScript 87.9 KB (budget 110); initial HTML, CSS and JS 94.4 KB (125); largest lazy chunk 20.8 KB (30); font 48.3 KB (50); build without data 543.5 KB raw (1,000); largest data file 17.8 KB (30); all data 181.7 KB (300) |
+| api build (`web/dist`) | reproducible; `verify:dist` PASS; the static transport, reader and recorded-scenario panel are not in it (section 1 lists the static wording that is) |
+| Size, static build (gzip: Node's zlib, level 9, `npm run size:pages`) | initial JavaScript 88.0 KB (budget 110); initial HTML, CSS and JS 94.5 KB (125); largest lazy chunk 20.8 KB (30); font 48.3 KB (50); build without data 543.8 KB raw (1,000); largest data file 17.8 KB (30); all data 181.7 KB (300) |
 | Data a page reads on a first visit (gzip level 9, Python's `gzip`) | Overview 12.5 KB; Forecasting 35.9 KB; Uncertainty 10.0 KB; Decisions 15.6 KB; Simulator 15.0 KB; Provenance 32.3 KB. The whole history (9.1 KB) only with "All"; one scenario (about 9 KB) at a time |
 
-The test counts are in the pull request and in section 15.
+| Suite | Result on this head |
+|---|---|
+| pytest, M9: `tests/test_m9_static_export.py`, `tests/test_m9_pages_workflow.py` | 69 and 46 passed |
+| Vitest, the whole suite (25 files) | 293 passed; coverage 95.3 % statements, 84.6 % branches, 94.0 % functions, 96.6 % lines |
+| Vitest, M9 (six files of section 8) | 100 passed |
+| Playwright, static: `pages` (desktop Chromium) and `pages-mobile` | 49 passed, 1 skipped (back and forward on the phone, covered by `pages-mobile.spec.ts`) |
+| Playwright, api profile (`ATLAS_E2E_API_ONLY=1`) | 56 passed |
 
 ## 15. Independent review
 

@@ -524,8 +524,11 @@ The code carries the version being released, as MAJOR.MINOR.PATCH: a release can
 version 1.0.0 already carries 1.0.0, and so does the release itself. It is declared in
 `pyproject.toml`, `src/atlas/__init__.py` and `web/package.json`, and copied into
 `uv.lock`, `web/package-lock.json`, the dashboard build (`web/dist/atlas-dashboard.json`)
-and the API contract (`docs/api/openapi.json`). `tests/test_m8_release.py` requires all of
-them to be equal, so a version change is one commit:
+and the API contract (`docs/api/openapi.json`). Since M9 it is also in every recorded answer
+of the static export (`web/static-export`, they carry the ATLAS version) and in the static
+site's manifest (`web/atlas-static-site.json`). `tests/test_m8_release.py` requires the
+declared versions to be equal, and the static build refuses an export of another version, so
+a version change is made in one commit, with every step below:
 
 1. Edit `version` in `pyproject.toml` and `__version__` in `src/atlas/__init__.py`, then
    run `uv lock`.
@@ -535,8 +538,13 @@ them to be equal, so a version change is one commit:
    the lock at the old version.
 3. Run `uv run atlas api openapi > docs/api/openapi.json` and record the dashboard fixtures
    again (`ATLAS_UPDATE_DASHBOARD_FIXTURES=1 uv run pytest tests/test_m7_fixtures.py --no-cov`).
-4. Rebuild `web/dist` (`npm run build` in `web/`) and commit it, and update the tests and
-   documents that quote the version.
+4. (M9) Export again (`uv run atlas static export`, then `uv run atlas static verify`).
+5. Rebuild `web/dist` (`npm run build` in `web/`) and the static site
+   (`npm run build:pages`, which rewrites `web/atlas-static-site.json`). Commit `web/dist`,
+   `web/static-export` and `web/atlas-static-site.json` with the fixtures and the contract,
+   and update the tests and documents that quote the version. If the static site is
+   published, the same commit updates `release_version` in
+   `docs/release/PAGES_PUBLICATION.json` ([STATIC_DEMO.md](STATIC_DEMO.md) section 12).
 
 Release-candidate status is not part of the version. The release id
 (`<version>-<12 hex digits of the commit>`), the dashboard manifest and `build-release.sh`

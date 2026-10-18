@@ -4,8 +4,10 @@ Phase A must not publish: the GitHub Pages workflow builds and tests on every pu
 and push, and publishes only on a manual dispatch on main that passes the gate
 (.github/scripts/pages_gate.py), whose committed record states no owner decision yet. The
 tests hold for the record as it stands, so the owner's later approval (every condition
-true, in a reviewed commit) passes them too, while any incomplete record is refused.
-After a publication, .github/scripts/pages_check_site.py compares the site with the build.
+true, in a reviewed commit) passes them too, while any incomplete record is refused: phase
+A's refusal rests on the committed record, not on a test. Before a publication,
+.github/scripts/pages_check_artifact.py compares the artifact with the committed build;
+after it, .github/scripts/pages_check_site.py compares the site with it.
 """
 
 from __future__ import annotations
@@ -17,7 +19,9 @@ import http.server
 import importlib.util
 import json
 import re
+import tarfile
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -44,6 +48,7 @@ def _script(name: str) -> ModuleType:
 
 GATE = _script("pages_gate")
 CHECK = _script("pages_check_site")
+ARTIFACT = _script("pages_check_artifact")
 VERSION = GATE.code_version(REPO_ROOT)
 
 
@@ -59,7 +64,7 @@ def _approved() -> dict[str, Any]:
     record.update(
         release_version=VERSION,
         decided_by="arthur-fay",
-        decided_on="2026-10-20",
+        decided_on=GATE.FIRST_DECISION_DAY.isoformat(),
         approval_reference="https://github.com/arthur-fay/demand-forecasting-model/pull/0",
     )
     return record
@@ -165,12 +170,46 @@ def test_a_key_given_twice_is_refused(tmp_path: Path) -> None:
     assert GATE.main(["--record", str(record), "--ref", "refs/heads/main", *common]) == 1
 
 
-def test_the_command_refuses_the_committed_record(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_decision_day_before_m9_or_after_today_is_refused() -> None:
+    before = _without("decided_on", "2026-10-17")
+    assert any("is not between 2026-10-18 and today" in p for p in _open(before))
+    day = GATE.FIRST_DECISION_DAY
+    assert GATE.record_problems(_approved(), VERSION, day) == []
+    later = _without("decided_on", "2026-10-19")
+    assert any("is not between" in p for p in GATE.record_problems(later, VERSION, day))
+    assert any("is not between" in p for p in _open(_without("decided_on", "9999-12-31")))
+
+
+@pytest.mark.parametrize("notes", [{"publication_approved": False}, ["x"], 1, None])
+def test_notes_are_plain_text(notes: object) -> None:
+    assert "the record's notes are not plain text" in _open(_without("notes", notes))
+    record = _approved()
+    del record["notes"]
+    assert _open(record) == []
+
+
+def _phase_a() -> dict[str, Any]:
+    """The record as M9 phase A committed it: no decision."""
+    record = _approved()
+    record["conditions"] = dict.fromkeys(GATE.CONDITIONS, False)
+    record.update(release_version=None, decided_by=None, decided_on=None, approval_reference=None)
+    return record
+
+
+def test_the_command_follows_the_record(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     common = ["--confirm", GATE.PHRASE, "--switch", "approved", "--root", str(REPO_ROOT)]
-    assert GATE.main(["--record", str(RECORD), "--ref", "refs/heads/main", *common]) == 1
-    assert "publication refused" in capsys.readouterr().err
+    # The committed record: refused while any decision is open (phase A), accepted once the
+    # owner's complete approval is committed.
+    expected = 0 if _open(GATE.load_record(RECORD)) == [] else 1
+    assert GATE.main(["--record", str(RECORD), "--ref", "refs/heads/main", *common]) == expected
+    capsys.readouterr()
+    undecided = tmp_path / "phase-a.json"
+    undecided.write_text(json.dumps(_phase_a()), encoding="utf-8")
+    assert GATE.main(["--record", str(undecided), "--ref", "refs/heads/main", *common]) == 1
+    err = capsys.readouterr().err
+    assert "publication refused" in err
+    for name in GATE.CONDITIONS:
+        assert f"condition not met: {name}" in err
     approved = tmp_path / "record.json"
     approved.write_text(json.dumps(_approved()), encoding="utf-8")
     assert GATE.main(["--record", str(approved), "--ref", "refs/heads/main", *common]) == 0
@@ -217,10 +256,27 @@ def test_the_workflow_never_publishes_on_its_own() -> None:
     assert "playwright" not in before.split("npm run verify:pages", 1)[1].split("- name:")[1]
     assert "actions/deploy-pages" in jobs["deploy"]
     assert "actions/deploy-pages" not in jobs["build"] + jobs["gate"]
+    # The publication job checks the artifact on its own runner before it publishes it,
+    # and the published site after.
+    deploy = re.findall(r"- name: (.+)", jobs["deploy"])
+    assert deploy == [
+        "Check out repository (the committed site manifest and the checks)",
+        "Download the artifact to publish",
+        "The artifact is the committed build (every file, size and SHA-256, nothing else)",
+        "Publish the artifact the build job verified",
+        "The published site serves every file of the committed build, byte for byte",
+    ]
+    assert "name: github-pages" in jobs["deploy"].split("actions/download-artifact", 1)[1]
+    assert "pages_check_artifact.py --manifest web/atlas-static-site.json" in jobs["deploy"]
     assert "pages_check_site.py --manifest web/atlas-static-site.json" in jobs["deploy"]
-    # A pull request's group is its own: a fork's branch named main cannot cancel main's run.
+    assert "npm" not in "\n".join(line.split("#", 1)[0] for line in jobs["deploy"].splitlines())
+    # A pull request's group is its own (a fork's branch named main cannot cancel main's
+    # run), and so is a dispatch's (no push can replace a pending publication).
     top = text.split("\njobs:\n", 1)[0]
-    assert "format('pr-{0}', github.event.pull_request.number) || github.ref" in top
+    assert "format('pr-{0}', github.event.pull_request.number)" in top
+    assert (
+        "github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.run_id)" in top
+    )
 
 
 def test_the_workflow_has_minimal_permissions_and_changes_no_setting() -> None:
@@ -251,6 +307,7 @@ def test_the_build_job_runs_every_static_check() -> None:
         "npm run size:pages",
         'ATLAS_E2E_PAGES: "1"',
         "npx playwright test --project pages-firefox --project pages-webkit",
+        "npx vitest run build/verifiers.test.ts",
     ):
         assert command in build, command
 
@@ -322,3 +379,134 @@ def test_only_an_https_site_is_checked_for_real(site: tuple[Path, Path, str]) ->
     _, committed, url = site
     assert _check(committed, url) == 1
     assert _check(committed, "ftp://example.org/", "--allow-http") == 1
+
+
+def test_a_cut_off_answer_is_fetched_again(tmp_path: Path) -> None:
+    """A truncated body (IncompleteRead) is a difference to retry, not a crash."""
+    body = b'{"a": 1}'
+    manifest = {"files": {"data/x.json": {"sha256": hashlib.sha256(body).hexdigest(), "bytes": 8}}}
+    committed = json.dumps(manifest).encode()
+    answers = {"cut": 1}
+
+    class Handler(_Quiet):
+        def do_GET(self) -> None:
+            payload = committed if self.path.endswith("atlas-static-site.json") else body
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            if self.path.endswith("x.json") and answers["cut"] > 0:
+                answers["cut"] -= 1
+                self.wfile.write(payload[:3])
+                self.close_connection = True
+                return
+            self.wfile.write(payload)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        path = tmp_path / "atlas-static-site.json"
+        path.write_bytes(committed)
+        url = f"http://127.0.0.1:{server.server_address[1]}/"
+        arguments = ["--manifest", str(path), "--url", url, "--allow-http", "--wait", "0"]
+        assert CHECK.main([*arguments, "--attempts", "2"]) == 0
+        answers["cut"] = 1
+        assert CHECK.main([*arguments, "--attempts", "1"]) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_check_stops_at_its_deadline(
+    site: tuple[Path, Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, committed, url = site
+    (root / "index.html").unlink()
+    start = time.monotonic()
+    arguments = ["--manifest", str(committed), "--url", url, "--allow-http"]
+    assert CHECK.main([*arguments, "--attempts", "50", "--wait", "1", "--deadline", "2"]) == 1
+    assert time.monotonic() - start < 10
+    assert "stopped at the deadline" in capsys.readouterr().err
+
+
+# --- The check of the artifact before publication ----------------------------------------
+
+
+@pytest.fixture
+def build(tmp_path: Path) -> tuple[Path, Path]:
+    """A tiny static build and its committed manifest."""
+    root = tmp_path / "build"
+    (root / "assets").mkdir(parents=True)
+    files = {"index.html": b"<!doctype html>", "assets/app.js": b"x()"}
+    for name, body in files.items():
+        (root / name).write_bytes(body)
+    manifest = {
+        "format": "atlas-static-site/1",
+        "files": {
+            name: {"sha256": hashlib.sha256(body).hexdigest(), "bytes": len(body)}
+            for name, body in files.items()
+        },
+    }
+    committed = tmp_path / "atlas-static-site.json"
+    committed.write_text(json.dumps(manifest), encoding="utf-8")
+    (root / "atlas-static-site.json").write_bytes(committed.read_bytes())
+    return root, committed
+
+
+def _tar(root: Path, archive: Path, extra: list[tarfile.TarInfo] | None = None) -> Path:
+    """The archive upload-pages-artifact writes (``tar --directory root -cf archive .``)."""
+    with tarfile.open(archive, "w") as tar:
+        tar.add(root, arcname=".")
+        for member in extra or []:
+            tar.addfile(member)
+    return archive
+
+
+def _artifact(committed: Path, archive: Path) -> int:
+    return int(ARTIFACT.main(["--manifest", str(committed), "--artifact", str(archive)]))
+
+
+def test_the_committed_build_as_an_artifact_passes(
+    build: tuple[Path, Path], tmp_path: Path
+) -> None:
+    root, committed = build
+    assert _artifact(committed, _tar(root, tmp_path / "artifact.tar")) == 0
+
+
+def test_every_difference_of_the_artifact_is_named(
+    build: tuple[Path, Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, committed = build
+    (root / "assets" / "app.js").write_bytes(b"y()")
+    (root / "index.html").unlink()
+    (root / "extra.html").write_bytes(b"<p>not built</p>")
+    (root / "more").mkdir()
+    link = tarfile.TarInfo("./assets/link.js")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "/etc/passwd"
+    outside = tarfile.TarInfo("../outside.txt")
+    assert _artifact(committed, _tar(root, tmp_path / "a.tar", [link, outside])) == 1
+    err = capsys.readouterr().err
+    for problem in (
+        "altered: assets/app.js",
+        "missing: index.html",
+        "not in the committed build: extra.html",
+        "a directory the build does not have: more",
+        "not a regular file: assets/link.js",
+        "a path outside the site: ../outside.txt",
+    ):
+        assert problem in err, problem
+
+
+def test_the_artifact_must_carry_the_committed_manifest(
+    build: tuple[Path, Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, committed = build
+    (root / "atlas-static-site.json").write_text("{}", encoding="utf-8")
+    assert _artifact(committed, _tar(root, tmp_path / "a.tar")) == 1
+    assert "atlas-static-site.json differs from the committed" in capsys.readouterr().err
+    (root / "atlas-static-site.json").unlink()
+    assert _artifact(committed, _tar(root, tmp_path / "b.tar")) == 1
+    assert "missing: atlas-static-site.json" in capsys.readouterr().err
+    (tmp_path / "c.tar").write_bytes(b"not a tar")
+    assert _artifact(committed, tmp_path / "c.tar") == 1
+    assert "cannot be read" in capsys.readouterr().err

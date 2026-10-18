@@ -305,3 +305,22 @@ describe('M8 final review: the confirmation tests panel', () => {
     for (const notice of notices) expect(within(panel).getByText(notice)).toBeInTheDocument();
   });
 });
+
+describe('M9 review (R17): the recommended model on the Overview', () => {
+  it('carries the conclusion of the M8 erratum and names where it is shown in full', async () => {
+    mockApi();
+    const user = userEvent.setup();
+    at('/');
+    const pointer = await screen.findByText(
+      /a correctly sized selection test would most likely have kept the same-weekday median baseline/,
+    );
+    expect(pointer).toHaveTextContent(
+      /M2 SELECTION EVIDENCE notice in the Forecasting page’s “Is the model better than the baselines\?” panel/,
+    );
+    await user.click(within(pointer).getByRole('link', { name: 'Forecasting' }));
+    const panel = await screen.findByRole('region', {
+      name: 'Is the model better than the baselines?',
+    });
+    expect(within(panel).getByText(/^M2 SELECTION EVIDENCE: /)).toBeInTheDocument();
+  });
+});

@@ -8,9 +8,12 @@
 //   `forecasting.html`); anything else is the site's 404.html, with status 404;
 // - no rewrite, no header of the site's own: no Content-Security-Policy (the build carries
 //   its policy in the page), `Cache-Control: max-age=600` and an ETag, as Pages sends;
-// - GET and HEAD only; encoded dots and slashes, backslashes and NUL are never a file.
+// - GET and HEAD only; a path with an encoded dot, slash or backslash (`%2E`, `%2F`, `%5C`),
+//   a backslash, NUL or a dot segment is never a file: it is answered with 404.html (a
+//   stand-in stricter than a host that decodes them is the safer one to test against).
 //
-// It reads nothing outside the build directory. It is not GitHub Pages: the real behaviour
+// It reads nothing outside the build directory: every file it serves, 404.html and
+// index.html included, is resolved through its links and must stay inside. It is not GitHub Pages: the real behaviour
 // is verified once Pages is enabled (docs/STATIC_DEMO.md, "After activation").
 //
 //   node scripts/pages-server.mjs [--dir dist-pages] [--base /demand-forecasting-model/]
@@ -18,7 +21,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, resolve, sep } from 'node:path';
+import { extname, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 
 const { values } = parseArgs({
@@ -32,13 +35,6 @@ const { values } = parseArgs({
 const root = realpathSync(resolve(values.dir));
 const base = values.base;
 if (!/^\/(?:[A-Za-z0-9._-]+\/)*$/.test(base)) throw new Error(`invalid --base ${base}`);
-try {
-  statSync(join(root, 'index.html'));
-  statSync(join(root, '404.html'));
-} catch {
-  console.error(`${root} holds no static build: run \`npm run build:pages\` first`);
-  process.exit(2);
-}
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -70,6 +66,12 @@ function file(relative) {
   return null;
 }
 
+const NOT_FOUND = file('404.html');
+if (file('index.html') === null || NOT_FOUND === null || NOT_FOUND === 'directory') {
+  console.error(`${root} holds no static build: run \`npm run build:pages\` first`);
+  process.exit(2);
+}
+
 function send(request, response, status, path, extra = {}) {
   const body = readFileSync(path);
   const etag = `"${createHash('sha256').update(body).digest('hex').slice(0, 16)}"`;
@@ -90,7 +92,7 @@ function send(request, response, status, path, extra = {}) {
 }
 
 function notFound(request, response) {
-  send(request, response, 404, join(root, '404.html'));
+  send(request, response, 404, NOT_FOUND);
 }
 
 const server = createServer((request, response) => {
@@ -100,6 +102,10 @@ const server = createServer((request, response) => {
     return;
   }
   const url = new URL(request.url ?? '/', 'http://pages.invalid');
+  if (/%(?:2e|2f|5c)/i.test(url.pathname)) {
+    notFound(request, response);
+    return;
+  }
   let path;
   try {
     path = decodeURIComponent(url.pathname);

@@ -193,7 +193,9 @@ describe('the static profile', () => {
       (await screen.findAllByText(/^ARCHIVED PROJECTION: issued from the frozen snapshot/)).length,
     ).toBeGreaterThan(0);
     const nav = screen.getByRole('navigation', { name: 'Dashboard sections' });
-    expect(within(nav).getByText('Recorded M4 reference scenarios')).toBeInTheDocument();
+    expect(
+      within(nav).getByText('Simulations off here; explore recorded results'),
+    ).toBeInTheDocument();
     await user.click(within(nav).getByRole('link', { name: /Uncertainty/ }));
     expect(
       await screen.findByRole('heading', { name: 'Interval status: FAILED_CALIBRATION' }),
@@ -202,11 +204,14 @@ describe('the static profile', () => {
     expect(
       await screen.findByText('HYPOTHETICAL: not a staffing, budget or capacity recommendation'),
     ).toBeInTheDocument();
-    expect((await screen.findAllByText(/DIAGNOSTIC/)).length).toBeGreaterThan(0);
+    // From the recorded scenarios: the six relaxed plans, each labelled DIAGNOSTIC.
+    const feasibility = await screen.findByRole('table', { name: /9 reference scenarios over/ });
+    expect(within(feasibility).getAllByText('DIAGNOSTIC', { exact: true })).toHaveLength(6);
+    expect(within(feasibility).getAllByText('Meets every constraint')).toHaveLength(3);
     await user.click(within(nav).getByRole('link', { name: /Overview/ }));
     expect(
-      await screen.findByText(/its statistical\s+support is weak, as the M8 erratum/),
-    ).toBeInTheDocument();
+      await screen.findByText(/a correctly sized selection test would most likely have kept/),
+    ).toHaveTextContent(/M2 SELECTION EVIDENCE notice in the Forecasting page/);
   });
 
   it('a recorded file that is missing is shown as such, never replaced', async () => {
@@ -227,7 +232,11 @@ describe('the static profile', () => {
     expect(
       (await screen.findAllByText(/A data file of this site is missing/)).length,
     ).toBeGreaterThan(0);
-    // The H1 verdict comes from the missing file: it is not shown in any form.
+    // The tests panel's verdict comes from the missing file and is absent; the H1 notice
+    // the forecast's own file carries stays.
     expect(screen.queryByText(/significant after the Holm adjustment/)).toBeNull();
+    expect(
+      (await screen.findAllByText(/\(H1\) is not statistically established/)).length,
+    ).toBeGreaterThan(0);
   });
 });

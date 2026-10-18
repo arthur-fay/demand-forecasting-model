@@ -3,8 +3,10 @@ declare const __ATLAS_DASHBOARD_VERSION__: string;
 
 /**
  * (M9) The build profile (vite.config.ts): true for the static profile (a static export),
- * false for the api profile. A literal, so the api build drops what only the static profile
- * runs (its transport, reader, recorded-scenario panel and wording).
+ * false for the api profile. A literal, so the api build drops the code only the static
+ * profile runs (its transport, reader and recorded-scenario panel). Some static-only wording
+ * stays in the api build, never shown: the navigation line, the deployment badge, the
+ * Provenance and Simulator explanations and two error messages.
  */
 declare const __ATLAS_STATIC__: boolean;
 

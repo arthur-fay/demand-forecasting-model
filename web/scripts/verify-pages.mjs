@@ -7,9 +7,13 @@
 // 2. its data/ are the committed static export, byte for byte;
 // 3. every page (index.html, each <page>.html, 404.html) is the same document and carries
 //    the Content-Security-Policy in a <meta> before any script;
-// 4. every file is of an allowed type, and no text file holds a credential, a private key,
-//    a local or internal path, host or address, an e-mail address, or a link to a site
-//    other than the few the bundled code and licences name (scripts/unsafe.mjs).
+// 4. every file is of an allowed type (a font starts with its signature), and no file name
+//    and no text file, the manifest included, holds a credential, a private key, a local
+//    or internal path, host or address, an e-mail address, or a link to a site other than
+//    the few the bundled code and licences name (scripts/unsafe.mjs).
+//
+// A file that is not a regular file (a link, a directory where a file is listed) or cannot
+// be read is reported, never followed.
 //
 //   node scripts/verify-pages.mjs [dist-pages]
 import { execFileSync } from 'node:child_process';
@@ -18,7 +22,7 @@ import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ALLOWED_EXTENSIONS, BINARY_EXTENSIONS, findUnsafe } from './unsafe.mjs';
+import { ALLOWED_EXTENSIONS, BINARY_EXTENSIONS, SIGNATURES, findUnsafe } from './unsafe.mjs';
 
 const web = fileURLToPath(new URL('..', import.meta.url));
 const dist = process.argv[2] ?? join(web, 'dist-pages');
@@ -27,7 +31,27 @@ const problems = [];
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const own = (object, key) => Object.hasOwn(object, key);
 
-const text = readFileSync(join(dist, NAME));
+const files = new Map();
+/** A file of the build, read once: null (and a problem) unless it is a readable regular file. */
+function read(path) {
+  if (files.has(path)) return files.get(path);
+  let data = null;
+  try {
+    if (lstatSync(join(dist, path)).isFile()) data = readFileSync(join(dist, path));
+    else problems.push(`not a regular file: ${path}`);
+  } catch {
+    problems.push(`unreadable: ${path}`);
+  }
+  files.set(path, data);
+  return data;
+}
+function fail() {
+  console.error(problems.join('\n'));
+  process.exit(1);
+}
+
+const text = read(NAME);
+if (text === null) fail();
 const manifest = JSON.parse(text.toString('utf-8'));
 if (manifest.format !== 'atlas-static-site/1') problems.push(`${NAME} is not atlas-static-site/1`);
 let committed = null;
@@ -36,8 +60,21 @@ try {
 } catch {
   problems.push(`web/${NAME} cannot be read from git (HEAD): commit it, in a git checkout`);
 }
-if (committed !== null && !text.equals(committed))
-  problems.push(`${NAME} differs from the committed web/${NAME}: rebuild and commit it`);
+if (committed !== null && !text.equals(committed)) {
+  let base = null;
+  try {
+    base = JSON.parse(committed.toString('utf-8')).base;
+  } catch {
+    // reported below as a difference
+  }
+  problems.push(
+    base !== null && base !== manifest.base
+      ? `${NAME} is built for the base ${manifest.base}, the committed web/${NAME} for ` +
+          `${base}: a build for another address needs DEFAULT_PAGES_BASE changed ` +
+          '(build/static-site.ts; docs/STATIC_DEMO.md section 6)'
+      : `${NAME} differs from the committed web/${NAME}: rebuild and commit it`,
+  );
+}
 
 const walk = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -57,10 +94,10 @@ if (JSON.stringify(onDisk) !== JSON.stringify(listed)) {
 for (const path of listed) {
   if (!onDisk.includes(path)) continue;
   const { sha256: expected, bytes } = manifest.files[path];
-  const data = readFileSync(join(dist, path));
-  if (data.length !== bytes || sha256(data) !== expected) problems.push(`altered: ${path}`);
   // A link is never part of a build, even one pointing at the right bytes.
-  if (!lstatSync(join(dist, path)).isFile()) problems.push(`not a regular file: ${path}`);
+  const data = read(path);
+  if (data !== null && (data.length !== bytes || sha256(data) !== expected))
+    problems.push(`altered: ${path}`);
 }
 
 // 2. The data are the committed export.
@@ -74,21 +111,22 @@ if (JSON.stringify(exported) !== JSON.stringify(shipped))
   problems.push(`data/ is not the static export: ${shipped.join(', ')}`);
 for (const name of exported) {
   if (!shipped.includes(name)) continue;
-  if (!readFileSync(join(exportDir, name)).equals(readFileSync(join(dist, 'data', name))))
+  const data = read(`data/${name}`);
+  if (data !== null && !readFileSync(join(exportDir, name)).equals(data))
     problems.push(`data/${name} differs from static-export/${name}`);
 }
 
 // 3. Every page is the app, with its policy before any script.
-const index = readFileSync(join(dist, 'index.html'));
+const index = read('index.html');
+if (index === null) fail();
 for (const page of [...Object.values(manifest.pages), manifest.not_found]) {
-  let html;
-  try {
-    html = readFileSync(join(dist, page));
-  } catch {
+  if (!onDisk.includes(page)) {
     problems.push(`page missing: ${page}`);
     continue;
   }
-  if (!html.equals(index)) problems.push(`${page} is not the same document as index.html`);
+  const html = read(page);
+  if (html !== null && !html.equals(index))
+    problems.push(`${page} is not the same document as index.html`);
 }
 const html = index.toString('utf-8');
 const meta = html.indexOf(
@@ -100,22 +138,26 @@ if (meta < 0 || script < 0 || meta > script)
 if (/<script(?![^>]*\bsrc=)[^>]*>/.test(html)) problems.push('index.html has an inline script');
 if (!html.includes(`src="${manifest.base}assets/`)) problems.push('assets are not under the base');
 
-// 4. Allowed types only; nothing secret, local or foreign in any text.
-for (const path of onDisk) {
+// 4. Allowed types only; nothing secret, local or foreign in any name or text.
+for (const path of [...onDisk, NAME]) {
+  for (const finding of findUnsafe(path)) problems.push(`the name ${path} holds ${finding}`);
   const extension = extname(path);
   if (!ALLOWED_EXTENSIONS.includes(extension)) {
     problems.push(`a file of a type a build never holds: ${path}`);
     continue;
   }
-  if (BINARY_EXTENSIONS.includes(extension)) continue;
-  for (const finding of findUnsafe(readFileSync(join(dist, path), 'utf-8')))
+  const data = read(path);
+  if (data === null) continue;
+  if (BINARY_EXTENSIONS.includes(extension)) {
+    if (!data.subarray(0, 4).equals(Buffer.from(SIGNATURES[extension], 'latin1')))
+      problems.push(`${path} is not a ${extension} file (no signature)`);
+    continue;
+  }
+  for (const finding of findUnsafe(data.toString('utf-8')))
     problems.push(`${path} holds ${finding}`);
 }
 
-if (problems.length) {
-  console.error(problems.join('\n'));
-  process.exit(1);
-}
+if (problems.length) fail();
 console.log(
   `${relative(web, dist) || dist} matches the committed ${NAME}: ${onDisk.length} files under ` +
     `${manifest.base}, ${shipped.length} data files, version ${manifest.version}; ` +

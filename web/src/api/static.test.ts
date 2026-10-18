@@ -190,6 +190,22 @@ describe('a static read', () => {
     await expect(reader.read('/api/v1/models', ModelsResponse)).resolves.toBeTruthy();
   });
 
+  it('reads where no worker can control the page: none supported, or the browser refuses to say', async () => {
+    serve();
+    vi.stubGlobal('navigator', {});
+    await expect(reader.read('/api/v1/models', ModelsResponse)).resolves.toBeTruthy();
+    // A sandboxed frame or blocked storage: reading navigator.serviceWorker throws.
+    vi.stubGlobal(
+      'navigator',
+      Object.defineProperty({}, 'serviceWorker', {
+        get() {
+          throw new DOMException('The operation is insecure.', 'SecurityError');
+        },
+      }),
+    );
+    await expect(reader.read('/api/v1/models', ModelsResponse)).resolves.toBeTruthy();
+  });
+
   it('shows nothing where the browser cannot check a file (no Web Crypto)', async () => {
     serve();
     vi.stubGlobal('crypto', {});

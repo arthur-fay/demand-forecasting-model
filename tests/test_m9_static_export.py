@@ -270,6 +270,12 @@ def test_nothing_operational_local_or_secret_is_published() -> None:
         ("AKIAIOSFODNN7EXAMPLE", "a token"),
         ("xoxb-1234567890-abcdefghij", "a token"),
         ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig", "a token"),
+        # Second review round.
+        ("2001:db8::abcd", "an IPv6 address"),
+        ("fe80::1ff:fe23:4567:890a", "an IPv6 address"),
+        ("2001:db8:85a3::8a2e:370:7334", "an IPv6 address"),
+        ("D:/projects/atlas", "a Windows path"),
+        ("redis://:password@cache.example.org:6379", "a URL with credentials"),
     ],
 )
 def test_unsafe_text_is_found(text: str, finding: str) -> None:
@@ -281,6 +287,25 @@ def test_the_repository_path_and_keys_are_searched_too() -> None:
     assert unsafe_text({"note": f"in {REPO_ROOT.resolve()}"}, REPO_ROOT)
     assert unsafe_text({"api_key": 1}, REPO_ROOT)
     assert unsafe_text({"data": [1, 2.5, None, True, "requests/day"]}, REPO_ROOT) == []
+
+
+def test_times_ratios_and_labels_are_no_address_or_path() -> None:
+    for text in ("12:30:00", "1:2:3", "Model::fit", "H1: not significant", "MAE 1:30 days", "::"):
+        assert unsafe_text({"note": text}, REPO_ROOT) == [], text
+
+
+@pytest.mark.parametrize("flag", ["point_forecast_validated", "validated_recommendation"])
+def test_the_validation_flags_are_read_from_the_answers(flag: str) -> None:
+    """Each answer's own flag, not a constant: one answer claiming it makes it true."""
+    by_file = {name: _answer(name).document() for name in _manifest()["files"]}
+    status = static_export._scientific_status(by_file)
+    assert status["point_forecast_validated"] is False
+    assert status["validated_recommendation"] is False
+    by_file["forecast.json"]["integrity"][flag] = True
+    status = static_export._scientific_status(by_file)
+    assert status[flag] is True
+    other = ({"point_forecast_validated", "validated_recommendation"} - {flag}).pop()
+    assert status[other] is False
 
 
 @pytest.mark.parametrize(

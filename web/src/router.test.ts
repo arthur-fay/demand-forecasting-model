@@ -22,11 +22,26 @@ describe('the static profile', () => {
     expect(appPath(BASE, BASE, true)).toBe('/');
     expect(appPath('/demand-forecasting-model', BASE, true)).toBe('/');
     expect(appPath(`${BASE}forecasting`, BASE, true)).toBe('/forecasting');
-    // A path outside the base is no page.
-    expect(appPath('/forecasting', BASE, true)).toBe('/forecasting');
-    expect(appPath('/demand-forecasting-modelx/forecasting', BASE, true)).toBe(
-      '/demand-forecasting-modelx/forecasting',
-    );
+    // A path outside the base has no app path: '', which no page has.
+    expect(appPath('/forecasting', BASE, true)).toBe('');
+    expect(appPath('/', BASE, true)).toBe('');
+    expect(appPath('/demand-forecasting-modelx/forecasting', BASE, true)).toBe('');
+  });
+
+  it('never reads an address that would leave the base as a page (dot segments)', () => {
+    for (const rest of [
+      '...html',
+      '...html/',
+      '..html',
+      '%2e%2e.html',
+      '.%2e.html',
+      '%2E%2E.html/',
+      'forecasting/...html',
+      'a/b/...html/',
+    ])
+      expect(appPath(`${BASE}${rest}`, BASE, true), rest).toBe('');
+    // A dot inside a name is not a dot segment.
+    expect(appPath(`${BASE}forecasting/...x`, BASE, true)).toBe('/forecasting/...x');
   });
 
   it('shows the other forms a static host answers as the page they name', () => {
@@ -83,5 +98,18 @@ describe('the canonical address of a page (static profile)', () => {
     expect(at(`${BASE}//evil.example/x`)).toBe(`${BASE}evil.example/x`);
     expect(at('/elsewhere//x.html')).toBe('/elsewhere//x.html');
     expect(at(`${BASE}forecasting`)).toBe(`${BASE}forecasting`);
+  });
+
+  it('never moves the address out of the base', () => {
+    for (const rest of [
+      '...html',
+      '...html?x=1#y',
+      '%2e%2e.html',
+      '.%2e.html',
+      '%2E%2E.html/',
+      'forecasting/...html',
+      'a/b/...html/',
+    ])
+      expect(at(`${BASE}${rest}`), rest).toBe(`${BASE}${rest}`);
   });
 });

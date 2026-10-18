@@ -12,7 +12,8 @@ It names every unmet condition and exits 1 unless all of them hold:
    shows (which must be the code's), the accepted limitations, the review of the origin the
    site shares, the Pages and environment settings and the approval itself, with who
    decided, when, and where it is recorded. The record is read strictly: a repeated key, an
-   unknown field or an impossible date is refused, so what a reviewer reads is what counts.
+   unknown field, a date that is impossible, before M9 or after today (UTC), and notes that
+   are not plain text are refused, so what a reviewer reads is what counts.
 
 Phase A commits that record with every condition false, so no run can publish, whatever is
 dispatched. The protection rules of the ``github-pages`` environment (required reviewers,
@@ -31,7 +32,7 @@ import json
 import re
 import sys
 import tomllib
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +40,7 @@ FORMAT = "atlas-pages-publication/1"
 SITE = "https://arthur-fay.github.io/demand-forecasting-model/"
 PHRASE = "publish the ATLAS static demo"
 SWITCH = "approved"
-#: Every decision the owner must record before publication (docs/STATIC_DEMO.md section 9).
+#: Every decision the owner must record before publication (docs/STATIC_DEMO.md section 10).
 CONDITIONS = (
     "project_licence_decided",
     "nyc_open_data_terms_confirmed",
@@ -63,6 +64,8 @@ FIELDS = frozenset(
         "notes",
     }
 )
+#: No decision can predate the record: M9 phase A, which committed it undecided.
+FIRST_DECISION_DAY = date(2026, 10, 18)
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
@@ -72,7 +75,7 @@ def code_version(root: Path) -> str:
     return str(project["version"])
 
 
-def record_problems(record: Any, version: str) -> list[str]:
+def record_problems(record: Any, version: str, today: date | None = None) -> list[str]:
     """Why the committed record does not allow publication (empty: it does)."""
     if not isinstance(record, dict):
         return ["the publication record is not a JSON object"]
@@ -104,17 +107,28 @@ def record_problems(record: Any, version: str) -> list[str]:
         if not (isinstance(value, str) and value.strip()):
             problems.append(f"the record names no {field}")
     decided_on = record.get("decided_on")
-    if not (isinstance(decided_on, str) and _DATE.fullmatch(decided_on) and _real(decided_on)):
+    day = _day(decided_on)
+    if day is None:
         problems.append("the record has no decided_on date (YYYY-MM-DD)")
+    else:
+        last = today if today is not None else datetime.now(UTC).date()
+        if not FIRST_DECISION_DAY <= day <= last:
+            problems.append(
+                f"the record's decided_on {decided_on} is not between "
+                f"{FIRST_DECISION_DAY.isoformat()} and today ({last.isoformat()})"
+            )
+    if "notes" in record and not isinstance(record["notes"], str):
+        problems.append("the record's notes are not plain text")
     return problems
 
 
-def _real(day: str) -> bool:
+def _day(value: object) -> date | None:
+    if not (isinstance(value, str) and _DATE.fullmatch(value)):
+        return None
     try:
-        date.fromisoformat(day)
+        return date.fromisoformat(value)
     except ValueError:
-        return False
-    return True
+        return None
 
 
 def _unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -130,7 +144,15 @@ def load_record(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique)
 
 
-def gate_problems(record: Any, version: str, *, ref: str, confirm: str, switch: str) -> list[str]:
+def gate_problems(
+    record: Any,
+    version: str,
+    *,
+    ref: str,
+    confirm: str,
+    switch: str,
+    today: date | None = None,
+) -> list[str]:
     problems: list[str] = []
     if ref != "refs/heads/main":
         problems.append(f"publication runs on main only, not {ref}")
@@ -141,7 +163,7 @@ def gate_problems(record: Any, version: str, *, ref: str, confirm: str, switch: 
             f"the repository variable ATLAS_PAGES_PUBLICATION is not {SWITCH!r} "
             "(Settings > Secrets and variables > Actions > Variables)"
         )
-    return problems + record_problems(record, version)
+    return problems + record_problems(record, version, today)
 
 
 def main(argv: list[str] | None = None) -> int:

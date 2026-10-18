@@ -189,9 +189,11 @@ function ForecastSummaryPanel() {
                 <dd>
                   {data.model_id}{' '}
                   <span className="muted">
-                    (recommended by the pre-registered M2 protocol as computed; its statistical
-                    support is weak, as the M8 erratum on the{' '}
-                    <Link href="/forecasting">Forecasting</Link> page explains)
+                    (recommended by the pre-registered M2 protocol as computed; after the M8 size
+                    correction, a correctly sized selection test would most likely have kept the
+                    same-weekday median baseline: see the M2 SELECTION EVIDENCE notice in the{' '}
+                    <Link href="/forecasting">Forecasting</Link> page’s “Is the model better than
+                    the baselines?” panel)
                   </span>
                 </dd>
                 <dt>Origin</dt>

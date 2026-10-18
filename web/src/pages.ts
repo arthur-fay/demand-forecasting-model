@@ -50,7 +50,7 @@ export const PAGES = [
     label: 'Simulator',
     title: 'Hypothetical simulator',
     summary: 'Bounded what-if runs of the M4 engine',
-    staticSummary: 'Recorded M4 reference scenarios',
+    staticSummary: 'Simulations off here; explore recorded results',
   },
   {
     path: '/provenance',

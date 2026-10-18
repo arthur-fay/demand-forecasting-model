@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -113,10 +114,13 @@ _UNSAFE: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
             r"Volumes|workspace|__w)/"
         ),
     ),
-    ("a Windows path", re.compile(r"\b[A-Za-z]:(?:\\|/(?:Users|Windows|Program Files))")),
+    (
+        "a Windows path",
+        re.compile(r"\b[A-Za-z]:(?:\\|/(?:Users|Windows|Program Files)|/[\w .$-]+/[\w.$-])"),
+    ),
     ("a network share", re.compile(r"\\\\[A-Za-z0-9.-]+\\")),
     ("a file URL", re.compile(r"file:/", re.IGNORECASE)),
-    ("a URL with credentials", re.compile(r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@", re.I)),
+    ("a URL with credentials", re.compile(r"\b[a-z][a-z0-9+.-]*://[^/\s:@]*:[^/\s@]+@", re.I)),
     ("a local host name", re.compile(r"\blocalhost\b|\.local\b|\.internal\b", re.IGNORECASE)),
     (
         "an internal host name",
@@ -327,7 +331,30 @@ def unsafe_text(document: object, repo_root: Path) -> list[str]:
             match = pattern.search(text)
             if match is not None:
                 found.append(f"{name} ({match.group(0)!r}): {text[:120]}")
+        address = _compressed_ipv6(text)
+        if address is not None:
+            found.append(f"an IPv6 address ({address!r}): {text[:120]}")
     return found
+
+
+#: A candidate for a compressed IPv6 address (with ``::``), confirmed by ``ipaddress``.
+_IPV6_CANDIDATE: Final = re.compile(
+    r"(?<![\w:.])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:.])", re.I
+)
+
+
+def _compressed_ipv6(text: str) -> str | None:
+    for match in _IPV6_CANDIDATE.finditer(text):
+        candidate = match.group(0)
+        groups = [group for group in candidate.split(":") if group]
+        if "::" not in candidate or len(groups) < 2:
+            continue
+        try:
+            ipaddress.IPv6Address(candidate)
+        except ValueError:
+            continue
+        return candidate
+    return None
 
 
 def _source_problems(document: Mapping[str, Any], repo_root: Path) -> list[str]:

@@ -262,7 +262,7 @@ parameters have none: their ranges (up to 0-100,000,000) are too wide for a usef
 | Statement | Where it appears | Source |
 |---|---|---|
 | M2: not significant after Holm | Overview status (tag "Not significant after Holm"); Forecasting confirmation tests (each test's adjusted p and "No"); every panel serving M2 numbers via its notices | `models`, `forecasts/metrics` (`h1`, tests), `integrity.notices` |
-| M2 selection test oversized (M8 erratum) | Forecasting: in the confirmation tests panel ("Is the model better than the baselines?"), directly under the selection and next to the verdicts (final review), and in "Models against baselines"; the API's M2 SELECTION EVIDENCE notice, verbatim | `models` `integrity.notices` |
+| M2 selection test oversized (M8 erratum) | Forecasting: in the confirmation tests panel ("Is the model better than the baselines?"), directly under the selection and next to the verdicts (final review), and in "Models against baselines"; the API's M2 SELECTION EVIDENCE notice, verbatim. Overview forecast summary (M9): the erratum's conclusion next to the model, pointing to that notice and panel | `models` `integrity.notices`; the Overview's sentence is the dashboard's own |
 | M3: FAILED_CALIBRATION | Overview status; Uncertainty header callout (critical); next to every band and coverage chart; holiday-related days marked | `uncertainty/status`, `integrity.uncertainty_interval_status` |
 | M4: HYPOTHETICAL, not a recommendation | Overview scenario panel; Decisions page header and every scenario; each simulation result; every parameter row | `integrity.parameter_provenance`, `label`, `assumption` fields |
 | No real NYC staffing or cost data | Decisions and Simulator callouts; the parameters' assumptions | API `notes`, `limitations` |
@@ -779,20 +779,24 @@ this document describes, it changed:
   every path is unchanged).
 - **`profile.ts`**: the build's profile, base path and export list, read once, and the
   sentences that name where an answer came from. The api profile's sentences are those of M7.
-  The static transport, reader, recorded-scenario panel and static wording are not in the api
-  build; a few static-only constants and error messages are, and cannot be reached there.
+  The static transport, reader and recorded-scenario panel are not in the api build. Some
+  static-only wording is, and is never shown there: the navigation line, the deployment
+  badge, the Provenance and Simulator explanations, and two error messages.
 - **`deployment.tsx`**: a static build's deployment is fixed in the build. A served descriptor
   is validated as before (`ServedDeploymentDescriptor`).
 - **Views**: the Simulator's recorded-scenario explorer (static profile only). Decisions'
   scenario facts moved to `plan.tsx` (`ScenarioFacts`), unchanged. Three additions show in
   both profiles: the footer now also says that ATLAS is not affiliated with or endorsed by the
-  City of New York or NYC Open Data; on the Overview, the recommended model now carries a
-  pointer to the M8 erratum ("its statistical support is weak"); and the Methods list has an M9
-  entry.
+  City of New York or NYC Open Data; on the Overview, the recommended model now carries the
+  M8 erratum's conclusion ("after the M8 size correction, a correctly sized selection test
+  would most likely have kept the same-weekday median baseline"), pointing to the M2
+  SELECTION EVIDENCE notice in the Forecasting page's "Is the model better than the
+  baselines?" panel; and the Methods list has an M9 entry.
 - **The build**: `vite.config.ts` has the `pages` mode; `playwright.config.ts` has the static
   projects (`ATLAS_E2E_PAGES=1`), and every project's `testMatch` is anchored to a file name.
-- **Measured on the rebuilt api build** (`npm run size`): initial JavaScript 85.7 KB gzip;
-  initial HTML, CSS and JavaScript 92.1 KB; largest lazy chunk 20.8 KB; font 48.3 KB; the
-  whole build 526.8 KB raw. The 0.8 KB increase over M8's 91.3 KB (initial, gzip) is the
-  router's base handling, the shared checks and the two added caveats.
+- **Measured on the rebuilt api build** (`npm run size`): initial JavaScript 85.8 KB gzip;
+  initial HTML, CSS and JavaScript 92.2 KB; largest lazy chunk 20.8 KB; font 48.3 KB; the
+  whole build 527.0 KB raw. The 0.9 KB increase over M8's 91.3 KB (initial, gzip) is the
+  router's base handling, the shared checks and the footer's sentence (the Overview's
+  pointer is in the Overview's own chunk, loaded with that page).
 

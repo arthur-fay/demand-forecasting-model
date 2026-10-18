@@ -39,6 +39,28 @@ describe('what a published file must not hold', () => {
     ['2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'an IPv6 address'],
     ['owner@example.org', 'an e-mail address'],
     ['https://example.org/tracker.js', 'a link to another site'],
+    // Second review round: forms the first patterns missed.
+    ['<script src="//evil.example/x.js">', 'a link to another site'],
+    ['.x{background:url(//evil.example/p.png)}', 'a link to another site'],
+    ["@import '//evil.example/a.css';", 'a link to another site'],
+    ['const REPOSITORY = "//evil.example/arthur-fay/x";', 'a link to another site'],
+    ['href="\\\\evil.example/x"', 'a link to another site'],
+    ['"https:evil.example/x"', 'a link to another site'],
+    ['"https:/evil.example/x"', 'a link to another site'],
+    ['"https:///evil.example/"', 'a link to another site'],
+    ['"https://\tevil.example/"', 'a link to another site'],
+    ['ssh://evil.example', 'a link to another site'],
+    ['sftp://files.example.org/x', 'a link to another site'],
+    ['fe80::1ff:fe23:4567:890a', 'an IPv6 address'],
+    ['2001:db8:85a3::8a2e:370:7334', 'an IPv6 address'],
+    ['2001:db8::abcd', 'an IPv6 address'],
+    ['fd00::1234:5678', 'an IPv6 address'],
+    ['D:\\data\\atlas', 'a Windows path'],
+    ['D:/projects/atlas', 'a Windows path'],
+    ['LOCALHOST', 'a local host'],
+    ['token=abcdefgh1234', 'a credential assignment'],
+    ['api_key: abcdefghijklmnop', 'a credential assignment'],
+    ['redis://:password@cache.example.org:6379', 'a URL with credentials'],
   ])('%s is %s', (text, what) => {
     expect(found(text)).toContain(what);
   });
@@ -53,6 +75,12 @@ describe('what a published file must not hold', () => {
       'Basic Authentication understanding of the basic bearer of costs',
       'a:b:c?d:e; x ? 1:2:3',
       '/api/v1/forecasts/history?start=2023-01-01',
+      // Not addresses or paths: CSS pseudo-elements, times, ratios, code.
+      'a::before, a::after, ::selection, ::-webkit-scrollbar { x: 1 }',
+      'at 12:30:00, 1:2 and 10:20:30:40',
+      '{token:e.value,secret:t,password:n}',
+      'protocol==="https:"&&x; e=/^https?:\\/\\//',
+      "'//' + path; s.split('//')",
     ])
       expect(findUnsafe(text), text).toEqual([]);
     expect(ALLOWED_HOSTS).toEqual(['www.w3.org', 'react.dev', 'github.com', 'scripts.sil.org']);
