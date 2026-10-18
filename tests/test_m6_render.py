@@ -329,6 +329,28 @@ def test_the_private_site_routes_the_contract_behind_authentication() -> None:
     assert 'Strict-Transport-Security "max-age=31536000"' in site
 
 
+def test_head_is_routed_only_where_the_api_answers_it() -> None:
+    """The API answers HEAD on the health endpoints only (FastAPI adds no HEAD to a GET
+    route; docs/API.md): nginx lets HEAD through there and refuses it with its own 405 on
+    every other operation, instead of passing it on to the API's 405 (M8-21)."""
+    routes = load_routes(REPO_ROOT)
+    assert {r.path for r in routes if "HEAD" in r.methods} == {"/health/live", "/health/ready"}
+    site = renderer().nginx()
+    for route in routes:
+        block = site.split(f"    location {route.location} {{\n", 1)[1].split("\n    }", 1)[0]
+        allowed = "GET|HEAD" if route.path.startswith("/health/") else route.method
+        assert f"if ($request_method !~ ^({allowed})$) {{ return 405; }}" in block, route.path
+
+
+def test_nginx_listens_on_ipv6_only_when_asked() -> None:
+    """IPv6 is off unless deploy.env turns it on: the per-client limits count each address,
+    and one IPv6 client holds a /64 of them (M8-25)."""
+    text = "ATLAS_DEPLOY_PROFILE=private\nATLAS_DEPLOY_DOMAIN=atlas.example.org\n"
+    assert "listen [::]" not in renderer(text).nginx()
+    site = renderer(text + "ATLAS_DEPLOY_IPV6=true\n").nginx()
+    assert site.count("    listen [::]:") == 4  # 80 and 443, each default and for the domain
+
+
 def test_the_public_demo_site_routes_no_computation() -> None:
     site = renderer(PUBLIC).nginx()
     assert "auth_basic" not in site

@@ -12,8 +12,13 @@ To reproduce the measured statistics in this document:
 ```bash
 uv sync --locked
 uv run atlas check                        # or: uv run atlas --format json check
-uv run pytest -m integration --no-cov     # the same facts as automated tests
+uv run pytest --no-cov tests/test_snapshot.py tests/test_validation.py \
+    tests/test_reconciliation.py tests/test_reproduce.py   # the same facts as tests
 ```
+
+(**M8 correction:** this pointed at `pytest -m integration`, which now selects 41 test
+modules, 31 of them the long M2-M7 suites. The four modules above check the facts of this
+document in under a minute.)
 
 ## Contents
 
@@ -122,7 +127,10 @@ only as the declared exception below. Consequences:
   five-borough subset, not of all requests.
 - The daily residual (city-wide total minus segment sum) is available from `legacy-v0`.
   Breaking it down by agency, and confirming that it consists only of records without a named
-  borough, requires a new extraction (M1).
+  borough, requires a new extraction, which is deferred: it was outside the approved M1
+  scope ([ROADMAP.md](ROADMAP.md), M1). (**M8 correction:** previously attributed to M1.)
+  M1 represents the residual as the `UNASSIGNED` component
+  ([DATA_QUALITY.md](DATA_QUALITY.md), section 2).
 
 ## Declared known exceptions
 
@@ -157,7 +165,7 @@ fits no model, so they are checked only for consistency with every table that us
 Historical summary: 1,277 days; 12,331,111 requests; mean 9,656.31 per day; minimum 5,596
 (2023-12-25); maximum 22,806 (2026-02-24).
 
-## Other observations (from the read-only audit; not checked by these commands)
+## Other observations (from the read-only audit)
 
 The independent audit of the original commit also noted patterns that the contracts
 deliberately do not fail on:
@@ -167,4 +175,10 @@ deliberately do not fail on:
   to 2024-04-14, followed by 7,398 requests on 2024-04-15;
 - extreme days such as 2026-02-24.
 
-These need an anomaly-flagging policy, which is planned for M1.
+The contracts still do not fail on them, by design. M1 implemented the anomaly-flagging
+policy this section once announced: `uv run atlas quality` flags the HPD interruption of
+2024-04-11..14, its catch-up on 2024-04-15 and the surge of 2026-02-24, among 28 flags. The
+flags annotate the data and never change it; their rules, results and known limits are in
+[DATA_QUALITY.md](DATA_QUALITY.md), section 3. (**M8 correction:** this section previously
+said the policy was planned for M1 and that `atlas check` does not cover these patterns;
+`atlas check` still does not, `atlas quality` does.)

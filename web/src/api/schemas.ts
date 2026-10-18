@@ -490,8 +490,16 @@ export type _PlanEvaluation = Conforms<Contract['PlanEvaluation'], PlanEvaluatio
 
 const Programme = z.object({
   status: z.string(),
+  // Each check is the largest violation in units of its tolerance (1 is at the tolerance;
+  // `holds` when every one is at most 1): ratios, not the gap or residuals themselves.
   certificate: z.nullable(
-    z.object({ holds: z.boolean(), duality_gap: z.nullable(finite), primal: z.nullable(finite) }),
+    z.object({
+      holds: z.boolean(),
+      primal: z.nullable(finite),
+      dual_sign: z.nullable(finite),
+      stationarity: z.nullable(finite),
+      duality_gap: z.nullable(finite),
+    }),
   ),
   independent_check_passed: z.nullable(z.boolean()),
   constraints_not_checked: z.array(z.string()),

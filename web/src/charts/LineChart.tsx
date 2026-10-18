@@ -388,7 +388,7 @@ export function LineChart({
 
   return (
     <div ref={ref} className="stack-2">
-      {series.length + bands.length > 1 || marks.length > 0 ? <Legend items={legend} /> : null}
+      {legend.length > 1 ? <Legend items={legend} /> : null}
       <ChartSurface
         label={label}
         summary={summary}

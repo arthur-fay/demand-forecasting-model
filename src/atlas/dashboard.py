@@ -20,7 +20,12 @@ nginx site rendered by ``atlas-deploy``):
   other top-level files are revalidated on every load;
 * HTML gets its own Content-Security-Policy (:data:`DASHBOARD_CSP`): scripts, styles,
   fonts, images and requests from the same origin only, no inline code, no eval, no
-  framing. The API's ``default-src 'none'`` stays on JSON.
+  framing. The API's ``default-src 'none'`` stays on JSON. (M8) The plain-text licence
+  notices get a policy for text (:data:`DASHBOARD_TEXT_CSP`), which loads and runs nothing;
+* (M8) a policy a release records for its dashboard (``release.json``), which a later tool
+  sends and verifies, must meet a floor (:func:`recorded_policy_problems`): a record can
+  neither add a header the dashboard does not send nor loosen which scripts may run, the
+  default source or framing.
 
 The dashboard learns what a deployment allows from a small descriptor served next to it
 (:data:`DESCRIPTOR_PATH`, :func:`descriptor`): its profile, whether a browser may run
@@ -64,6 +69,33 @@ DASHBOARD_HEADERS: Final = {
     "Cross-Origin-Resource-Policy": "same-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 }
+#: (M8) The Content-Security-Policy of the plain-text files (the licence notices), sent in
+#: place of :data:`DASHBOARD_CSP` with the other :data:`DASHBOARD_HEADERS`. A browser shows
+#: ``text/plain`` in its own viewer and, with ``nosniff``, never parses it as HTML: the
+#: document holds no markup of ours. Chromium's viewer (WebKit's too) wraps long lines with
+#: an inline style attribute on its ``<pre>``, which the HTML policy's ``style-src 'self'``
+#: refuses: a violation on every visit, and lines that run off a phone's screen.
+#:
+#: * ``default-src 'none'``: nothing is loaded; with no ``script-src``, no script runs;
+#: * ``style-src 'unsafe-inline'``: only for the viewer's own style attribute, as the
+#:   document has no markup of its own that could carry another;
+#: * ``img-src 'self'``: only for the browser's own request for the site icon. A plain-text
+#:   document cannot name one, so Firefox asks for ``/favicon.ico``, which ``default-src
+#:   'none'`` refused with a violation on every visit (the answer is a 404; nothing in the
+#:   document can load an image);
+#: * ``base-uri 'none'``, ``form-action 'none'``: not covered by ``default-src``; as in the
+#:   HTML policy, so that this one allows nothing more than it beyond the viewer's style;
+#: * ``frame-ancestors 'none'``: never framed, as ``X-Frame-Options: DENY`` says.
+#:
+#: No ``sandbox``: where no script runs and nothing loads it adds no protection, and in
+#: Chromium it stops the browser tests' listener for violation reports from running in the
+#: document, so a violation there would show only as a console message, unlike on every
+#: page.
+DASHBOARD_TEXT_CSP: Final = (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; "
+    "form-action 'none'; frame-ancestors 'none'"
+)
+TEXT_TYPE: Final = "text/plain"
 #: Cache policies: content-hashed assets never change; everything else is revalidated. Not
 #: ``public``: behind accounts, shared caches must not keep them (RFC 9111 section 3.5).
 CACHE_IMMUTABLE: Final = "max-age=31536000, immutable"
@@ -76,8 +108,11 @@ CONTENT_TYPES: Final = {
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
     ".woff2": "font/woff2",
+    # The licence notices that ship with the bundled code and the font (docs/DASHBOARD.md).
+    ".txt": "text/plain; charset=utf-8",
 }
-#: Types worth compressing (woff2 is compressed already).
+#: Types worth compressing (woff2 is compressed already; the licence notices are rarely
+#: read, and nginx's gzip_types leaves text/plain alone too).
 COMPRESSIBLE: Final = frozenset({".html", ".js", ".css", ".svg"})
 
 #: A top-level file (``index.html``, ``favicon.svg``) or a content-hashed asset.
@@ -94,6 +129,28 @@ MAX_BUILD_BYTES: Final = 16 * 1024 * 1024
 
 PROFILES: Final = ("local", "private", "public-demo")
 SIMULATIONS: Final = ("enabled", "disabled_public_demo", "disabled_api_key")
+
+#: (M8) The directives that decide which scripts run, in the page and in its workers. A
+#: worker's script is checked against ``worker-src`` or, without it, ``child-src``, then
+#: ``script-src`` (CSP Level 3): every release so far names neither, so ``script-src``
+#: decides, but a record naming ``child-src`` would decide for workers.
+SCRIPT_DIRECTIVES: Final = (
+    "script-src",
+    "script-src-elem",
+    "script-src-attr",
+    "worker-src",
+    "child-src",
+)
+#: The script sources a recorded HTML policy may name: the origin's own files, a hash of one
+#: inline script, ``'none'`` and ``'report-sample'``. Never ``'unsafe-inline'``,
+#: ``'unsafe-eval'``, ``'unsafe-hashes'``, ``'wasm-unsafe-eval'``, ``'strict-dynamic'``, a
+#: nonce (a header written once into nginx keeps none secret), ``*``, a scheme or a host.
+_SCRIPT_SOURCE: Final = re.compile(
+    r"'(?:self|none|report-sample|sha(?:256|384|512)-[A-Za-z0-9+/_-]+={0,2})'", re.IGNORECASE
+)
+#: A policy is read as browsers read it only if it is plain ASCII: they split on ASCII
+#: whitespace, so another space would join a directive's name to its value.
+_PRINTABLE: Final = re.compile(r"[\x20-\x7e]*")
 
 
 class DashboardError(ValueError):
@@ -312,6 +369,117 @@ def descriptor(profile: str, simulations: str, *, operational_detail: bool) -> b
         "operational_detail": operational_detail,
     }
     return json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def is_text(content_type: str) -> bool:
+    """Whether an answer of ``content_type`` is plain text (:data:`DASHBOARD_TEXT_CSP`)."""
+    return content_type.partition(";")[0].strip().lower() == TEXT_TYPE
+
+
+def headers_for(content_type: str) -> dict[str, str]:
+    """The dashboard's headers for a file of ``content_type``: :data:`DASHBOARD_HEADERS`,
+    with the policy for text in place of the one for HTML on plain text."""
+    if not is_text(content_type):
+        return dict(DASHBOARD_HEADERS)
+    return {**DASHBOARD_HEADERS, "Content-Security-Policy": DASHBOARD_TEXT_CSP}
+
+
+def csp_directives(policy: str) -> dict[str, list[str]] | None:
+    """The directives of one serialised Content-Security-Policy (CSP Level 3, section
+    2.2.1), by lower-case name, with their sources as written. ``None`` when ``policy`` is a
+    list of policies (a comma) or names a directive twice: a browser ignores the second, so
+    a floor read from it would not be the one enforced."""
+    if "," in policy:
+        return None
+    directives: dict[str, list[str]] = {}
+    for token in policy.split(";"):
+        parts = [part for part in token.split(" ") if part]
+        if not parts:
+            continue
+        name = parts[0].lower()
+        if name in directives:
+            return None
+        directives[name] = parts[1:]
+    return directives
+
+
+def policy_problems(policy: object, *, text: bool = False) -> list[str]:
+    """How ``policy`` falls short of the floor of the dashboard's Content-Security-Policy
+    for HTML or, with ``text``, for its plain-text files (empty: it meets it).
+
+    Both: one policy of printable ASCII naming each directive once, with
+    ``default-src 'none'`` and ``frame-ancestors 'none'``. HTML: a ``script-src``; every
+    directive deciding which scripts run (:data:`SCRIPT_DIRECTIVES`) names only the
+    origin's own files or hashes (see :data:`_SCRIPT_SOURCE`); and
+    ``require-trusted-types-for 'script'``. Text: no script source at all (such a
+    directive, if present, is ``'none'``). Every release so far meets it: 0.7.0's policy
+    is :data:`DASHBOARD_CSP` as it is now.
+    """
+    if not isinstance(policy, str) or not _PRINTABLE.fullmatch(policy):
+        return ["is not a policy of printable ASCII characters"]
+    directives = csp_directives(policy)
+    if directives is None:
+        return ["is not one policy naming each directive once"]
+    problems = [
+        f"lacks {name} 'none'"
+        for name in ("default-src", "frame-ancestors")
+        if [source.lower() for source in directives.get(name, [])] != ["'none'"]
+    ]
+    for name in SCRIPT_DIRECTIVES:
+        sources = directives.get(name, [])
+        if text:
+            if [source.lower() for source in sources] not in ([], ["'none'"]):
+                problems.append(f"allows scripts ({name} {' '.join(sources)})")
+            continue
+        loose = [source for source in sources if not _SCRIPT_SOURCE.fullmatch(source)]
+        if loose:
+            problems.append(f"allows {name} {' '.join(loose)}")
+    if text:
+        return problems
+    if "script-src" not in directives:
+        problems.append("has no script-src")
+    trusted_types = directives.get("require-trusted-types-for", [])
+    if [source.lower() for source in trusted_types] != ["'script'"]:
+        problems.append("lacks require-trusted-types-for 'script'")
+    return problems
+
+
+def recorded_policy_problems(record: Mapping[str, Any]) -> list[str]:
+    """Why the policy a release records for its dashboard (``release.json``) must not be
+    sent (empty: it may be).
+
+    A later tool restoring or rolling back to the release sends and verifies this record
+    rather than its own policy (M8-03), so the record is held to a floor: its
+    Content-Security-Policy (``csp``) and, when recorded, the one of its plain-text files
+    (``text_csp``) meet :func:`policy_problems`, and its headers (``headers``) are among the
+    ones the dashboard sends (:data:`DASHBOARD_HEADERS`, compared without regard to case),
+    each once. (A Content-Security-Policy among them is replaced by ``csp`` where they are
+    sent.) What a record leaves out is this tool's (a release built before 1.0.0 records
+    only ``csp``).
+
+    Not held to the floor: the values of the other headers (Cross-Origin-Opener-Policy,
+    Cross-Origin-Resource-Policy, Permissions-Policy) and whether they are recorded at all,
+    and the directives of a policy other than those :func:`policy_problems` names. Rendering
+    checks them only for characters nginx embeds safely.
+    """
+    csp = record.get("csp", DASHBOARD_CSP)
+    problems = [f"Content-Security-Policy: {p}" for p in policy_problems(csp)]
+    if "text_csp" in record:
+        text = policy_problems(record["text_csp"], text=True)
+        problems += [f"Content-Security-Policy of the text files: {p}" for p in text]
+    headers = record.get("headers", DASHBOARD_HEADERS)
+    if not isinstance(headers, Mapping):
+        return [*problems, "headers: not a mapping of names to values"]
+    allowed = {name.lower() for name in DASHBOARD_HEADERS}
+    seen: set[str] = set()
+    for name in headers:
+        key = name.lower() if isinstance(name, str) else ""
+        if key not in allowed:
+            problems.append(f"header {name!r}: not one the dashboard sends")
+        elif key in seen:
+            problems.append(f"header {name!r}: recorded twice")
+        seen.add(key)
+    return problems
 
 
 def manifest_record(dist: Path) -> dict[str, Any]:

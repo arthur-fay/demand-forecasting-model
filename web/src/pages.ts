@@ -35,7 +35,7 @@ export const PAGES = [
     path: '/uncertainty',
     label: 'Uncertainty & risk',
     title: 'Uncertainty and risk',
-    summary: 'M3 intervals and why they fail',
+    summary: 'M3 intervals and their calibration',
   },
   {
     path: '/decisions',

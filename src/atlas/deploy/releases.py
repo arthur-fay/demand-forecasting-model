@@ -25,9 +25,12 @@ runs whichever release ``/opt/atlas/current`` points to. Activating a release:
 
 Nothing here deletes or edits a release: a failed deployment cannot alter the research
 artifacts of any release. Each step is appended to ``/var/lib/atlas/deploy/history.jsonl``;
-an activation interrupted half-way (a lost SSH session) leaves an ``in_progress`` record
-(with an operation id) that only :func:`recover` completes; until then every other
-change is refused. Every host action goes through :class:`Host`, so the tests replace
+an activation interrupted half-way (a lost SSH session, Ctrl-C) leaves an ``in_progress``
+record (with an operation id) that only :func:`recover` completes; until then every other
+change is refused. If the link already points to the interrupted release, ``recover``
+finishes its activation (its files installed again, the service restarted, nginx
+reloaded, verified) before it keeps it; otherwise, or if that fails, it restores the last
+verified state. Every host action goes through :class:`Host`, so the tests replace
 systemd and nginx with fakes.
 """
 
@@ -553,6 +556,8 @@ class Deployment:
         ok, detail = self.host.restart(SERVICE)
         if not ok:
             return False, [f"systemctl restart {SERVICE} failed: {detail}"]
+        # Verification reaches the API directly and never sees what nginx has loaded: nginx
+        # is reloaded first, so it serves the installed site of the release now running.
         if config.exposed:
             ok, detail = self.host.nginx_reload()
             if not ok:
@@ -747,8 +752,27 @@ class Deployment:
                 unfinished.pop(str(entry["op"]), None)
         return list(unfinished.values())[-1] if unfinished else None
 
+    def _complete(self, release_id: str, config: DeployConfig) -> tuple[bool, list[str]]:
+        """Finish an activation interrupted after its switch (a lost SSH session or Ctrl-C,
+        before or while the service restarted, before nginx was reloaded): its steps after
+        the switch again. Install the release's files (idempotent: published dashboard,
+        units, environment, site, nginx -t, systemd reloaded), restart the service, reload
+        nginx and verify. The restart is not skipped when the release already runs: it is
+        what loads the environment and units just installed (``deploy.env`` may have been
+        fixed since), and the interruption may have come before it; nginx loads the new
+        site only once the service runs the release."""
+        try:
+            ok, detail = self.install(release_id, config)
+            if not ok:
+                return False, [detail]
+            ok, lines = self._serve(release_id, config)
+        except Exception as exc:  # never keep a release without a verdict
+            return False, [f"unexpected error: {type(exc).__name__}: {exc}"]
+        return ok, [*lines, detail]
+
     def recover(self) -> dict[str, Any]:
-        """Complete an interrupted activation: keep the current release if it verifies,
+        """Complete an interrupted activation: if the release is current and passes its
+        checks, finish its activation (:meth:`_complete`) and keep it if it verifies;
         otherwise restore the last verified state."""
         with self.locked():
             entry = self.pending()
@@ -762,8 +786,8 @@ class Deployment:
             if config is None:  # stays pending: fix deploy.env, then recover again
                 return self.record("recover", REFUSED, release=release, detail=problems[:30])
             if not problems and self.current() == release:
-                verification = self.verifier(self.target(release, config))
-                if verification.ok:
+                ok, lines = self._complete(release, config)
+                if ok:
                     return self.record(
                         "recover",
                         ACTIVATED,
@@ -771,11 +795,12 @@ class Deployment:
                         release=release,
                         previous=previous,
                         detail=[
-                            "verified after an interrupted activation",
+                            "completed after an interrupted activation",
+                            *lines,
                             *self._save_good(release, deploy_env),
                         ],
                     )
-                problems = [f"{c.name}: {c.detail}" for c in verification.failures]
+                problems = lines
             return self._fail(
                 "recover",
                 op,

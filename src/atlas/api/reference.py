@@ -79,6 +79,15 @@ COMPONENTS: Final = (SNAPSHOT, FORECAST, M2_BACKTEST, M3_INTERVALS, M4_REFERENCE
 
 _DETAIL_LIMIT: Final = 300
 
+#: The M3 status the API's fixed interval wording states: the intervals label of ``views``,
+#: the API description, the interval summaries and descriptions of the contract and M4's
+#: stress-path notice say that the intervals FAILED their calibration criteria. A run with
+#: any other status is not served until that wording has been reviewed (the status fields
+#: themselves always come from the data).
+WORDED_INTERVAL_STATUS: Final = "failed_calibration"
+#: What identifies a projection manifest in the M4 run's record of its inputs.
+MANIFEST_IDENTITY: Final = ("manifest_sha256", "run_id")
+
 
 class ArtifactError(AtlasError):
     """A committed artifact is missing, altered or inconsistent with its provenance chain."""
@@ -109,12 +118,15 @@ def _json(payload: bytes, what: str) -> dict[str, Any]:
     return value
 
 
-def _read_json_file(path: Path, what: str) -> dict[str, Any]:
+def _read_bytes(path: Path, what: str) -> bytes:
     try:
-        payload = path.read_bytes()
+        return path.read_bytes()
     except OSError as exc:
         raise ArtifactError(f"{what} cannot be read ({type(exc).__name__})") from exc
-    return _json(payload, what)
+
+
+def _read_json_file(path: Path, what: str) -> dict[str, Any]:
+    return _json(_read_bytes(path, what), what)
 
 
 def _csv_rows(payload: bytes, what: str) -> list[dict[str, str]]:
@@ -297,6 +309,14 @@ class ReferenceStore:
             record_type="observed_daily_total",
         )
 
+    def _projection_run_id(self, run_id: object) -> str | None:
+        """A projection run's id as served: ``None`` unless the M4 reference component is
+        ready. No configuration pins the projection manifests; the M4 run's record of each
+        one (SHA-256 and run id), compared when that component loads, is the only check of
+        their run ids, so an id is never served unchecked."""
+        state = self.status.get(M4_REFERENCE)
+        return _opt_str(run_id) if state is not None and state.ready else None
+
     def forecast_source(self) -> Source:
         inputs = _present(self.inputs)
         p = inputs.projection.provenance
@@ -304,7 +324,7 @@ class ReferenceStore:
             kind="m2_projection_run",
             path=str(p.get("run_dir")),
             record_type=str(p.get("record_type")),
-            run_id=_opt_str(p.get("run_id")),
+            run_id=self._projection_run_id(p.get("run_id")),
             config_fingerprint=_opt_str(p.get("config_fingerprint")),
             files=_files(("projections.csv", _opt_str(p.get("projections_sha256")))),
         )
@@ -338,14 +358,16 @@ class ReferenceStore:
 
     def intervals_source(self) -> Source:
         """The M3 projection intervals: the file pinned by the reference configuration
-        (run id and fingerprint once the intervals component has loaded it)."""
+        (run id and fingerprint once the intervals component has loaded it; the run id only
+        while the M4 reference component, which checks that manifest against its own
+        record, is ready)."""
         config = _present(self.config)
         intervals = self.m3_intervals
         return Source(
             kind="m3_projection_run",
             path=config.uncertainty.projection_run_dir,
             record_type="future_projection_intervals",
-            run_id=None if intervals is None else intervals.run_id,
+            run_id=None if intervals is None else self._projection_run_id(intervals.run_id),
             config_fingerprint=None if intervals is None else intervals.config_fingerprint,
             files=_files(
                 ("projection_intervals.csv", config.uncertainty.projection_intervals_sha256)
@@ -473,6 +495,7 @@ def load_reference_store(settings: ApiSettings) -> ReferenceStore:
             raise ArtifactError(f"{REFERENCE_CONFIG} cannot be read") from exc
         config = parse_optimization_config(text)
         inputs = load_inputs(base, config, _present(store.snapshot))
+        check_fixed_wording(inputs)
         paths = dict(inputs.quantiles)
         for level in STRESS_QUANTILE_LEVELS:
             if level not in paths:
@@ -540,6 +563,26 @@ def _history_points(data: SnapshotData) -> tuple[ObservedPoint, ...]:
             )
         )
     return tuple(points)
+
+
+def check_fixed_wording(inputs: DecisionInputs) -> None:
+    """The fixed wording the API attaches to these inputs must be true of them (fail closed).
+
+    The interval wording states :data:`WORDED_INTERVAL_STATUS`. The archived-projection
+    notice says the projection was issued from the snapshot's last observed day, so that
+    every target day lies after the data and none has been scored.
+    """
+    status = inputs.status.interval_status
+    if status != WORDED_INTERVAL_STATUS:
+        raise ArtifactError(
+            f"the M3 status is {status}, but the API's interval wording states "
+            f"{WORDED_INTERVAL_STATUS}: review that wording before serving this run"
+        )
+    if inputs.projection.origin != inputs.data.series.end:
+        raise ArtifactError(
+            "the M2 projection was not issued from the snapshot's last observed day, as the "
+            "archived-projection notice states"
+        )
 
 
 def _m3_record(root: Path, inputs: DecisionInputs) -> M3Record:
@@ -633,7 +676,16 @@ def _load_m3_intervals(
 ) -> M3Intervals:
     run_dir = config.uncertainty.projection_run_dir
     directory = root / run_dir
-    manifest = _read_json_file(directory / "manifest.json", "M3 projection manifest")
+    payload = _read_bytes(directory / "manifest.json", "M3 projection manifest")
+    # The run id and fingerprint served come from these bytes. They must be the manifest the
+    # stress paths were read from, which the M4 reference component compares with the M4
+    # run's record: a manifest changed between the two reads is not served.
+    digest = _sha256(payload)
+    if any(path.provenance.get("manifest_sha256") != digest for path in inputs.quantiles.values()):
+        raise ArtifactError(
+            "the M3 projection manifest changed after the stress paths were read from it"
+        )
+    manifest = _json(payload, "M3 projection manifest")
     pinned = config.uncertainty.projection_intervals_sha256
     if (manifest.get("outputs") or {}).get("projection_intervals.csv") != pinned:
         raise ArtifactError("the M3 projection manifest does not record the pinned intervals")
@@ -781,6 +833,11 @@ def _check_labels(rows: Sequence[Mapping[str, str]], status: str, what: str) -> 
             raise ArtifactError(f"{what}: a row does not carry the M3 status {status}")
 
 
+def _identity(record: Mapping[str, Any]) -> tuple[object, ...]:
+    """A projection manifest's identity in a provenance record (:data:`MANIFEST_IDENTITY`)."""
+    return tuple(record.get(key) for key in MANIFEST_IDENTITY)
+
+
 def _load_m4(root: Path, config: OptimizationConfig, inputs: DecisionInputs) -> M4Reference:
     directory = root / REFERENCE_RUN_DIR
     reports = inspect_optimization_command(directory)
@@ -802,10 +859,27 @@ def _load_m4(root: Path, config: OptimizationConfig, inputs: DecisionInputs) -> 
         raise ArtifactError("the M4 reference run used a different configuration")
     if metrics.get("validated_recommendation") is not False:
         raise ArtifactError("the M4 metrics do not carry validated_recommendation=false")
-    forecast = (metrics.get("inputs") or {}).get("forecast") or {}
-    if forecast.get("projections_sha256") != inputs.projection.provenance.get("projections_sha256"):
+    recorded = metrics.get("inputs") or {}
+    forecast = recorded.get("forecast") or {}
+    projection = inputs.projection.provenance
+    if forecast.get("projections_sha256") != projection.get("projections_sha256"):
         raise ArtifactError("the M4 reference run used a different M2 projection")
-    status = (metrics.get("inputs") or {}).get("uncertainty_status") or {}
+    # The projection manifests are pinned by no configuration, and the API serves their run
+    # ids as provenance: each must be the manifest this run recorded (SHA-256 and run id).
+    if _identity(forecast) != _identity(projection):
+        raise ArtifactError(
+            "the M2 projection manifest is not the one the M4 reference run recorded"
+        )
+    stress = recorded.get("stress_paths") or {}
+    paths = {f"{q:g}": path.provenance for q, path in inputs.quantiles.items()}
+    if set(stress) != set(paths) or any(
+        not isinstance(stress[level], dict) or _identity(stress[level]) != _identity(paths[level])
+        for level in paths
+    ):
+        raise ArtifactError(
+            "the M3 projection manifest is not the one the M4 reference run recorded"
+        )
+    status = recorded.get("uncertainty_status") or {}
     if status.get("interval_status") != inputs.status.interval_status:
         raise ArtifactError("the M4 reference run carries a different M3 status")
     outcomes = {

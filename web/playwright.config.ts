@@ -7,6 +7,13 @@
  * - `mobile`: the same server on a phone-sized viewport.
  * - `nginx-private`, `nginx-public`: the production nginx site rendered for a release with
  *   the dashboard published, TLS, the real API behind its socket (`tests/m7_stack.py`).
+ * - `firefox`, `webkit`: the API-backed pages and failure states in the other two engines,
+ *   only when ATLAS_E2E_ALL_BROWSERS=1 (below).
+ *
+ * By default every Chromium project runs and all three servers start. Playwright starts
+ * every server whatever `--project` filter is given, so ATLAS_E2E_API_ONLY=1 starts the API
+ * server alone and defines only the projects that use it (`api`, `mobile`, and `firefox`
+ * and `webkit` when enabled), not the nginx ones. CI's Firefox and WebKit step sets both.
  *
  * The browser maps atlas.example.org to 127.0.0.1 (the site answers its own name only)
  * and accepts the throw-away test CA.
@@ -28,6 +35,22 @@ export const API_PORT = 8766;
 export const PRIVATE_PORT = 8443;
 export const PUBLIC_PORT = 8444;
 export const ACCOUNT = { username: 'alice', password: 'correct-horse-battery-staple-1234' };
+
+/**
+ * M8: the API-backed pages and failure states in Firefox (Gecko) and WebKit (Safari's
+ * engine, not Safari itself), when ATLAS_E2E_ALL_BROWSERS=1. CI installs those browsers;
+ * the development container has Chromium only, so they are off by default. They take no
+ * Chromium launch flags: the API answers on 127.0.0.1, so no host mapping is needed.
+ */
+const otherEngines = process.env.ATLAS_E2E_ALL_BROWSERS === '1';
+const engine = (name: string, device: string) => ({
+  name,
+  testMatch: /(dashboard|failures)\.spec\.ts/,
+  use: { ...devices[device], launchOptions: {}, baseURL: `http://127.0.0.1:${API_PORT}` },
+});
+
+/** The API server alone: no nginx stack, and none of the projects that need one. */
+const apiOnly = process.env.ATLAS_E2E_API_ONLY === '1';
 
 const stack = (profile: string, https: number, http: number) => ({
   command: `uv run python -m tests.m7_stack --profile ${profile} --https-port ${https} --http-port ${http}`,
@@ -61,27 +84,34 @@ export default defineConfig({
       testMatch: /mobile\.spec\.ts/,
       use: { ...devices['Pixel 7'], launchOptions, baseURL: `http://127.0.0.1:${API_PORT}` },
     },
-    {
-      name: 'nginx-private',
-      testMatch: /nginx-private\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions,
-        baseURL: `https://atlas.example.org:${PRIVATE_PORT}`,
-        ignoreHTTPSErrors: true,
-        httpCredentials: ACCOUNT,
-      },
-    },
-    {
-      name: 'nginx-public',
-      testMatch: /nginx-public\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions,
-        baseURL: `https://atlas.example.org:${PUBLIC_PORT}`,
-        ignoreHTTPSErrors: true,
-      },
-    },
+    ...(apiOnly
+      ? []
+      : [
+          {
+            name: 'nginx-private',
+            testMatch: /nginx-private\.spec\.ts/,
+            use: {
+              ...devices['Desktop Chrome'],
+              launchOptions,
+              baseURL: `https://atlas.example.org:${PRIVATE_PORT}`,
+              ignoreHTTPSErrors: true,
+              httpCredentials: ACCOUNT,
+            },
+          },
+          {
+            name: 'nginx-public',
+            testMatch: /nginx-public\.spec\.ts/,
+            use: {
+              ...devices['Desktop Chrome'],
+              launchOptions,
+              baseURL: `https://atlas.example.org:${PUBLIC_PORT}`,
+              ignoreHTTPSErrors: true,
+            },
+          },
+        ]),
+    ...(otherEngines
+      ? [engine('firefox', 'Desktop Firefox'), engine('webkit', 'Desktop Safari')]
+      : []),
   ],
   webServer: [
     {
@@ -92,7 +122,8 @@ export default defineConfig({
       reuseExistingServer: false,
       env: { ATLAS_API_SIMULATION_TIMEOUT_SECONDS: '30' },
     },
-    stack('private', PRIVATE_PORT, 8081),
-    stack('public-demo', PUBLIC_PORT, 8082),
+    ...(apiOnly
+      ? []
+      : [stack('private', PRIVATE_PORT, 8081), stack('public-demo', PUBLIC_PORT, 8082)]),
   ],
 });

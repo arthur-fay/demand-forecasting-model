@@ -39,6 +39,25 @@ test('the current page stays marked in forced colours', async ({ page }) => {
   await expect(nav.getByRole('link', { name: /Overview/ })).toHaveCSS('border-left-style', 'none');
 });
 
+test('the error summary of several invalid fields has no WCAG 2.2 AA violation', async ({
+  page,
+}) => {
+  // Checked in the browser before anything is sent: one link per field, stacked, each a
+  // target of at least 24 px (2.5.8) at desktop width, where each link is one line.
+  await open(page, '/simulator', 'Hypothetical simulator');
+  await page.getByRole('textbox', { name: /Planning horizon/ }).fill('abc');
+  await page.getByRole('textbox', { name: /Demand multiplier/ }).fill('9');
+  await page.getByRole('button', { name: 'Run simulation' }).click();
+  const summary = page.getByRole('alert').filter({ hasText: '2 inputs need attention' });
+  const links = summary.getByRole('link');
+  await expect(links).toHaveCount(2);
+  for (const link of await links.all()) {
+    const box = await link.boundingBox();
+    expect(box?.height, await link.innerText()).toBeGreaterThanOrEqual(24);
+  }
+  expect(await violations(page)).toEqual([]);
+});
+
 test('a simulation result and a failed run have no WCAG 2.2 AA violation', async ({ page }) => {
   await open(page, '/simulator', 'Hypothetical simulator');
   await page.getByRole('button', { name: 'Run simulation' }).click();

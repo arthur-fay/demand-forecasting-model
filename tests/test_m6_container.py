@@ -8,10 +8,10 @@ the bootstrap (dry run, apply, idempotent re-run), a release build from an exact
 (read-only tree, checks as the service user, idempotent, interrupted builds cleaned up),
 the first activation (tunnel), the private profile through nginx and TLS, crash recovery,
 the watchdog, a killed worker, a configuration error that must not loop, a graceful stop
-during a simulation, a broken release rolled back automatically, an explicit rollback, an
-interrupted activation recovered, the monitor and its alert hook, a reboot, resource use,
-a return to the tunnel profile (the nginx site taken out), and the absence of secrets in
-logs, environments and unit properties.
+during a simulation, a broken release rolled back automatically, an explicit rollback from
+a second verified release to the first, an interrupted activation recovered, the monitor
+and its alert hook, a reboot, resource use, a return to the tunnel profile (the nginx site
+taken out), and the absence of secrets in logs, environments and unit properties.
 
 Environment: ``ATLAS_E2E_BASE_IMAGE`` (default ``ubuntu:24.04``), ``ATLAS_E2E_NETWORK``
 (``host`` behind an HTTP proxy; the proxy variables and ``ATLAS_E2E_CA_BUNDLE`` are then
@@ -89,6 +89,9 @@ class Server:
     release: str = ""
     broken_release: str = ""
     notes: dict[str, object] = field(default_factory=dict)
+    #: A second good commit (the same tree as ``commit``) and its release.
+    second: str = ""
+    second_release: str = ""
 
     def sh(
         self, script: str, *, check: bool = True, timeout: float = 900
@@ -125,9 +128,10 @@ class Server:
         self.wait("systemctl is-system-running --wait | grep -E 'running|degraded'", timeout=180)
 
 
-def _snapshot_commit(work: Path) -> tuple[str, str]:
-    """The commit to deploy (HEAD, or the working tree as an unreferenced commit) and a
-    broken variant (the API reads a missing M4 run, so it starts but is not ready)."""
+def _snapshot_commit(work: Path) -> tuple[str, str, str]:
+    """The commit to deploy (HEAD, or the working tree as an unreferenced commit), a second
+    good commit on top of it (empty: the same tree, another release id) and a broken
+    variant (the API reads a missing M4 run, so it starts but is not ready)."""
     index = work / "index"
     shutil.copy(REPO_ROOT / ".git" / "index", index)
     env = {
@@ -151,6 +155,20 @@ def _snapshot_commit(work: Path) -> tuple[str, str]:
     git("push", "-q", str(bare), f"{commit}:refs/heads/e2e")
     clone = work / "clone"
     git("clone", "-q", "--branch", "e2e", str(bare), str(clone))
+    git(
+        "-c",
+        "user.name=e2e",
+        "-c",
+        "user.email=e2e@example.invalid",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "second release",
+        cwd=clone,
+    )
+    second = git("rev-parse", "HEAD", cwd=clone)
+    git("push", "-q", "origin", "HEAD:refs/heads/second", cwd=clone)
     settings = clone / "src/atlas/api/settings.py"
     settings.write_text(
         settings.read_text().replace(
@@ -172,7 +190,7 @@ def _snapshot_commit(work: Path) -> tuple[str, str]:
     broken = git("rev-parse", "HEAD", cwd=clone)
     git("push", "-q", "origin", "HEAD:refs/heads/broken", cwd=clone)
     git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=bare)
-    return commit, broken
+    return commit, second, broken
 
 
 @pytest.fixture(scope="module")
@@ -194,7 +212,7 @@ def server() -> Iterator[Server]:
         str(REPO_ROOT / "deploy/test"),
         timeout=1800,
     )
-    commit, broken = _snapshot_commit(work)
+    commit, second, broken = _snapshot_commit(work)
     docker("rm", "-f", NAME, check=False)
     run_net = ["--network", network] if network else []
     # systemd as PID 1: its own cgroup namespace on cgroup v2 (GitHub runners); on a
@@ -233,7 +251,7 @@ def server() -> Iterator[Server]:
             )
     (work / "env.sh").write_text("\n".join(env_lines) + "\n")
     docker("cp", str(work / "env.sh"), f"{NAME}:/root/env.sh")
-    host = Server(commit, broken, work)
+    host = Server(commit, broken, work, second=second)
     host.boot()
     host.sh("update-ca-certificates >/dev/null 2>&1 || true")
     archive = work / "checkout.tar"
@@ -615,10 +633,36 @@ def test_a_broken_release_is_rolled_back_automatically(server: Server) -> None:
 
 
 def test_an_explicit_rollback(server: Server) -> None:
-    assert "activated" in server.sh(f"{DEPLOY} rollback --to {server.release}", timeout=600).stdout
+    """A switch between two verified releases: a second release (another commit, the same
+    tree) is built and activated, then `atlas-deploy rollback` returns to the release that
+    was active before it, with its site, its dashboard copy and a passing verification."""
+    result = server.sh(
+        f"/root/atlas/deploy/scripts/build-release.sh {server.second} --repo file:///srv/atlas.git",
+        timeout=1800,
+    )
+    server.second_release = result.stdout.strip().splitlines()[-1]
+    assert server.second_release != server.release
+    assert (
+        "activated" in server.sh(f"{DEPLOY} activate {server.second_release}", timeout=600).stdout
+    )
+    assert server.out("readlink /opt/atlas/current") == f"releases/{server.second_release}"
+    site = server.out("cat /etc/nginx/sites-available/atlas.conf")
+    assert f"root /opt/atlas/dashboard/{server.second_release};" in site
+    assert "activated" in server.sh(f"{DEPLOY} rollback", timeout=600).stdout
+    assert server.out("readlink /opt/atlas/current") == f"releases/{server.release}"
     status = json.loads(server.out(f"{DEPLOY} status"))
     assert status["current"] == server.release
+    assert status["last_verified"]["release"] == server.release
     assert status["manifest"]["scientific_status"]["m3_interval_status"] == "failed_calibration"
+    site = server.out("cat /etc/nginx/sites-available/atlas.conf")
+    assert f"root /opt/atlas/dashboard/{server.release};" in site
+    assert f"/opt/atlas/dashboard/{server.second_release};" not in site
+    published = f"/opt/atlas/dashboard/{server.release}"
+    release_index = f"{RELEASES}/{server.release}/web/dist/index.html"
+    assert server.out(f"sha256sum < {published}/index.html") == server.out(
+        f"sha256sum < {release_index}"
+    )
+    server.sh(f"{DEPLOY} verify")
 
 
 def test_the_dashboard_follows_the_release(server: Server) -> None:
@@ -627,6 +671,7 @@ def test_the_dashboard_follows_the_release(server: Server) -> None:
     site = server.out("cat /etc/nginx/sites-available/atlas.conf")
     assert f"root /opt/atlas/dashboard/{server.release};" in site
     assert f"/opt/atlas/dashboard/{server.broken_release};" not in site
+    assert f"/opt/atlas/dashboard/{server.second_release};" not in site
 
 
 def test_an_interrupted_activation_is_recovered(server: Server) -> None:

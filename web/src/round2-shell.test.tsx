@@ -82,7 +82,7 @@ describe('the phone navigation menu', () => {
     mockApi();
     const user = userEvent.setup();
     at('/');
-    await heading(/Decision-intelligence research/);
+    await heading(/NYC 311 demand: forecasts, uncertainty and hypothetical scenarios/);
     const button = screen.getByRole('button', { name: 'Open navigation' });
     await user.click(button);
     const nav = screen.getByRole('navigation', { name: 'Dashboard sections' });
@@ -217,7 +217,7 @@ describe('Retry', () => {
         fail ? apiError(503, 'artifact_unavailable', 'not ready') : json(FIXTURES.history),
     });
     at('/');
-    await heading(/Decision-intelligence research/);
+    await heading(/NYC 311 demand: forecasts, uncertainty and hypothetical scenarios/);
     const retry = (await screen.findAllByRole('button', { name: 'Retry' }))[0]!;
     const section = retry.closest('section')!;
     const title = document.getElementById(section.getAttribute('aria-labelledby')!)!;

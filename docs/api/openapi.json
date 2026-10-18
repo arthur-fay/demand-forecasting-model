@@ -3,6 +3,7 @@
     "schemas": {
       "Certificate": {
         "additionalProperties": false,
+        "description": "The optimality certificate of one solved programme, computed from its primal and dual\nvalues without trusting the solver's status. primal, dual_sign, stationarity and\nduality_gap are unitless ratios: each is the largest violation in units of its tolerance,\nso at most 1 passes and 1.0 is exactly at the tolerance.",
         "properties": {
           "dual_objective": {
             "anyOf": [
@@ -13,6 +14,7 @@
                 "type": "null"
               }
             ],
+            "description": "Objective value of the dual solution (same units).",
             "title": "Dual Objective"
           },
           "dual_sign": {
@@ -24,6 +26,7 @@
                 "type": "null"
               }
             ],
+            "description": "Largest dual multiplier of the wrong sign, in units of its tolerance (1e-9 x max(1, the largest absolute objective coefficient)); at most 1 passes.",
             "title": "Dual Sign"
           },
           "duality_gap": {
@@ -35,9 +38,11 @@
                 "type": "null"
               }
             ],
+            "description": "|primal_objective - dual_objective| in units of its tolerance (1e-9 x max(1, the sum of the absolute objective terms)); at most 1 passes. A unitless ratio, not the absolute gap, which is the difference of the two objectives.",
             "title": "Duality Gap"
           },
           "holds": {
+            "description": "True when the four ratios are finite and at most 1: the solution is optimal within the tolerances (1e-7 absolute, 1e-9 relative).",
             "title": "Holds",
             "type": "boolean"
           },
@@ -50,6 +55,7 @@
                 "type": "null"
               }
             ],
+            "description": "Largest violation of a constraint row or variable bound, in units of its tolerance (1e-7 + 1e-9 x the magnitude of the row or bound); at most 1 passes.",
             "title": "Primal"
           },
           "primal_objective": {
@@ -61,6 +67,7 @@
                 "type": "null"
               }
             ],
+            "description": "Objective value of the solution in the units of the programme's objective, its constant included.",
             "title": "Primal Objective"
           },
           "stationarity": {
@@ -72,6 +79,7 @@
                 "type": "null"
               }
             ],
+            "description": "Largest reduced-cost residual, in units of its tolerance (1e-9 x max(1, the magnitude of its terms)); at most 1 passes.",
             "title": "Stationarity"
           }
         },
@@ -2827,7 +2835,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Optimality certificate of this programme (its objective is named in objective). For reported_plan it is the certificate of the last tie-break stage (reported_plan_selection); strict_programme carries that of the penalised-score programme."
           },
           "constraints_not_checked": {
             "items": {
@@ -3895,6 +3904,7 @@
                 "type": "null"
               }
             ],
+            "description": "Whether the development selection test passed its pre-registered gate, as M2 recorded it. Read the M2 SELECTION EVIDENCE notice with it: at a 30-day horizon with these origin counts the test over-rejects, and after a size correction the selection p-value (0.069) is above the gate.",
             "title": "Significant"
           }
         },
@@ -4563,6 +4573,7 @@
                 "type": "null"
               }
             ],
+            "description": "The run's identifier. A projection run's (m2_projection_run, m3_projection_run) is null while the M4 reference run, the only record of its manifest, is not ready (see /health/ready).",
             "title": "Run Id"
           }
         },
@@ -4888,9 +4899,9 @@
     }
   },
   "info": {
-    "description": "Read-only access to the ATLAS NYC 311 demand-forecasting research outputs (M2 forecasts,\nM3 uncertainty, M4 decision simulation) and bounded HYPOTHETICAL simulations with the M4\nlinear-programming engine.\n\n**Read before using any number.**\n\n* Every response states what its numbers are (`integrity.data_status`): observed history,\n  a projection, a historical evaluation, or a HYPOTHETICAL simulation.\n* The point forecast is not prospectively validated (`point_forecast_validated: false`).\n* The M3 prediction intervals have the status **failed_calibration**: no interval or\n  probability is decision-grade, and none is presented as one.\n* Every M4 operational parameter is **HYPOTHETICAL**. Nothing returned is a validated\n  staffing, budget or service-capacity recommendation (`validated_recommendation: false`\n  is fixed by the schema).\n\nErrors share one body: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n",
+    "description": "Read-only access to the ATLAS NYC 311 demand-forecasting research outputs (M2 forecasts,\nM3 uncertainty, M4 decision simulation) and bounded HYPOTHETICAL simulations with the M4\nlinear-programming engine.\n\n**Read before using any number.**\n\n* Every response states what its numbers are (`integrity.data_status`): observed history,\n  a projection, a historical evaluation, or a HYPOTHETICAL simulation.\n* The projection is an archived projection issued from the frozen snapshot. It is not a\n  live forecast, and it has never been scored: no outcome after the snapshot's last\n  observed day is in the snapshot.\n* The point forecast is not prospectively validated (`point_forecast_validated: false`).\n* The M3 prediction intervals have the status **failed_calibration**: no interval or\n  probability is decision-grade, and none is presented as one.\n* Every M4 operational parameter is **HYPOTHETICAL**. Nothing returned is a validated\n  staffing, budget or service-capacity recommendation (`validated_recommendation: false`\n  is fixed by the schema).\n\nErrors share one body: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n",
     "title": "ATLAS API",
-    "version": "0.7.0"
+    "version": "1.0.0"
   },
   "openapi": "3.1.0",
   "paths": {
