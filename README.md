@@ -15,8 +15,9 @@ nothing on closures, backlog, staffing or service levels.
 > (1.0.0); the candidate status is carried by the release-candidate manifest and by a tag
 > `v1.0.0-rc.1` that only the owner creates after approval. M9 phase A prepares a static,
 > read-only copy of the dashboard for GitHub Pages ([STATIC_DEMO.md](docs/STATIC_DEMO.md)); it
-> is **not published**, and publishing it waits on the owner's licence, data-terms and version
-> decisions.
+> is **not published**, and publishing it waits on the owner recording the code-licence
+> decision, confirming the NYC Open Data terms, deciding the version and approving
+> publication.
 
 ## What ATLAS found
 
@@ -153,21 +154,40 @@ results, are in the [release gate](docs/release/RELEASE_GATE.md).
 ## Data and attribution
 
 The data are daily counts from **NYC Open Data, *311 Service Requests from 2020 to
-Present*** (dataset `erm2-nwe9`), published by the City of New York. The original project
-aggregated them once, for 2023-01-01 to 2026-06-30; ATLAS freezes those aggregates as the
-hash-verified `legacy-v0` snapshot. The extraction time was not recorded
-([DATA_SNAPSHOT.md](docs/DATA_SNAPSHOT.md)). ATLAS is not affiliated with or endorsed by the
-City of New York. The source's terms of use were not verified in this repository. This
-public repository already redistributes the derived tables. Confirming that the terms permit
-this, and the attribution wording they require, is an owner action and a condition of the
-release ([release/RELEASE_GATE.md](docs/release/RELEASE_GATE.md) section 1).
+Present*** (dataset `erm2-nwe9`, credited to 311 and published by the City of New York).
+The original project aggregated them once, for 2023-01-01 to 2026-06-30; ATLAS freezes
+those aggregates as the hash-verified `legacy-v0` snapshot. The original extraction time
+and source revision were not recorded ([DATA_SNAPSHOT.md](docs/DATA_SNAPSHOT.md)).
+The data and derived historical tables are **not being relicensed under the ATLAS MIT
+License**. Their reuse and republication are governed by the applicable NYC Open Data
+terms and any additional provider-specific conditions. General City reuse policy has
+been reviewed, but any dataset-specific conditions remain to be confirmed before
+publishing the GitHub Pages demonstration. This public repository already contains
+derived historical tables.
+
+ATLAS is independent and is not affiliated with or endorsed by the
+City of New York, NYC 311, or NYC Open Data. It is also not sponsored by any
+of them. For the publisher, source URL, aggregation
+method and terms-review status, see the [data card](docs/DATA_CARD.md) and
+[code/data terms notice](docs/OPEN_SOURCE_AND_DATA_TERMS.md).
 
 ## Licence
 
-There is no licence file. The repository is public, but no licence has been granted for the
-code or the derived data. Choosing one, or deciding that none is granted, is the owner's
-decision and a condition of the release ([release/RELEASE_GATE.md](docs/release/RELEASE_GATE.md)
-section 1).
+**Original ATLAS source code authored and owned by `arthur-fay` is licensed under
+the [MIT License](LICENSE), Copyright (c) 2026 arthur-fay.** It permits use,
+modification and redistribution of that original code subject to its conditions.
+
+This MIT grant is **not** a claim of ownership or a new license for NYC 311 source data,
+the archived/derived NYC datasets, third-party packages or fonts, or materials of
+other copyright holders. Those remain governed by their own terms and notices.
+See [code licensing and NYC Open Data attribution](docs/OPEN_SOURCE_AND_DATA_TERMS.md)
+and the existing bundled third-party notices.
+
+This source-code license does **not** by itself approve the public website: the M9
+publication gate still requires separate data-terms confirmation, versioning and owner
+publication approval ([static-demo instructions](docs/STATIC_DEMO.md) sections 9 to 12,
+[publication record](docs/release/PAGES_PUBLICATION.json)). The M8
+[release gate](docs/release/RELEASE_GATE.md) predates the licence and is kept as recorded.
 
 ## The original project (July 2026, archived)
 

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "ATLAS M7: the interactive web dashboard over the ATLAS HTTP API (same origin, /api/v1); M9: the same dashboard as a static, read-only build of the API's recorded answers (GitHub Pages).",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"

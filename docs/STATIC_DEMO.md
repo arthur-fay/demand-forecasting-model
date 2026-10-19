@@ -9,7 +9,8 @@ backend behind it. The primary target is GitHub Pages, at the project address
 > cannot publish: its committed approval record states no owner decision
 > ([section 10](#10-publication-controls)). Publication needs:
 >
-> - the licence and NYC Open Data decisions of the M8 release gate
+> - the NYC Open Data terms confirmed, and the code licence the owner chose (MIT, for original
+>   ATLAS code only) recorded in the approval record
 >   ([section 9](#9-licensing-and-data-use-prerequisites));
 > - a version decision ([section 11](#11-release-and-versioning));
 > - the owner's separate approval and three GitHub settings
@@ -514,16 +515,22 @@ byte, and its browser suite runs against it.
 
 ## 9. Licensing and data-use prerequisites
 
-M9 does not change, and does not resolve, the two open questions of the M8 release gate
-([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1, gate M). Publishing the static
-site makes both more concrete: it puts the code and the derived data on a public web page, in
-addition to the public repository.
+The M8 release gate left two owner questions open
+([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1, gate M), and the static site
+does not resolve them. The first, the code licence, has since been answered: the owner chose
+the MIT License for original ATLAS code (item 1). The second, the NYC Open Data terms, is
+still open (item 2). Publishing the static site makes both more concrete: it puts the code and
+the derived data on a public web page, in addition to the public repository.
 
-1. **The project licence.** The repository has no licence file. Without one, publishing the
-   site grants nobody any right to the code or the derived tables. The owner chooses a
-   licence for the code (and states whether it covers the derived data), or records that none
-   is granted. Sources: [README.md](../README.md) "Licence"; [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)
-   section 9.
+1. **The project licence — chosen for original code, not yet publication approval.**
+   The owner chose the [MIT License](../LICENSE), Copyright (c) 2026 arthur-fay,
+   for original ATLAS source code the owner may license. This grant **does not cover**
+   NYC 311 source data, derived historical City aggregates, or other owners' software
+   and fonts. See the [README](../README.md) and
+   [code/data terms notice](OPEN_SOURCE_AND_DATA_TERMS.md). Choosing the licence is not
+   approval to publish: the `project_licence_decided` publication flag stays false until
+   the owner records the decision in the publication record, in a reviewed pull request
+   (sections 10 and 12).
 2. **The NYC Open Data terms.** The site republishes daily totals derived from NYC Open Data,
    *311 Service Requests from 2020 to Present* (dataset `erm2-nwe9`): every observed history
    window, and every forecast and plan computed from them. The owner reads the current terms
@@ -537,12 +544,26 @@ addition to the public repository.
    names the City of New York as the publisher, and says "affiliated with, sponsored or
    endorsed by". If the terms prescribe wording, the footer must use it (`web/src/App.tsx`),
    and the site is rebuilt. The M8 audit could not retrieve the terms, because its network
-   blocks nyc.gov, and M9 has not retrieved them either.
+   blocked nyc.gov. On 2026-10-19 the City's general NYC Open Data policies were reviewed:
+   the portal's Terms of Use, the NYC Open Data FAQ and the public policies of the Open Data
+   Technical Standards Manual ([OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md)).
+   The FAQ and the Manual describe broadly permissive reuse, and the Manual adds that a
+   republisher may have to identify the source, version and modifications. The portal's Terms
+   of Use incorporate the NYC.gov terms and any additional terms of the agency that supplies a
+   dataset. These general policies are not the terms of this dataset: the governing NYC.gov
+   terms, the dataset's current metadata and any terms of the supplying agency for `erm2-nwe9`
+   have not been verified, so this condition is still open, and
+   `nyc_open_data_terms_confirmed` stays false.
 3. **Third-party notices.** Already met: the build ships the licences of the bundled code and
    of the Inter font, linked from every page (M8). They stay valid for the static build.
 
-Nothing in the repository or on the site grants or asserts a licence or a permission. Until
-1 and 2 are decided, the site must not be published. The publication record has a condition
+The root [MIT License](../LICENSE), Copyright (c) 2026 arthur-fay, is the only licence the
+project grants, and it covers only original ATLAS code the owner may license. The project
+grants no licence or permission for the NYC 311 data, the aggregates derived from them or
+third-party works: the data keep the terms of the City and of the supplying agency (item 2),
+and the bundled code and the Inter font keep their own licences, whose notices the build
+ships (item 3). Until the licence decision is recorded (item 1) and the data terms are
+confirmed (item 2), the site must not be published. The publication record has a condition
 for each (section 10).
 
 ## 10. Publication controls
@@ -660,9 +681,10 @@ silently.
 Do these steps only after the decisions of sections 9 and 11, and only when you decide to
 publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (step 9).
 
-1. **Decide.** The project licence and the NYC Open Data terms (section 9), the version
-   (section 11), the limitations ([KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)), the shared
-   origin (section 6), and the static profile itself. If the version changes, bump it first
+1. **Decide.** The NYC Open Data terms (section 9; the code licence is already chosen, and
+   step 4 records it), the version (section 11), the limitations
+   ([KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)), the shared origin (section 6), and the
+   static profile itself. If the version changes, bump it first
    ([DEVELOPMENT.md](DEVELOPMENT.md) "Versioning": export again, rebuild both profiles) and
    merge that.
 2. **Protect the environment first.** Settings > Environments > New environment, named
@@ -754,7 +776,8 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
 - **The static site inherits every limitation of the results** it shows
   ([KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)). It shows a frozen snapshot that ends
   2026-06-30.
-- **The licence and the data terms are unresolved** (section 9).
+- **The NYC Open Data terms are unconfirmed**, and the code licence the owner chose (MIT,
+  original ATLAS code only) is not yet recorded in the publication record (section 9).
 
 ## 14. Measured results
 

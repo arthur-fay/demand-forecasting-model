@@ -22,16 +22,28 @@ New York. The tables in this repository are aggregates derived from it by the or
 (counts by day, and by day, agency and borough). ATLAS is an independent research project; it is
 not affiliated with, sponsored or endorsed by the City of New York or NYC Open Data.
 
-**Terms of use: not verified.** The City publishes the terms that govern NYC Open Data
-(nyc.gov, *Terms of Use*), and individual datasets can carry further terms from the agency that
-supplies them. This repository has never recorded or checked them, and the M8 audit environment
-could not retrieve them, because its network policy blocks nyc.gov. The repository is public
-(since 2026-07-18), so the aggregates are already redistributed. The owner must therefore read the
-current terms now, confirm that redistribution of these aggregates is permitted, and add any
-required attribution or disclaimer wording. The alternative is to make the repository private until
-that is done. The release gate makes this a condition of the release
-([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1). Nothing in ATLAS asserts a
-permission.
+**Terms review: partly verified, not approved for website publication (2026-10-19).**
+The [NYC Open Data FAQ](https://www.nyc.gov/opendata/get-started/FAQs) and the
+[Open Data public policies](https://cityofnewyork.github.io/opendatatsm/publicpolicies.html)
+describe broadly permissive public data reuse, and the public policies identify the source,
+version and modifications as possible republication requirements. The
+[NYC Open Data portal terms](https://data.cityofnewyork.us/stories/s/Terms-of-Use/k9k7-3cje)
+incorporate the NYC.gov terms and any additional terms imposed by the data-providing entity.
+The supplying agency's specific additional conditions, if any, for dataset `erm2-nwe9` have
+not been verified. The original extraction date
+and City-controlled data revision were never recorded; `legacy-v0` is ATLAS's own frozen
+snapshot identifier, not a City version.
+
+**Separate licensing.** The project's [MIT License](../LICENSE) (Copyright (c) 2026
+arthur-fay) applies only to original ATLAS code owned by its author; it does **not**
+relicense the NYC 311 records or aggregates derived from them. The aggregates are already
+in this public repository (since 2026-07-18). Before additional publication on GitHub
+Pages, the owner must confirm the applicable NYC/311 data-provider terms and their
+attribution requirements. This is still an outstanding condition of the M8 release gate
+([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1) and of the M9 publication
+record (`nyc_open_data_terms_confirmed`; [STATIC_DEMO.md](STATIC_DEMO.md) section 9;
+[OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md)).
+The 2026-10-19 review does not itself assert legal permission or authorize publication.
 
 ## 2. Composition
 

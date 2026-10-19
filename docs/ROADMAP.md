@@ -316,8 +316,9 @@ See [STATIC_DEMO.md](STATIC_DEMO.md).
   GitHub Pages; a page file per page and a `404.html` for deep links; the policy in the page;
   live simulations replaced by the recorded M4 reference scenarios, labelled as such.
 - A GitHub Pages workflow: build and test on every pull request; publication only by a manual,
-  gated dispatch, which the committed approval record refuses until the owner decides the
-  licence, the NYC Open Data terms and the version.
+  gated dispatch, which the committed approval record refuses until the owner records the
+  code-licence decision (MIT, chosen for original ATLAS code), confirms the NYC Open Data
+  terms and decides the version.
 - Not published; GitHub Pages not enabled. Phase B (activation) needs the owner's approval.
 
 ## Known M0 limitations
@@ -336,10 +337,19 @@ See [STATIC_DEMO.md](STATIC_DEMO.md).
   hold back any other new or upgraded package. See [DEVELOPMENT.md](DEVELOPMENT.md).
   (**M8 correction:** this previously said that the constraints hold every new package to
   releases at least two weeks old.)
-- **No LICENSE file:** the code licence and the NYC Open Data attribution wording need an
-  owner decision. (M8: the README now gives the attribution and states that the source's
-  terms of use have not been verified. Both remain owner actions, and they are due now: the
-  repository is public, so the release gate makes them a condition of the release.)
+- **No LICENSE file (LICENSE added in M9; data terms still open):** M0 shipped no
+  LICENSE file, and the code licence and the NYC Open Data attribution wording needed an
+  owner decision. (M8: the README gave the attribution and stated that the source's terms of
+  use had not been verified. Both were left as owner actions, due at once: the repository is
+  public, so the release gate made them a condition of the release.) The owner has since
+  chosen the [MIT License](../LICENSE), Copyright (c) 2026 arthur-fay, for original ATLAS
+  code only. It does not cover the NYC 311 data, the aggregates derived from them or
+  third-party works, which keep their own terms
+  ([OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md)). Still open: recording
+  that decision in the publication record, the dataset-specific NYC Open Data terms for
+  `erm2-nwe9` (the general NYC Open Data policies were reviewed on 2026-10-19), and the
+  owner's approval of any website publication ([STATIC_DEMO.md](STATIC_DEMO.md) sections 9
+  and 10).
 - **Legacy README claims (resolved in M8):** the README kept the original headline claims
   under a notice until M8. M8 rewrote it: it now describes ATLAS first and keeps the
   original project as an archived section in which every claim is qualified in place.
