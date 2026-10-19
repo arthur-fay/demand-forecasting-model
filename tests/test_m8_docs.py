@@ -36,8 +36,8 @@ PAGES_RECORD = REPO_ROOT / "docs" / "release" / "PAGES_PUBLICATION.json"
 ARCHIVED = "## The original project (July 2026, archived)"
 COPYRIGHT = "Copyright (c) 2026 arthur-fay"
 
-#: The terms of the MIT License after its copyright line, word for word and wrapped as GitHub's
-#: licence template (choosealicense.com) and the SPDX licence list publish them.
+#: The terms of the MIT License after its copyright line: word for word as the SPDX licence list
+#: publishes them, and wrapped as GitHub's licence template (choosealicense.com) wraps them.
 MIT_TERMS = """\
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -57,6 +57,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+
+#: Words that name the NYC 311 data or the tables derived from them.
+DATA_WORDS = r"\b(?:data|datasets?|tables|aggregates|records|311)\b"
 
 #: Claims of the original README that ATLAS refuted or qualified (finding M8-01).
 REFUTED = (
@@ -117,7 +120,9 @@ def test_the_readme_opens_with_atlas_and_archives_the_original_project() -> None
 
 def test_the_root_licence_is_the_unchanged_mit_licence_of_arthur_fay_2026() -> None:
     assert LICENSE.is_file(), "the repository has no root LICENSE file"
-    title, notice, terms = LICENSE.read_text(encoding="utf-8").split("\n\n", 2)
+    parts = LICENSE.read_text(encoding="utf-8").split("\n\n", 2)
+    assert len(parts) == 3, "LICENSE is not a title, a copyright line and the terms"
+    title, notice, terms = parts
     assert title == "MIT License", title
     assert notice == COPYRIGHT, f"not the 2026 copyright of arthur-fay: {notice}"
     assert terms == MIT_TERMS, "the standard text of the MIT License was changed"
@@ -125,7 +130,7 @@ def test_the_root_licence_is_the_unchanged_mit_licence_of_arthur_fay_2026() -> N
 
 def test_the_readme_licenses_only_the_original_code_under_mit() -> None:
     raw = _front_section("## Licence")
-    assert "](LICENSE)" in raw, "the licence section does not link the root LICENSE file"
+    assert re.search(r"\]\((?:\./)?LICENSE\)", raw), "the licence section does not link LICENSE"
     licence = _plain(raw)
     grant = (
         "Original ATLAS source code authored and owned by arthur-fay is licensed under the "
@@ -133,11 +138,10 @@ def test_the_readme_licenses_only_the_original_code_under_mit() -> None:
     )
     assert grant in licence, "the README does not say what the MIT License covers"
     # The grant claims neither the City's data nor anybody else's work.
-    limit = re.search(r"This MIT grant is not [^.]*\.", licence)
+    head = "This MIT grant is not a claim of ownership or a new license for "
+    limit = re.search(re.escape(head) + r"[^.]*\.", licence)
     assert limit, "the README does not limit the MIT grant"
     for excluded in (
-        "a claim of ownership",
-        "a new license",
         "NYC 311 source data",
         "derived NYC datasets",
         "third-party packages or fonts",
@@ -145,6 +149,10 @@ def test_the_readme_licenses_only_the_original_code_under_mit() -> None:
     ):
         assert excluded in limit[0], f"the MIT grant does not exclude {excluded}"
     assert "Those remain governed by their own terms and notices." in licence
+    # The M8 wording, true until the LICENSE was added, does not come back.
+    front = _plain(_readme().split(ARCHIVED, 1)[0]).lower()
+    for stale in ("no licence file", "no licence has been granted"):
+        assert stale not in front, f"the front page still says: {stale}"
 
 
 def test_the_nyc_311_data_are_attributed_and_kept_out_of_the_mit_licence() -> None:
@@ -158,16 +166,21 @@ def test_the_nyc_311_data_are_attributed_and_kept_out_of_the_mit_licence() -> No
     relicensed = "The data and derived historical tables are not being relicensed under the "
     assert f"{relicensed}ATLAS MIT License." in data, "the data are not kept out of the MIT grant"
     assert "governed by the applicable NYC Open Data terms" in data
-    # The section names the MIT License only to keep the data out of it.
-    for sentence in re.split(r"(?<=\.)\s+", data):
+    # The section names the MIT License only to keep the data out of it, and so does every
+    # sentence of the front page that names it next to the data.
+    front = _plain(_readme().split(ARCHIVED, 1)[0])
+    for sentence in re.split(r"(?<=[.;])\s+", data):
         if re.search(r"\bMIT\b", sentence):
+            assert re.search(r"\bnot\b", sentence), f"the data under MIT: {sentence}"
+    for sentence in re.split(r"(?<=[.;])\s+", front):
+        if re.search(r"\bMIT\b", sentence) and re.search(DATA_WORDS, sentence, re.IGNORECASE):
             assert re.search(r"\bnot\b", sentence), f"the data under MIT: {sentence}"
 
 
 def test_the_readme_does_not_present_the_licence_as_approval_to_publish() -> None:
     """The code licence settles none of the other M9 conditions. The README's account of the
-    static site and of the data terms must match the committed publication record, which
-    alone opens the gate (tests/test_m9_pages_workflow.py)."""
+    static site and of the data terms must match the committed publication record, without
+    which the gate stays closed (tests/test_m9_pages_workflow.py)."""
     licence = _plain(_front_section("## Licence"))
     assert "This source-code license does not by itself approve the public website" in licence
     for condition in ("separate data-terms confirmation", "owner publication approval"):
@@ -176,6 +189,9 @@ def test_the_readme_does_not_present_the_licence_as_approval_to_publish() -> Non
     if conditions["publication_approved"] is not True:
         opening = _plain(_readme().split("\n## ", 1)[0])
         assert "it is not published" in opening, "the README does not say the site is unpublished"
+        front = _plain(_readme().split(ARCHIVED, 1)[0])
+        approved = r"\b(?:has|have|had|was|were|been|is|are)\s+(?:now\s+)?approved\b"
+        assert not re.search(approved, front), "the README presents publication as approved"
     if conditions["nyc_open_data_terms_confirmed"] is not True:
         data = _plain(_front_section("## Data and attribution"))
         pending = "dataset-specific conditions remain to be confirmed before publishing"
