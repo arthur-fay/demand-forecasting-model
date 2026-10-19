@@ -22,7 +22,7 @@ from atlas import __version__
 from atlas.config import Settings, load_settings
 from atlas.errors import AtlasError
 from atlas.features import default_feature_set
-from atlas.issues import CheckReport, Severity
+from atlas.issues import CheckReport, Issue, Severity
 from atlas.optimization_runner import (
     inspect_optimization_command,
     run_optimization_command,
@@ -65,7 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
             "assess data quality and describe forecast features (M1); rolling-origin "
             "backtests and labelled future projections (M2); prediction intervals and "
             "exceedance probabilities (M3); HYPOTHETICAL decision simulation and "
-            "optimisation (M4); an HTTP API over these outputs (M5)."
+            "optimisation (M4); an HTTP API over these outputs (M5); a static export of its "
+            "reference answers for a read-only dashboard on a static host (M9)."
         ),
     )
     parser.add_argument("--version", action="version", version=f"atlas {__version__}")
@@ -168,7 +169,37 @@ def build_parser() -> argparse.ArgumentParser:
     _add_uncertainty_parser(commands)
     _add_optimization_parser(commands)
     _add_api_parser(commands)
+    _add_static_parser(commands)
     return parser
+
+
+def _add_static_parser(commands: Any) -> None:
+    static = commands.add_parser(
+        "static",
+        help="Static export of the API's reference answers for a read-only dashboard (M9).",
+    )
+    sub = static.add_subparsers(dest="static_command", required=True)
+    export = sub.add_parser(
+        "export",
+        help="Record every reference answer the static dashboard reads, byte for byte.",
+    )
+    export.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Where to write (default: web/static-export; an earlier export is replaced).",
+    )
+    verify = sub.add_parser(
+        "verify",
+        help="Check an export against its manifest and require a new export's bytes.",
+    )
+    verify.add_argument(
+        "export_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="The export to check (default: web/static-export).",
+    )
 
 
 def _add_api_parser(commands: Any) -> None:
@@ -742,6 +773,33 @@ def _api(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
+def _static(args: argparse.Namespace, settings: Settings) -> list[CheckReport]:
+    """``atlas static``: imported lazily, like ``atlas api``. A refused export is a failed
+    check (exit 1), with the reason, not a usage error."""
+    from atlas.api.static_export import (
+        DEFAULT_OUTPUT,
+        StaticExportError,
+        verify_static_export,
+        write_static_export,
+    )
+
+    root, snapshot = settings.repo_root, settings.snapshot_id
+    if args.static_command == "verify":
+        directory = args.export_dir if args.export_dir is not None else root / DEFAULT_OUTPUT
+        return verify_static_export(root, snapshot, directory)
+    output = args.output_dir if args.output_dir is not None else root / DEFAULT_OUTPUT
+    try:
+        return [write_static_export(root, snapshot, output)]
+    except StaticExportError as exc:
+        issue = Issue(
+            code="static_export_refused",
+            severity=Severity.ERROR,
+            subject="static export",
+            message=str(exc),
+        )
+        return [CheckReport(name="static export", issues=(issue,))]
+
+
 def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int:
     out = stdout if stdout is not None else sys.stdout
     parser = build_parser()
@@ -752,6 +810,17 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
         if args.command == "api":
             return _api(args, out)
         settings = load_settings(repo_root=args.repo_root, snapshot_id=args.snapshot)
+        if args.command == "static":
+            reports = _static(args, settings)
+            if args.format == "json":
+                payload = {
+                    "ok": all(r.ok for r in reports),
+                    "reports": [r.to_dict() for r in reports],
+                }
+                out.write(json.dumps(payload, indent=2, default=str) + "\n")
+            else:
+                render_text(reports, out)
+            return EXIT_OK if all(report.ok for report in reports) else EXIT_FAILED
         if args.command == "snapshot" and args.snapshot_command == "manifest":
             return _manifest(settings, out)
         if args.command == "quality":

@@ -6,6 +6,9 @@
  * failed request is never replaced by other numbers. No credential is ever added here:
  * in the private deployment the browser's own HTTP Basic session covers the API (same
  * origin), and nginx adds the simulation key itself.
+ *
+ * (M9) The static profile reads recorded answers from files instead (`static.ts`); they go
+ * through the same checks (`accept`) once their bytes are verified.
  */
 import { ErrorResponse } from './schemas';
 import { z } from './zod';
@@ -22,7 +25,12 @@ export type ApiErrorKind =
   /** A 2xx answer that does not match the contract: nothing of it is shown. */
   | 'contract'
   /** A 2xx answer claiming a validated recommendation or forecast: refused. */
-  | 'integrity';
+  | 'integrity'
+  /**
+   * (M9) The static profile has no recorded answer for this request (or it is a
+   * computation, which needs a server): nothing is fetched, nothing stands in for it.
+   */
+  | 'not_exported';
 
 export interface ErrorDetail {
   readonly field: string;
@@ -183,12 +191,26 @@ export async function request<S extends z.core.$ZodType>(
       requestId,
     });
   }
+  return accept(path, schema, parsed, { status: response.status, requestId });
+}
+
+/**
+ * What every parsed 2xx answer goes through, from the API or from a static export: a claim
+ * of a validated forecast or recommendation is refused whatever else it holds, then the
+ * answer must match its schema. Only then is it returned.
+ */
+export function accept<S extends z.core.$ZodType>(
+  path: string,
+  schema: S,
+  parsed: unknown,
+  meta: { status: number | null; requestId: string | null },
+): z.infer<S> {
   if (claimsValidation(parsed)) {
     throw new ApiError(
       'integrity',
       'The answer claims a validated forecast or recommendation, which ATLAS never issues; it was refused.',
       path,
-      { status: response.status, requestId },
+      meta,
     );
   }
   const result = z.safeParse(schema, parsed);
@@ -197,11 +219,7 @@ export async function request<S extends z.core.$ZodType>(
       'contract',
       'The answer does not match the API contract; nothing of it is shown.',
       path,
-      {
-        status: response.status,
-        requestId,
-        details: summarise(result.error.issues),
-      },
+      { ...meta, details: summarise(result.error.issues) },
     );
   }
   return result.data;
@@ -231,10 +249,22 @@ export function describeError(error: unknown): {
       return { title: 'Answer refused', detail: error.message, retryable: false };
     case 'aborted':
       return { title: 'Cancelled', detail: error.message, retryable: true };
+    case 'not_exported':
+      return {
+        title: 'Not part of this static demonstration',
+        detail: error.message,
+        retryable: false,
+      };
     case 'http':
       break;
   }
   switch (error.code) {
+    case 'static_file_missing':
+      return {
+        title: 'A data file of this site is missing',
+        detail: `${error.message} The site may be part-way through an update: reloading the page loads the current version.`,
+        retryable: true,
+      };
     case 'artifact_unavailable':
       return {
         title: 'This component is unavailable',

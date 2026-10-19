@@ -5,6 +5,7 @@
  */
 import type { Integrity, Provenance as ProvenanceBlock, Source } from '../api/schemas';
 import { shortHash } from '../lib/format';
+import { ORIGIN_TEXT } from '../profile';
 
 function SourceCard({ source }: { source: Source }) {
   const files = Object.entries(source.files);
@@ -67,8 +68,8 @@ export function ProvenanceFooter({ provenance }: { provenance: ProvenanceBlock }
         <p className="provenance-line">
           API {provenance.api_version} · ATLAS {provenance.atlas_version} · snapshot{' '}
           {provenance.snapshot_id} · data fingerprint{' '}
-          <span className="mono">{provenance.data_fingerprint ?? 'unavailable'}</span>. Every file
-          hash was verified by the server against its run's record at startup.
+          <span className="mono">{provenance.data_fingerprint ?? 'unavailable'}</span>.{' '}
+          {ORIGIN_TEXT.fileHashes}
         </p>
         {provenance.sources.map((source) => (
           <SourceCard key={`${source.kind}:${source.path}`} source={source} />

@@ -1,0 +1,216 @@
+{
+  "format": "atlas-static-site/1",
+  "version": "1.0.0",
+  "profile": "static",
+  "base": "/demand-forecasting-model/",
+  "entry": "index.html",
+  "not_found": "404.html",
+  "pages": {
+    "/": "index.html",
+    "/forecasting": "forecasting.html",
+    "/uncertainty": "uncertainty.html",
+    "/decisions": "decisions.html",
+    "/simulator": "simulator.html",
+    "/provenance": "provenance.html"
+  },
+  "export_manifest_sha256": "b2af6e0a3a6fdd46c66aa18ccf7b42df1247db2ac1e5b884a4d4d43d8a803df1",
+  "content_security_policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'",
+  "files": {
+    "404.html": {
+      "sha256": "ff10a86baa20fda563dee266f48936c7749f3be6fb9072e30099c4a555a70ff8",
+      "bytes": 1416
+    },
+    "assets/BarChart-OEh5_6Mm.js": {
+      "sha256": "ded43ef982726114960e8df8429e45c9a2dfde8c735bb043ab40fa105fc3d2b7",
+      "bytes": 2445
+    },
+    "assets/Decisions-DwEmFmgW.js": {
+      "sha256": "72e32bce5853723e6125cfaf46538b42bc7b94def6383d3f41e94b15d775c6a7",
+      "bytes": 11113
+    },
+    "assets/Forecasting-DJxIP6LZ.js": {
+      "sha256": "63c23c261cea02636af8e8038a99d79157b6cb5173915bce20a730a20ed83374",
+      "bytes": 14177
+    },
+    "assets/Overview-DI8HGFE5.js": {
+      "sha256": "12720de22efa2120735083b0958fbc3d56743252b9eff3d690ba25e521f631e9",
+      "bytes": 9479
+    },
+    "assets/Provenance-C1ybCZvu.js": {
+      "sha256": "4c7bc5fe153c574d8a421a442c61fc8651bd2e21abd9a4a6f32908049ed0fffb",
+      "bytes": 2435
+    },
+    "assets/Provenance-Cv0aTBZa.js": {
+      "sha256": "98715b32b75d2bc121aba5f789d71ac7fca82ddb668dd41e958c6c0314c96d3a",
+      "bytes": 9465
+    },
+    "assets/Simulator-UBTvDDob.js": {
+      "sha256": "08134facf503d3155ac9887b6474b2bb6bfb85e3b962b5530d521c71f8641480",
+      "bytes": 23016
+    },
+    "assets/Uncertainty-BsGMhhAQ.js": {
+      "sha256": "c1934b1a0767243b61c1cd8c176ca37fb667b4f2c1d1f1f2f0685b65913f5900",
+      "bytes": 16263
+    },
+    "assets/band-BkdNy9k6.js": {
+      "sha256": "8801adbe072c3b8164ded8e5f52e59e72570d4a31619ffe0e1f1201b424609cc",
+      "bytes": 2406
+    },
+    "assets/data-Bu6WtdMO.js": {
+      "sha256": "130ee84794e12a02749e0411222d06e5085501bfc1fc4f10d3f7e9c9179e9b7b",
+      "bytes": 58663
+    },
+    "assets/index-DpQ_KyiR.css": {
+      "sha256": "4c48d2acaf493692f9a6266a6d61f1339c2cb156203d90c2cd8db9dac3deb49d",
+      "bytes": 22532
+    },
+    "assets/index-NrzHnOTw.js": {
+      "sha256": "ee2769180e35d888d21800631ce57d196774e9e8dda4fb2474e9c8f8cacceac6",
+      "bytes": 280675
+    },
+    "assets/inter-latin-wght-normal-Dx4kXJAl.woff2": {
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+      "bytes": 48256
+    },
+    "assets/plan-CyJHlKpj.js": {
+      "sha256": "5378470431c55b17b352d40600e15fc874ee4ef27ff07ea0afb39ea19dacb55c",
+      "bytes": 15987
+    },
+    "data/atlas-static-export.json": {
+      "sha256": "b2af6e0a3a6fdd46c66aa18ccf7b42df1247db2ac1e5b884a4d4d43d8a803df1",
+      "bytes": 12635
+    },
+    "data/comparison.json": {
+      "sha256": "2a55d4e1e59793fbaafaee0ac16528a132f73f87fcbd4e85853e91fb0c635523",
+      "bytes": 12962
+    },
+    "data/forecast.json": {
+      "sha256": "f76480d251d210cec4c9df20e2fecec5a56b0c64020760fea6a6db3d5e29cf82",
+      "bytes": 7606
+    },
+    "data/history-365d.json": {
+      "sha256": "e2156c3b192d8a084b405b9ba87046f79b554fe406e0b794a46772c2631690b6",
+      "bytes": 39755
+    },
+    "data/history-90d.json": {
+      "sha256": "bd1b439f148ec53181b8f39065d7df39699020e1647eafdb1591a9da5f12829b",
+      "bytes": 10599
+    },
+    "data/history-all.json": {
+      "sha256": "0549543e008f551ae3fc176f6d7d800102e469a2aaff7933e7110902a523382a",
+      "bytes": 136084
+    },
+    "data/history.json": {
+      "sha256": "9e32d09452277d7a25dcec8fd3eb8002a9eea098b8b2050939e09fb745978305",
+      "bytes": 20161
+    },
+    "data/intervals.json": {
+      "sha256": "0cab214f3a7a15f1c3b1ad6abc7a4748039ddd1703f2043a49ea710aea259a64",
+      "bytes": 12603
+    },
+    "data/metrics-bucket.json": {
+      "sha256": "d8ecafd93b8c59d9f61b98da2a8b1c8201c18bfab13a9a4faca6f64aeb58d5c8",
+      "bytes": 37932
+    },
+    "data/metrics-horizon-confirmation.json": {
+      "sha256": "0482e23688ac111f6d1c91cd1fceaef59804810803113c26fef4fdcaaafffb3a",
+      "bytes": 72031
+    },
+    "data/metrics-horizon-development.json": {
+      "sha256": "0a2dee6fc9391723a8ec48e2f62f5145adbaf280175f9f39519e4a3328301389",
+      "bytes": 71746
+    },
+    "data/metrics-horizon-legacy_window.json": {
+      "sha256": "3cb5481e098c00eccac1be306d37b36cd241752e132fec9b6a813bd5ea9ec941",
+      "bytes": 71515
+    },
+    "data/models.json": {
+      "sha256": "f6c342b2d2d58c5d84b9415e51fd53e1bc45992a60ccc0e8eeea4d4884f41b25",
+      "bytes": 9988
+    },
+    "data/scenario-combined_stress.json": {
+      "sha256": "58f7dd077c4fd3a4a07f4cf3986871da025316df51b52b9671734fe996f11d80",
+      "bytes": 62319
+    },
+    "data/scenario-delayed_surge.json": {
+      "sha256": "5892bddff9f7319ea5ed968eb030fb529429add03b702810f85fb7fa6777ffa5",
+      "bytes": 59584
+    },
+    "data/scenario-increased_costs.json": {
+      "sha256": "fd1e450bb156f36e376c5631845466fd8cf880d6b1c66bbafadc48f3497cac9e",
+      "bytes": 59788
+    },
+    "data/scenario-increased_demand.json": {
+      "sha256": "fa8b3ed31f747f51feb97ddf7656a5aa579a686134749005210334dc5a26862d",
+      "bytes": 60449
+    },
+    "data/scenario-m2_bias_shift.json": {
+      "sha256": "6cadf3ba3e4537767cd613d57b88456e45a169c49b5ae2abee94eba069cfd638",
+      "bytes": 61299
+    },
+    "data/scenario-m3_marginal_q90_stress.json": {
+      "sha256": "7a7f40ce5525012df3a7f3435bf0e680d085bc1684cb572fb51ac68310998c29",
+      "bytes": 60665
+    },
+    "data/scenario-normal.json": {
+      "sha256": "01c8e0f62d35cd9caace4fc91563ef0a64769f0970372e368bb906b3781bcc14",
+      "bytes": 59903
+    },
+    "data/scenario-reduced_budget.json": {
+      "sha256": "f1e1fdc73014ace551c6174961b7e1016be888124fac89ecaac6f5f20067a7aa",
+      "bytes": 60288
+    },
+    "data/scenario-reduced_capacity.json": {
+      "sha256": "bf3419e1751835082506a92ac2fcbf253b95892f0bbf515cd73e4326a6636c3c",
+      "bytes": 60218
+    },
+    "data/scenarios.json": {
+      "sha256": "99f864de0259cf1c27ba403f9d4c0acc86f564d104a567d8f4f70c96ddd7a9f9",
+      "bytes": 13155
+    },
+    "data/simulation-parameters.json": {
+      "sha256": "103ad03ae0c4fea713c56c5ad92aec667f23f7107816c454141490ee9a46d5e0",
+      "bytes": 8247
+    },
+    "data/uncertainty-status.json": {
+      "sha256": "9d1ec542c04857ff75af014cc55346f0b914337f4f68e443ee931c793644fe42",
+      "bytes": 3920
+    },
+    "decisions.html": {
+      "sha256": "ff10a86baa20fda563dee266f48936c7749f3be6fb9072e30099c4a555a70ff8",
+      "bytes": 1416
+    },
+    "favicon.svg": {
+      "sha256": "55a7435d8d177adbd53a8e87403d62fe025ff5093949d8a20fcaeaf9ae7e05cf",
+      "bytes": 365
+    },
+    "forecasting.html": {
+      "sha256": "ff10a86baa20fda563dee266f48936c7749f3be6fb9072e30099c4a555a70ff8",
+      "bytes": 1416
+    },
+    "index.html": {
+      "sha256": "ff10a86baa20fda563dee266f48936c7749f3be6fb9072e30099c4a555a70ff8",
+      "bytes": 1416
+    },
+    "inter-licence.txt": {
+      "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345",
+      "bytes": 4477
+    },
+    "provenance.html": {
+      "sha256": "ff10a86baa20fda563dee266f48936c7749f3be6fb9072e30099c4a555a70ff8",
+      "bytes": 1416
+    },
+    "simulator.html": {
+      "sha256": "ff10a86baa20fda563dee266f48936c7749f3be6fb9072e30099c4a555a70ff8",
+      "bytes": 1416
+    },
+    "third-party-licences.txt": {
+      "sha256": "a0e57a2d64aab6723018d628b8ab37d067d354f1bafac24bd1345267b68b4fea",
+      "bytes": 12121
+    },
+    "uncertainty.html": {
+      "sha256": "ff10a86baa20fda563dee266f48936c7749f3be6fb9072e30099c4a555a70ff8",
+      "bytes": 1416
+    }
+  }
+}

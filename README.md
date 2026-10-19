@@ -9,11 +9,14 @@ It is **not an operational tool**: it works on a frozen snapshot of the data who
 capacity recommendation. "Demand" means requests created per day (intake); the data hold
 nothing on closures, backlog, staffing or service levels.
 
-> **Status: ATLAS v1.0, release candidate under review.** Milestones M0-M7 are merged. M8 is
+> **Status: ATLAS v1.0, release candidate under review.** Milestones M0-M8 are merged. M8 is
 > the final audit and its corrections: see the [audit](docs/audit/README.md) and the
 > [release gate](docs/release/RELEASE_GATE.md). The code carries the version being released
 > (1.0.0); the candidate status is carried by the release-candidate manifest and by a tag
-> `v1.0.0-rc.1` that only the owner creates after approval.
+> `v1.0.0-rc.1` that only the owner creates after approval. M9 phase A prepares a static,
+> read-only copy of the dashboard for GitHub Pages ([STATIC_DEMO.md](docs/STATIC_DEMO.md)); it
+> is **not published**, and publishing it waits on the owner's licence, data-terms and version
+> decisions.
 
 ## What ATLAS found
 
@@ -98,6 +101,7 @@ give the protocols and the full tables.
 | M6 | A private-first deployment package for one Ubuntu 24.04 server: systemd and nginx, verified activation, automatic rollback, monitoring. Nothing has been deployed | [DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | M7 | An accessible web dashboard over the API (React and TypeScript, built once into the committed `web/dist`; the server needs no Node.js) | [DASHBOARD.md](docs/DASHBOARD.md) |
 | M8 | The release audit, its verified findings and their corrections | [audit](docs/audit/README.md) |
+| M9 (phase A) | A static, read-only build of the dashboard for GitHub Pages: the API's recorded answers, checked in the browser, with no server; a publication workflow that cannot publish until the owner's decisions are recorded. Not published | [STATIC_DEMO.md](docs/STATIC_DEMO.md) |
 
 ## Run it
 
@@ -140,6 +144,7 @@ results, are in the [release gate](docs/release/RELEASE_GATE.md).
 | [HTTP API](docs/API.md) | The M5 API and its contract |
 | [Deployment](docs/DEPLOYMENT.md) | The M6 deployment package and operations |
 | [Dashboard](docs/DASHBOARD.md) | The M7 web dashboard |
+| [Static demo](docs/STATIC_DEMO.md) | The M9 static, read-only build for GitHub Pages, its controls and the owner's steps |
 | [Architecture](docs/ARCHITECTURE.md) | Modules, data flows and design decisions |
 | [Development](docs/DEVELOPMENT.md) | Setup, tests, continuous integration, reproducibility across machines |
 | [Roadmap](docs/ROADMAP.md) | Milestones, deferred work and known limitations |

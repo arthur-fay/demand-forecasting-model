@@ -97,6 +97,24 @@ is listed in section 10.
 - Some page chrome states two fixed facts of this release (the snapshot's end date and the number
   of reference scenarios) instead of reading them from the API.
 
+- **(M9) The static demonstration** ([STATIC_DEMO.md](STATIC_DEMO.md) section 13):
+  - prepared and tested against a local stand-in only; GitHub Pages is not enabled and has not
+    been exercised (extensionless pages, its 404 handling, headers and caching);
+  - no live simulation, by design: the recorded reference scenarios only;
+  - a static host sends no headers of the site's own, so there is no framing protection
+    (`frame-ancestors`, `X-Frame-Options`) and no `Cross-Origin-Opener-Policy` (a site that
+    opened the dashboard can later send its tab to a look-alike page); the policy is in the
+    page;
+  - only the HTML pages carry `noindex`: the JSON answers and the licence texts can be
+    indexed apart from the pages that qualify them;
+  - the project site shares the `arthur-fay.github.io` origin with the owner's other Pages
+    sites (or, if the user site gets a custom domain, that domain's), so what it shows is only
+    as trustworthy as every one of them (a page of the same origin can rewrite it after its
+    checks); the owner reviews this before publication;
+  - axe and reflow are checked in Chromium only; Firefox and WebKit run the functional and
+    keyboard tests; real Safari, real phones and screen readers are untested;
+  - publication needs the licence and NYC Open Data decisions below (section 9).
+
 ## 7. Deployment and security (M6, [DEPLOYMENT.md](DEPLOYMENT.md) section 17)
 
 - One server, one process: no high availability; an upgrade restarts the API for a few seconds.
@@ -135,6 +153,9 @@ is listed in section 10.
   OFL-1.1); their notices ship with the build **(M8)** ([DASHBOARD.md](DASHBOARD.md)).
 - Source data: NYC Open Data, 311 Service Requests (`erm2-nwe9`), City of New York; ATLAS is not
   affiliated with or endorsed by the City.
+- **(M9)** Publishing the static demonstration on GitHub Pages would redistribute the derived
+  data on a public web page as well. It is gated on the same two decisions
+  ([STATIC_DEMO.md](STATIC_DEMO.md) section 9).
 
 ## 10. What the M8 audit left unchanged
 
