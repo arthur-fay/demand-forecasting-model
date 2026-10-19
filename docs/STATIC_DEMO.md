@@ -519,11 +519,15 @@ M9 does not change, and does not resolve, the two open questions of the M8 relea
 site makes both more concrete: it puts the code and the derived data on a public web page, in
 addition to the public repository.
 
-1. **The project licence.** The repository has no licence file. Without one, publishing the
-   site grants nobody any right to the code or the derived tables. The owner chooses a
-   licence for the code (and states whether it covers the derived data), or records that none
-   is granted. Sources: [README.md](../README.md) "Licence"; [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)
-   section 9.
+1. **The project licence — chosen for original code, not yet publication approval.**
+   The owner chose the [MIT License](../LICENSE), Copyright (c) 2026 arthur-fay,
+   for original ATLAS source code the owner may license. This grant **does not cover**
+   NYC 311 source data, derived historical City aggregates, or other owners' software
+   and fonts. See the [README](../README.md) and
+   [code/data terms notice](OPEN_SOURCE_AND_DATA_TERMS.md). The licensing file and
+   notices must be reviewed and merged before the publication record can reflect
+   the decision. The `project_licence_decided` publication flag remains false
+   until the owner records a separate approved release/publishing decision.
 2. **The NYC Open Data terms.** The site republishes daily totals derived from NYC Open Data,
    *311 Service Requests from 2020 to Present* (dataset `erm2-nwe9`): every observed history
    window, and every forecast and plan computed from them. The owner reads the current terms
