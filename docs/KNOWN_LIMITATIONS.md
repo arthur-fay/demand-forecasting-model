@@ -144,11 +144,16 @@ is listed in section 10.
 
 ## 9. Licensing and attribution
 
-- **No licence has been chosen for the project** (owner decision). The repository includes no
-  LICENSE file, yet it is **public** (since 2026-07-18): the code and the derived NYC 311 tables
-  are already visible and downloadable without a licence. The release gate makes the licence and
-  data-terms decision a condition of the release
-  ([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1).
+- **Code licence chosen; City data terms still pending.** The owner chose the
+  [MIT License](../LICENSE), Copyright (c) 2026 arthur-fay, for original ATLAS code
+  the owner may license. The MIT grant is **not** a licence for NYC 311 data or
+  derived City aggregates, nor for other owners' materials. The repository is
+  **public** (since 2026-07-18), and these historical aggregates are already
+  redistributed. General NYC Open Data reuse policies have been reviewed,
+  but any dataset/provider-specific conditions have not been confirmed. The
+  public website remains blocked pending the M9 owner publication decisions
+  ([OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md);
+  [STATIC_DEMO.md](STATIC_DEMO.md) section 9).
 - The shipped dashboard bundles third-party code and a font under permissive licences (MIT, ISC,
   OFL-1.1); their notices ship with the build **(M8)** ([DASHBOARD.md](DASHBOARD.md)).
 - Source data: NYC Open Data, 311 Service Requests (`erm2-nwe9`), City of New York; ATLAS is not
