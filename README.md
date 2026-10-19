@@ -15,8 +15,9 @@ nothing on closures, backlog, staffing or service levels.
 > (1.0.0); the candidate status is carried by the release-candidate manifest and by a tag
 > `v1.0.0-rc.1` that only the owner creates after approval. M9 phase A prepares a static,
 > read-only copy of the dashboard for GitHub Pages ([STATIC_DEMO.md](docs/STATIC_DEMO.md)); it
-> is **not published**, and publishing it waits on the owner's licence, data-terms and version
-> decisions.
+> is **not published**, and publishing it waits on the owner recording the code-licence
+> decision (MIT), confirming the NYC Open Data terms, deciding the version and approving
+> publication.
 
 ## What ATLAS found
 

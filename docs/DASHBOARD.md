@@ -128,8 +128,9 @@ dashboard's other headers and its Content-Security-Policy for text (section 7), 
 of every page links to them. `web/build/notices.test.ts` fails if
 a runtime package of the lock is missing from the notices or a development package is in
 them, or if the font's file differs from its package's; `tests/test_m7_dashboard.py` checks
-that the API serves both, with that policy. This inventory covers the third-party code only: it does not choose
-the project's own licence.
+that the API serves both, with that policy. This inventory covers the third-party code only.
+The project's own code is under the root [MIT License](../LICENSE), which does not relicense
+these packages or the font: they keep the licences listed below.
 
 | Package | Version | Licence | Copyright | Shipped as |
 |---|---|---|---|---|

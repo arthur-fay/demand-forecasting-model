@@ -47,7 +47,7 @@ Integrity checks all of these.
 | Window | 2023-01-01 inclusive to 2026-07-01 exclusive |
 | Extracted at | **Not recorded.** The data ends 2026-06-30, and the earliest timestamp in the repository is 2026-07-17 (Power BI file). |
 | Completeness | **Incomplete**: no extraction time, query hash, library versions or raw API responses |
-| Terms of use | Not verified in this repository; confirm before redistribution |
+| Terms of use | Not verified when the snapshot was registered (the manifest's `terms_of_use`). The general NYC Open Data policies were reviewed on 2026-10-19 ([OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md)); the dataset-specific terms for `erm2-nwe9` are still unverified. Confirm them before redistribution |
 
 The source is a live dataset whose records can be revised, so re-querying it may not
 reproduce these counts (not verified). `legacy-v0` is therefore the fixed reference for all

@@ -22,9 +22,10 @@ is listed in section 10.
 - One frozen snapshot (`legacy-v0`), 2023-01-01 to 2026-06-30, city-wide daily counts plus
   five-borough agency segments. Its extraction time, query hash and raw responses were never
   recorded; re-querying the live source may not reproduce the counts.
-- The NYC Open Data terms of use have not been verified for redistribution of the committed
-  derived tables, although the public repository already redistributes them (owner action;
-  section 9).
+- The NYC Open Data terms have not been confirmed for redistribution of the committed derived
+  tables, although the public repository already redistributes them. The general NYC Open Data
+  policies were reviewed on 2026-10-19; any dataset-specific terms of the agency that supplies
+  `erm2-nwe9` are unverified (owner action; section 9).
 - City-wide totals and borough segments differ by 13,279 requests (0.11 %); shares are of the
   five-borough subset.
 - 311 counts measure reporting, not need, and reporting differs between communities.
@@ -113,7 +114,8 @@ is listed in section 10.
     checks); the owner reviews this before publication;
   - axe and reflow are checked in Chromium only; Firefox and WebKit run the functional and
     keyboard tests; real Safari, real phones and screen readers are untested;
-  - publication needs the licence and NYC Open Data decisions below (section 9).
+  - publication needs the NYC Open Data terms confirmed and the code-licence decision recorded
+    (section 9).
 
 ## 7. Deployment and security (M6, [DEPLOYMENT.md](DEPLOYMENT.md) section 17)
 
@@ -159,8 +161,9 @@ is listed in section 10.
 - Source data: NYC Open Data, 311 Service Requests (`erm2-nwe9`), City of New York; ATLAS is not
   affiliated with or endorsed by the City.
 - **(M9)** Publishing the static demonstration on GitHub Pages would redistribute the derived
-  data on a public web page as well. It is gated on the same two decisions
-  ([STATIC_DEMO.md](STATIC_DEMO.md) section 9).
+  data on a public web page as well. It stays blocked until the data terms are confirmed and
+  the owner records the code-licence decision and approves publication
+  ([STATIC_DEMO.md](STATIC_DEMO.md) sections 9 and 10).
 
 ## 10. What the M8 audit left unchanged
 

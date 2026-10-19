@@ -1,6 +1,6 @@
 # ATLAS — source-code licensing and NYC Open Data attribution
 
-**Status (2026-10-19):** Publication preparation, not legal certification or authorization to publish. The owner confirmed **`arthur-fay`** as the copyright holder and **2026** as the year. The canonical [MIT License](../LICENSE) has been added **for original ATLAS source code the owner has the right to license**, on the review branch. NYC Open Data and third-party materials remain subject to their own terms. The M9 publication gate stays closed pending the separate publication decisions.
+**Status (2026-10-19):** Publication preparation, not legal certification or authorization to publish. The owner confirmed **`arthur-fay`** as the copyright holder and **2026** as the year. The canonical [MIT License](../LICENSE) has been added at the repository root **for original ATLAS source code the owner has the right to license**. NYC Open Data and third-party materials remain subject to their own terms. The M9 publication gate stays closed pending the separate publication decisions.
 
 ## Distinguish the rights
 
@@ -41,7 +41,7 @@ The read-only GitHub Pages build has been implemented and tested but **not** dep
 
 Before publication, the owner and release reviewer must:
 
-1. **Prepared on this branch:** the owner confirmed `arthur-fay` (2026), the canonical MIT `LICENSE` was added, and the README/data card separately distinguish original source code from City data and third-party assets. Review and merge these changes before treating them as part of `main`.
+1. **Code licence chosen:** the owner confirmed `arthur-fay` (2026) as the copyright holder, the canonical MIT `LICENSE` is at the repository root, and the README and data card distinguish original source code from City data and third-party assets. Recording this decision as `project_licence_decided` remains a separate step (item 6).
 2. Finish the applicable City/data-provider terms review and explicitly confirm the public redistribution of the historical aggregates and static data exports.
 3. Choose the post-M9 release version (M9 recommends **1.1.0**), update the code version and generated artifacts through the reproducible release process, and verify CI.
 4. Read and accept M8's scientific limitations: the model's apparent advantage is not robustly established, **M3 FAILED_CALIBRATION**, every operating parameter is **HYPOTHETICAL**, and the projection is archived.
