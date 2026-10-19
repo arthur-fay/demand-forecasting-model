@@ -164,8 +164,9 @@ been reviewed, but any dataset-specific conditions remain to be confirmed before
 publishing the GitHub Pages demonstration. This public repository already contains
 derived historical tables.
 
-ATLAS is independent and is not affiliated with, sponsored by, or endorsed by the
-City of New York, NYC 311, or NYC Open Data. For the publisher, source URL, aggregation
+ATLAS is independent and is not affiliated with or endorsed by the
+City of New York, NYC 311, or NYC Open Data. It is also not sponsored by any
+of them. For the publisher, source URL, aggregation
 method and terms-review status, see the [data card](docs/DATA_CARD.md) and
 [code/data terms notice](docs/OPEN_SOURCE_AND_DATA_TERMS.md).
 
