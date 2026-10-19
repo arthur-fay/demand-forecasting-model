@@ -23,13 +23,14 @@ New York. The tables in this repository are aggregates derived from it by the or
 not affiliated with, sponsored or endorsed by the City of New York or NYC Open Data.
 
 **Terms review: partly verified, not approved for website publication (2026-10-19).**
-The [NYC Open Data portal terms](https://data.cityofnewyork.us/stories/s/Terms-of-Use/k9k7-3cje),
+The [NYC Open Data FAQ](https://www.nyc.gov/opendata/get-started/FAQs) and the
 [Open Data public policies](https://cityofnewyork.github.io/opendatatsm/publicpolicies.html)
-and [NYC Open Data FAQ](https://www.nyc.gov/opendata/get-started/FAQs) describe broadly
-permissive public data reuse and identify the source, version and modifications as possible
-republication requirements. The portal terms also incorporate any additional terms imposed
-by the data-providing entity. The supplying agency's specific additional conditions, if
-any, for dataset `erm2-nwe9` have not been fully confirmed. The original extraction date
+describe broadly permissive public data reuse, and the public policies identify the source,
+version and modifications as possible republication requirements. The
+[NYC Open Data portal terms](https://data.cityofnewyork.us/stories/s/Terms-of-Use/k9k7-3cje)
+incorporate the NYC.gov terms and any additional terms imposed by the data-providing entity.
+The supplying agency's specific additional conditions, if any, for dataset `erm2-nwe9` have
+not been verified. The original extraction date
 and City-controlled data revision were never recorded; `legacy-v0` is ATLAS's own frozen
 snapshot identifier, not a City version.
 
@@ -38,8 +39,9 @@ arthur-fay) applies only to original ATLAS code owned by its author; it does **n
 relicense the NYC 311 records or aggregates derived from them. The aggregates are already
 in this public repository (since 2026-07-18). Before additional publication on GitHub
 Pages, the owner must confirm the applicable NYC/311 data-provider terms and their
-attribution requirements. This is still an outstanding M9 release-gate decision
-([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1;
+attribution requirements. This is still an outstanding condition of the M8 release gate
+([release/RELEASE_GATE.md](release/RELEASE_GATE.md) section 1) and of the M9 publication
+record (`nyc_open_data_terms_confirmed`; [STATIC_DEMO.md](STATIC_DEMO.md) section 9;
 [OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md)).
 The 2026-10-19 review does not itself assert legal permission or authorize publication.
 

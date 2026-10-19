@@ -16,7 +16,7 @@ nothing on closures, backlog, staffing or service levels.
 > `v1.0.0-rc.1` that only the owner creates after approval. M9 phase A prepares a static,
 > read-only copy of the dashboard for GitHub Pages ([STATIC_DEMO.md](docs/STATIC_DEMO.md)); it
 > is **not published**, and publishing it waits on the owner recording the code-licence
-> decision (MIT), confirming the NYC Open Data terms, deciding the version and approving
+> decision, confirming the NYC Open Data terms, deciding the version and approving
 > publication.
 
 ## What ATLAS found
@@ -185,8 +185,9 @@ and the existing bundled third-party notices.
 
 This source-code license does **not** by itself approve the public website: the M9
 publication gate still requires separate data-terms confirmation, versioning and owner
-publication approval ([release gate](docs/release/RELEASE_GATE.md),
-[static-demo instructions](docs/STATIC_DEMO.md)).
+publication approval ([static-demo instructions](docs/STATIC_DEMO.md) sections 9 to 12,
+[publication record](docs/release/PAGES_PUBLICATION.json)). The M8
+[release gate](docs/release/RELEASE_GATE.md) predates the licence and is kept as recorded.
 
 ## The original project (July 2026, archived)
 

@@ -529,8 +529,8 @@ the derived data on a public web page, in addition to the public repository.
    and fonts. See the [README](../README.md) and
    [code/data terms notice](OPEN_SOURCE_AND_DATA_TERMS.md). Choosing the licence is not
    approval to publish: the `project_licence_decided` publication flag stays false until
-   the owner records the decision in the publication record, in its own reviewed commit
-   (section 10).
+   the owner records the decision in the publication record, in a reviewed pull request
+   (sections 10 and 12).
 2. **The NYC Open Data terms.** The site republishes daily totals derived from NYC Open Data,
    *311 Service Requests from 2020 to Present* (dataset `erm2-nwe9`): every observed history
    window, and every forecast and plan computed from them. The owner reads the current terms
@@ -547,20 +547,24 @@ the derived data on a public web page, in addition to the public repository.
    blocked nyc.gov. On 2026-10-19 the City's general NYC Open Data policies were reviewed:
    the portal's Terms of Use, the NYC Open Data FAQ and the public policies of the Open Data
    Technical Standards Manual ([OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md)).
-   They describe broadly permissive reuse, and say that a republisher may have to identify
-   the source, version and modifications. The portal's terms also incorporate any additional
-   terms of the agency that supplies a dataset. Those dataset-specific terms for `erm2-nwe9`
+   The FAQ and the Manual describe broadly permissive reuse, and the Manual adds that a
+   republisher may have to identify the source, version and modifications. The portal's Terms
+   of Use incorporate the NYC.gov terms and any additional terms of the agency that supplies a
+   dataset. These general policies are not the terms of this dataset: the governing NYC.gov
+   terms, the dataset's current metadata and any terms of the supplying agency for `erm2-nwe9`
    have not been verified, so this condition is still open, and
    `nyc_open_data_terms_confirmed` stays false.
 3. **Third-party notices.** Already met: the build ships the licences of the bundled code and
    of the Inter font, linked from every page (M8). They stay valid for the static build.
 
-The root [MIT License](../LICENSE) is the only licence ATLAS grants, and it covers only
-original ATLAS code. Nothing in the repository or on the site grants or asserts a licence or a
-permission for the NYC 311 data, the aggregates derived from them or third-party works, which
-keep their own terms (item 3). Until the licence decision is recorded (item 1) and the data
-terms are confirmed (item 2), the site must not be published. The publication record has a
-condition for each (section 10).
+The root [MIT License](../LICENSE), Copyright (c) 2026 arthur-fay, is the only licence the
+project grants, and it covers only original ATLAS code the owner may license. The project
+grants no licence or permission for the NYC 311 data, the aggregates derived from them or
+third-party works: the data keep the terms of the City and of the supplying agency (item 2),
+and the bundled code and the Inter font keep their own licences, whose notices the build
+ships (item 3). Until the licence decision is recorded (item 1) and the data terms are
+confirmed (item 2), the site must not be published. The publication record has a condition
+for each (section 10).
 
 ## 10. Publication controls
 
@@ -677,8 +681,8 @@ silently.
 Do these steps only after the decisions of sections 9 and 11, and only when you decide to
 publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (step 9).
 
-1. **Decide.** The NYC Open Data terms and the record of the code licence already chosen
-   (section 9), the version (section 11), the limitations
+1. **Decide.** The NYC Open Data terms (section 9; the code licence is already chosen, and
+   step 4 records it), the version (section 11), the limitations
    ([KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)), the shared origin (section 6), and the
    static profile itself. If the version changes, bump it first
    ([DEVELOPMENT.md](DEVELOPMENT.md) "Versioning": export again, rebuild both profiles) and
