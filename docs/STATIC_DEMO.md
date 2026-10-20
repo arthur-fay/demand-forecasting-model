@@ -12,7 +12,8 @@ backend behind it. The primary target is GitHub Pages, at the project address
 > - the NYC Open Data terms confirmed, and the code licence the owner chose (MIT, for original
 >   ATLAS code only) recorded in the approval record
 >   ([section 9](#9-licensing-and-data-use-prerequisites));
-> - a version decision ([section 11](#11-release-and-versioning));
+> - the owner's version decision ([section 11](#11-release-and-versioning)): the code carries
+>   1.1.0 since the release preparation, and the approval record does not yet state it;
 > - the owner's separate approval and three GitHub settings
 >   ([section 12](#12-owner-instructions-activating-github-pages)).
 
@@ -553,7 +554,11 @@ the derived data on a public web page, in addition to the public repository.
    dataset. These general policies are not the terms of this dataset: the governing NYC.gov
    terms, the dataset's current metadata and any terms of the supplying agency for `erm2-nwe9`
    have not been verified, so this condition is still open, and
-   `nyc_open_data_terms_confirmed` stays false.
+   `nyc_open_data_terms_confirmed` stays false. The owner's review of 2026-10-20
+   ([release/NYC_311_REUSE_REVIEW_2026-10-20.md](release/NYC_311_REUSE_REVIEW_2026-10-20.md))
+   and the 1.1.0 preparation's attempt to check the dataset's metadata
+   ([release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md) section 5) leave it open
+   as well.
 3. **Third-party notices.** Already met: the build ships the licences of the bundled code and
    of the Inter font, linked from every page (M8). They stay valid for the static build.
 
@@ -666,15 +671,24 @@ The recommendation:
    ([DEVELOPMENT.md](DEVELOPMENT.md) "Versioning"). It changes every recorded answer, because
    they carry the version, so it is followed by `atlas static export` and both builds.
 
-M9 phase A **does not bump the version**: the version is the owner's decision. Until then the
-code still says 1.0.0. The publication gate turns this into an explicit choice: the record's
-`release_version` must equal the code's version, so publishing means bumping the code first
-(to 1.1.0, as recommended) or recording 1.0.0 for content that is not rc.1. The repository's
-tooling supports only the first: `rc_manifest.py` names its candidate `rc.1`, and on M9
-content at 1.0.0 its `--write` would overwrite the M8 manifest
-(`atlas-1.0.0-rc.1.json`). A `1.0.0-rc.2` would first need that tool to take a candidate
-name and to refuse to overwrite another candidate's manifest. Either way, it never happens
-silently.
+M9 phase A did not bump the version: the version is the owner's decision. The publication
+gate turns it into an explicit choice: the record's `release_version` must equal the code's
+version, so publishing means bumping the code first (to 1.1.0, as recommended) or recording
+1.0.0 for content that is not rc.1. The repository's tooling supports only the first:
+`rc_manifest.py` names its candidate `rc.1`, and on M9 content at 1.0.0 its `--write` would
+have overwritten the M8 manifest (`atlas-1.0.0-rc.1.json`).
+
+**The release preparation follows the recommendation** (pull request #13). The code carries
+1.1.0, with every copy of the version ([DEVELOPMENT.md](DEVELOPMENT.md) "Versioning": the
+locks, the API contract, the fixtures, the static export and both builds), and the candidate
+`1.1.0-rc.1` has its own manifest, `atlas-1.1.0-rc.1.json`, and its own release documents
+([release/RELEASE_CANDIDATE_1.1.0.md](release/RELEASE_CANDIDATE_1.1.0.md),
+[release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md)). The M8 manifest and documents
+stay as issued: the tool writes only the manifest of the committed version, names a
+candidate's documents after its version and records earlier manifests by their SHA-256. The
+version is still not decided in the publication record: `release_version_decided` stays false
+and `release_version` null until the owner records 1.1.0 there, in a reviewed pull request
+(section 12, step 4). Until then no run can publish, whatever the code's version.
 
 ## 12. Owner instructions: activating GitHub Pages
 
@@ -684,9 +698,9 @@ publish. Steps 2 and 3 publish nothing by themselves. Each step is reversible (s
 1. **Decide.** The NYC Open Data terms (section 9; the code licence is already chosen, and
    step 4 records it), the version (section 11), the limitations
    ([KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)), the shared origin (section 6), and the
-   static profile itself. If the version changes, bump it first
-   ([DEVELOPMENT.md](DEVELOPMENT.md) "Versioning": export again, rebuild both profiles) and
-   merge that.
+   static profile itself. The code carries 1.1.0 since the release preparation (section 11);
+   if the version changes again, bump it first ([DEVELOPMENT.md](DEVELOPMENT.md)
+   "Versioning": export again, rebuild both profiles) and merge that.
 2. **Protect the environment first.** Settings > Environments > New environment, named
    `github-pages` (GitHub would otherwise create it, without rules, once Pages uses Actions).
    Then:

@@ -6,6 +6,10 @@ that holds this checkout's committed tree (``git archive HEAD``) in one commit, 
 commit adding the manifest the tool wrote for it. They therefore need neither a clean checkout
 nor any git history (a checkout may be shallow). Each test works on its own clone, with git
 isolated from the user's and the system's configuration.
+
+Since 1.1.0-rc.1 (schema 2) the manifest also records every declaration of the version, the
+static export and site with the publication record, and the earlier candidates' manifests,
+which stay as they were issued: the M8 manifest of 1.0.0-rc.1 is checked here byte for byte.
 """
 
 from __future__ import annotations
@@ -29,6 +33,13 @@ from tests.conftest import REPO_ROOT
 
 TOOL = REPO_ROOT / "docs" / "release" / "rc_manifest.py"
 SNAPSHOT_MANIFEST = "snapshots/legacy-v0/manifest.json"
+#: The M8 candidate's manifest, as issued (docs/release/RELEASE_CANDIDATE.md): never rewritten.
+M8_MANIFEST = "docs/release/atlas-1.0.0-rc.1.json"
+M8_MANIFEST_SHA256 = "18a985f4a8beb1f0f35ea2a31637a9c6479157bd91e23c73a94d5b025516ae47"
+M8_TREE_FINGERPRINT = "35b5b79f7683fdde3564130c91be6b8105fabb0e8e09009352a1450961f32a16"
+STATIC_EXPORT_MANIFEST = "web/static-export/atlas-static-export.json"
+STATIC_SITE = "web/atlas-static-site.json"
+PUBLICATION_RECORD = "docs/release/PAGES_PUBLICATION.json"
 M2_RECOMMENDATION = "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json"
 M3_MANIFEST = "docs/results/atlas-m3-intervals-v1/full/manifest.json"
 M4_CONFIG = "configs/optimization/atlas-m4-optimization-v1.json"
@@ -147,7 +158,7 @@ def test_a_written_manifest_checks_and_records_the_committed_content(
     document = json.loads(text)
     assert text == json.dumps(document, indent=2, sort_keys=True) + "\n"
     assert "\r" not in text
-    assert document["schema"] == "atlas-release-candidate/1"
+    assert document["schema"] == "atlas-release-candidate/2"
     index = {}
     for record in _git(clone, "ls-files", "-s", "-z").split("\0")[:-1]:
         info, path = record.split("\t", 1)
@@ -176,6 +187,48 @@ def test_a_written_manifest_checks_and_records_the_committed_content(
     m3 = json.loads((clone / M3_MANIFEST).read_text(encoding="utf-8"))
     assert document["snapshot"]["data_fingerprint"] == m3["data"]["data_fingerprint"]
     assert M3_MANIFEST in document["snapshot"]["data_fingerprint_recorded_in"]
+    for declared in ("m2_advantage", "m3_intervals", "m4_parameters", "nature"):
+        assert status["declared"][declared], declared
+    assert status["declared"]["m3_intervals"].startswith("FAILED_CALIBRATION")
+
+    # (1.1.0) Every declaration of the version is the committed version.
+    version = document["version"]
+    assert manifest == f"docs/release/atlas-{version}-rc.1.json"
+    assert len(document["versions"]) == 11
+    assert set(document["versions"].values()) == {version}
+    # Its own release documents are named after its version; the M8 ones stay as issued.
+    documents = document["documents"]
+    assert documents["release_gate"] == f"docs/release/RELEASE_GATE_{version}.md"
+    assert documents["release_candidate"] == f"docs/release/RELEASE_CANDIDATE_{version}.md"
+    assert documents["publication_record"] == PUBLICATION_RECORD
+    assert all((clone / path).is_file() for path in documents.values())
+    # The static export, the site and the publication record, as committed.
+    static = document["static_site"]
+    export = static["export"]
+    assert export["manifest_sha256"] == files[STATIC_EXPORT_MANIFEST].split(" ")[1]
+    assert sorted(export["files"]) == sorted(
+        p for p in files if p.startswith("web/static-export/") and p != STATIC_EXPORT_MANIFEST
+    )
+    assert export["scientific_status"]["uncertainty_interval_status"] == "failed_calibration"
+    assert export["scientific_status"]["validated_recommendation"] is False
+    assert static["site"]["manifest_sha256"] == files[STATIC_SITE].split(" ")[1]
+    record = json.loads((clone / PUBLICATION_RECORD).read_text(encoding="utf-8"))
+    publication = static["publication"]
+    assert publication["sha256"] == files[PUBLICATION_RECORD].split(" ")[1]
+    assert publication["conditions"] == record["conditions"]
+    assert publication["every_condition_true"] is all(record["conditions"].values())
+    assert publication["release_version"] == record["release_version"]
+    # Earlier candidates are recorded, not rewritten.
+    if manifest != M8_MANIFEST:
+        assert document["candidates"][M8_MANIFEST] == {
+            "sha256": M8_MANIFEST_SHA256,
+            "schema": "atlas-release-candidate/1",
+            "candidate": "1.0.0-rc.1",
+            "generated_from_commit": "39fa4c70a2140725804408f6a7fbbaf31e66f7f4",
+            "tree_fingerprint": M8_TREE_FINGERPRINT,
+            "tracked_files": 441,
+        }
+        assert (clone / M8_MANIFEST).read_bytes() == (REPO_ROOT / M8_MANIFEST).read_bytes()
 
     # Writing is deterministic; a manifest written but not yet committed checks as well.
     _append(clone / "README.md", b"\nA committed change.\n")
@@ -304,6 +357,72 @@ def test_an_unclean_checkout_is_refused_and_named(clone: Path, manifest: str) ->
         "commit or remove them, or use a fresh clone",
         "  unmerged: README.md",
     ]
+
+
+def test_the_m8_candidate_manifest_is_kept_as_issued() -> None:
+    """1.0.0-rc.1's manifest is the M8 record: the 1.1.0 preparation adds its own candidate
+    (atlas-1.1.0-rc.1.json) beside it, and never regenerates or edits it. It is checked with
+    the tool of the M8 merge (7d3639c), whose tree it fingerprints (docs/STATIC_DEMO.md 11)."""
+    data = (REPO_ROOT / M8_MANIFEST).read_bytes()
+    assert hashlib.sha256(data).hexdigest() == M8_MANIFEST_SHA256
+    document = json.loads(data)
+    assert (document["schema"], document["version"], document["candidate"]) == (
+        "atlas-release-candidate/1",
+        "1.0.0",
+        "1.0.0-rc.1",
+    )
+    assert document["source"]["tree_fingerprint"] == M8_TREE_FINGERPRINT
+    assert document["source"]["tracked_files"] == 441
+    assert document["documents"]["release_gate"] == "docs/release/RELEASE_GATE.md"
+    assert document["documents"]["release_candidate"] == "docs/release/RELEASE_CANDIDATE.md"
+
+
+def test_contradictory_version_and_static_records_are_refused(clone: Path, manifest: str) -> None:
+    """A version left behind by a partial bump (docs/DEVELOPMENT.md, "Versioning"), a static site
+    built from another export and an export that does not list its answers are each named on
+    one line, and the tool stops (exit 2) instead of fingerprinting them."""
+    version = tomllib.loads((clone / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    release = version["version"]
+    answer = "web/static-export/history.json"
+    cases: list[tuple[str, Callable[[Path], object], str]] = [
+        (
+            "web/package.json",
+            lambda path: _edit_json(path, lambda d: d.update(version="9.9.9")),
+            "the committed version declarations differ from pyproject.toml's "
+            f"{release!r}: web/package.json version is '9.9.9'",
+        ),
+        (
+            STATIC_SITE,
+            lambda path: _edit_json(path, lambda d: d.update(version="9.9.9")),
+            "the committed version declarations differ from pyproject.toml's "
+            f"{release!r}: {STATIC_SITE} version is '9.9.9'",
+        ),
+        (
+            answer,
+            lambda path: _edit_json(path, lambda d: d["provenance"].update(atlas_version="9.9.9")),
+            "the committed version declarations differ from pyproject.toml's "
+            f"{release!r}: web/static-export answers' provenance.atlas_version is "
+            f"[{release!r}, '9.9.9']",
+        ),
+        (
+            answer,
+            lambda path: _append(path, b"\n"),
+            f"{STATIC_EXPORT_MANIFEST} does not list the committed answers",
+        ),
+        (
+            STATIC_SITE,
+            lambda path: _edit_json(path, lambda d: d.update(export_manifest_sha256="0" * 64)),
+            f"{STATIC_SITE} names another export than {STATIC_EXPORT_MANIFEST}",
+        ),
+    ]
+    for path, edit, message in cases:
+        edit(clone / path)
+        _commit(clone, f"an inconsistent {path}")
+        for mode in ("--check", "--write"):
+            result = _tool(clone, mode)
+            assert (result.returncode, result.stderr) == (2, f"rc_manifest: error: {message}\n")
+        _git(clone, "reset", "-q", "--hard", "HEAD~1")
+    assert _tool(clone, "--check").returncode == 0
 
 
 def test_a_crlf_checkout_matches_the_manifest(origin: Path, manifest: str, tmp_path: Path) -> None:

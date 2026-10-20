@@ -1,7 +1,9 @@
-# Known limitations of ATLAS 1.0
+# Known limitations of ATLAS 1.1
 
 Everything a reader should know before relying on anything ATLAS shows, in one place. Each item
-names the document that explains it. Items marked **(M8)** were found or confirmed by the M8
+names the document that explains it. ATLAS 1.1.0 adds the M9 static demonstration to 1.0 and
+changes no research result, so every limitation of 1.0 still applies
+([release/RELEASE_CANDIDATE_1.1.0.md](release/RELEASE_CANDIDATE_1.1.0.md)). Items marked **(M8)** were found or confirmed by the M8
 release audit ([audit/README.md](audit/README.md)). What the audit deliberately left unchanged
 is listed in section 10.
 

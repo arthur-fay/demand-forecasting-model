@@ -2,8 +2,10 @@
 
 Each milestone requires separate approval. M0-M7 are merged (M7, the web dashboard, in
 `194fa4a`); M6 phase B (a real deployment) needs separate authorisation (DEPLOYMENT.md
-section 18). M8, the final audit and its corrections, prepares release candidate 1.0.0,
-which is under review.
+section 18). M8, the final audit and its corrections, prepared release candidate 1.0.0-rc.1
+(merged as `7d3639c`, not tagged). M9 phase A, the static read-only demonstration, is merged
+and not published. Version 1.1.0 prepares the release candidate of M0-M9, 1.1.0-rc.1, for the
+owner's review ([1.1.0 below](#110-release-candidate-of-m0-m9-in-preparation)).
 
 ## M0: Foundation (merged)
 
@@ -320,6 +322,24 @@ See [STATIC_DEMO.md](STATIC_DEMO.md).
   code-licence decision (MIT, chosen for original ATLAS code), confirms the NYC Open Data
   terms and decides the version.
 - Not published; GitHub Pages not enabled. Phase B (activation) needs the owner's approval.
+
+## 1.1.0: Release candidate of M0-M9 (in preparation)
+
+See [release/RELEASE_CANDIDATE_1.1.0.md](release/RELEASE_CANDIDATE_1.1.0.md) and
+[release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md).
+
+- Version 1.1.0, a minor version over 1.0.0: the M9 static profile is a new,
+  backward-compatible capability. The bump follows DEVELOPMENT.md "Versioning": the locks (only
+  ATLAS's own entries), the API contract (`info.version` only), the fixtures, the static export
+  and both builds.
+- Its own candidate, 1.1.0-rc.1, with its own manifest (`atlas-1.1.0-rc.1.json`, schema 2: every
+  version declaration, the static export and site, the publication record, and the earlier
+  candidates' manifests). The 1.0.0-rc.1 manifest and documents are kept as issued.
+- No research result, protocol, snapshot or legacy artifact changes, and no scientific claim is
+  added. The NYC 311 provider terms remain unconfirmed; the publication record still approves
+  nothing.
+- Owner actions: the approvals of the release gate (section 6), including the data terms before
+  any tag, and every publication decision.
 
 ## Known M0 limitations
 

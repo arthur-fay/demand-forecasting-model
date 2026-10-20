@@ -44,6 +44,13 @@ attribution requirements. This is still an outstanding condition of the M8 relea
 record (`nyc_open_data_terms_confirmed`; [STATIC_DEMO.md](STATIC_DEMO.md) section 9;
 [OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md)).
 The 2026-10-19 review does not itself assert legal permission or authorize publication.
+The owner's second review, of 2026-10-20
+([release/NYC_311_REUSE_REVIEW_2026-10-20.md](release/NYC_311_REUSE_REVIEW_2026-10-20.md)),
+supports general reuse and leaves the 311 provider's dataset-specific conditions unverified; the
+1.1.0 preparation could not reach the City's sites to check them, and found an unverified
+condition to check (the 1.1.0 release gate,
+[release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md) section 5). The condition is
+also one of the 1.1.0 candidate's: it is due before its tag.
 
 ## 2. Composition
 

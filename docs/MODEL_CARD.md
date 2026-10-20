@@ -47,9 +47,11 @@ backlog target. It minimises discretionary cash plus notional (hypothetical) wai
 Solved with HiGHS (dual simplex) and certified (primal and dual feasibility, duality gap) for
 every plan. Specification: [OPTIMIZATION.md](OPTIMIZATION.md) section 3.
 
-**Owner and version.** Arthur Fay. ATLAS 1.0.0 (release candidate under review; see
-[release/RELEASE_GATE.md](release/RELEASE_GATE.md)). Built with Python 3.12, NumPy 2.5, pandas
-3.0 and SciPy 1.18 (HiGHS); no other modelling library.
+**Owner and version.** Arthur Fay. ATLAS 1.1.0 (release candidate 1.1.0-rc.1, prepared for the
+owner's review and not approved; see [release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md)).
+The models, their results and their protocols are those of 1.0.0-rc.1
+([release/RELEASE_GATE.md](release/RELEASE_GATE.md)): 1.1.0 changes none of them. Built with
+Python 3.12, NumPy 2.5, pandas 3.0 and SciPy 1.18 (HiGHS); no other modelling library.
 
 ## 2. Intended use
 

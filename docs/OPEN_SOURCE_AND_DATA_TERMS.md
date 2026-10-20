@@ -35,6 +35,8 @@ A root MIT file is a permission grant for code the owner has rights to license, 
 
 **Scope of this review:** These official sources establish the general open-data permission framework. They are not a substitute for checking the dataset's current metadata, the governing NYC.gov terms, and any 311-specific restrictions at publication time. No dataset-specific additional restriction has been substantiated in this preparation, but *not found* is not the same as *confirmed absent*. Do **not** set `nyc_open_data_terms_confirmed` to true solely on the basis of this document.
 
+**Later reviews (2026-10-20).** The owner's [NYC 311 reuse review](release/NYC_311_REUSE_REVIEW_2026-10-20.md) adds the NYC Administrative Code and keeps the provider-specific conditions open. The 1.1.0 preparation tried to read the dataset's metadata and the NYC.gov terms itself; its environment could not reach those sites. Search-engine excerpts point to an older NYC.gov "Data Mine" terms page asking providers of applications to notify the City and display disclaimers; whether it applies here is unknown. Both are recorded, unverified, in the [1.1.0 release gate](release/RELEASE_GATE_1.1.0.md) section 5.
+
 ## Publication safeguards and remaining decisions
 
 The read-only GitHub Pages build has been implemented and tested but **not** deployed.
@@ -43,7 +45,7 @@ Before publication, the owner and release reviewer must:
 
 1. **Code licence chosen:** the owner confirmed `arthur-fay` (2026) as the copyright holder, the canonical MIT `LICENSE` is at the repository root, and the README and data card distinguish original source code from City data and third-party assets. Recording this decision as `project_licence_decided` remains a separate step (item 6).
 2. Finish the applicable City/data-provider terms review and explicitly confirm the public redistribution of the historical aggregates and static data exports.
-3. Choose the post-M9 release version (M9 recommends **1.1.0**), update the code version and generated artifacts through the reproducible release process, and verify CI.
+3. Decide the post-M9 release version. M9 recommended **1.1.0**; the release preparation (pull request #13) carries the code and every generated artifact to 1.1.0 through the reproducible release process and prepares the candidate 1.1.0-rc.1 ([release notes](release/RELEASE_CANDIDATE_1.1.0.md)). The decision is still the owner's to record (`release_version_decided`).
 4. Read and accept M8's scientific limitations: the model's apparent advantage is not robustly established, **M3 FAILED_CALIBRATION**, every operating parameter is **HYPOTHETICAL**, and the projection is archived.
 5. Review the public static site's shared GitHub Pages origin and its limits; configure Pages, the protected `github-pages` environment, and the manual approval process.
 6. Record only *actually fulfilled* conditions in `docs/release/PAGES_PUBLICATION.json` in a separate reviewed pull request. Publishing additionally needs the external repository variable and manual dispatch.
