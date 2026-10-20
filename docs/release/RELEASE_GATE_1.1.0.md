@@ -102,7 +102,7 @@ made by earlier code; that is information, not a difference in the results.
 | Locks | `uv lock` and `npm version` changed only ATLAS's own entries; `uv sync --locked` and `npm ci` install the same packages as 1.0.0 |
 | Static checks: ruff format, ruff check, strict mypy (90 source files), shellcheck of `deploy/scripts`; Prettier, ESLint, tsc | clean |
 | pytest, the whole suite with the coverage gate (`ATLAS_REQUIRE_DEPLOY_TOOLS=1`, as in CI), on `75217b3` | 3,193 passed, 25 skipped (22 opt-in container tests, 2 that need an unprivileged user, 1 opt-in study rerun); coverage 96.06 % |
-| pytest after the release documents and the tool's schema 2 | FINAL_PYTEST_PLACEHOLDER |
+| pytest, the whole suite again, on `6636e50` (the release documents, the tool's schema 2 and the review's corrections) | 3,198 passed (the five new manifest tests), 25 skipped (the same); coverage 96.06 %. The later commits change only the release tool (one more malformed-record case in an existing test) and documents: `tests/test_m8_rc_manifest.py`, `tests/test_m8_release.py` and `tests/test_m8_docs.py` were run again on the final tree |
 | `atlas check`, `atlas quality`, `atlas backtest legacy`; the M2, M3 and M4 smoke runs and their `verify` (and M4's `inspect`) | pass |
 | API contract | `atlas api openapi` equals `docs/api/openapi.json`; `npm run gen:api` leaves `openapi.gen.ts` unchanged |
 | A real server (`atlas api serve`) | `/health/live` reports `atlas_version` 1.1.0; `/health/ready` ready; `/api/v1/scenarios`; one simulation answered as `hypothetical_simulation` with `validated_recommendation: false` |
