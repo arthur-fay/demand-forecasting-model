@@ -15,7 +15,7 @@ const at = (path: string) => path.slice(1);
 
 const site = JSON.parse(
   readFileSync(new URL('../dist-pages/atlas-static-site.json', import.meta.url), 'utf-8'),
-) as { base: string; files: Record<string, { sha256: string }> };
+) as { base: string; version: string; files: Record<string, { sha256: string }> };
 const exported = JSON.parse(
   readFileSync(new URL('../static-export/atlas-static-export.json', import.meta.url), 'utf-8'),
 ) as { files: Record<string, { request: string }>; scientific_status: Record<string, unknown> };
@@ -293,6 +293,29 @@ test('a missing data file is reported where its numbers would be', async ({ page
   await expect(page.getByText('A data file of this site is missing').first()).toBeVisible();
   // The other panels keep their own answers.
   await expect(page.getByText('Not significant after Holm')).toBeVisible();
+});
+
+test('every page attributes the data to NYC Open Data and says what ATLAS is not', async ({
+  page,
+}) => {
+  // The public site's attribution (docs/DATA_CARD.md section 1; release/RELEASE_GATE_1.1.0.md
+  // section 5): the source, its frozen snapshot, independence from the City, no recommendation.
+  for (const { path, heading: name } of PAGES) {
+    await open(page, at(path), name);
+    const footer = page.getByRole('contentinfo');
+    await expect(footer).toContainText(`ATLAS research dashboard ${site.version}.`);
+    await expect(footer).toContainText(
+      'Data: NYC Open Data, 311 Service Requests (dataset erm2-nwe9), frozen and hash-verified ' +
+        'as the legacy-v0 snapshot.',
+    );
+    await expect(footer).toContainText(
+      'ATLAS is an independent research project, not affiliated with or endorsed by the City ' +
+        'of New York or NYC Open Data.',
+    );
+    await expect(footer).toContainText(
+      'Nothing here is a validated staffing, budget or service-capacity recommendation',
+    );
+  }
 });
 
 test('the licence notices open under the repository path', async ({ page, request }) => {
