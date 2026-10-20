@@ -510,6 +510,17 @@ def test_a_malformed_committed_record_is_refused_without_a_traceback(
             lambda path: path.write_text("[" * 100_000 + "]" * 100_000 + "\n"),
         ),
     ]
+
+    def infinite_rows(path: Path) -> None:
+        # A JSON Infinity where a row count is expected; the runs name the edited snapshot
+        # manifest, so that only the count is wrong.
+        _edit_json(path, lambda snapshot: snapshot["files"][0].update(rows=float("inf")))
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        for run in sorted((clone / "docs" / "results").rglob("manifest.json")):
+            if "manifest_sha256" in json.loads(run.read_text(encoding="utf-8")).get("data", {}):
+                _edit_json(run, lambda record: record["data"].update(manifest_sha256=digest))
+
+    cases.append((SNAPSHOT_MANIFEST, infinite_rows))
     for path, edit in cases:
         edit(clone / path)
         _commit(clone, f"a malformed {path}")

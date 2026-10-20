@@ -178,7 +178,15 @@ class ManifestError(Exception):
 
 
 #: What reading a committed record of an unexpected shape raises (exit 2 as well).
-MALFORMED = (AttributeError, KeyError, IndexError, TypeError, ValueError, RecursionError)
+MALFORMED = (
+    AttributeError,
+    KeyError,
+    IndexError,
+    TypeError,
+    ValueError,
+    RecursionError,  # a JSON document nested too deeply for the parser
+    OverflowError,  # a JSON Infinity where a count is expected
+)
 
 
 def git(root: Path, *args: str, stdin: bytes | None = None) -> bytes:

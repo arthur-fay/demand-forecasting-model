@@ -137,7 +137,9 @@ dashboard build, the API contract and the scientific status), and schema 2 adds:
   the scientific status it records), the static site's manifest (its SHA-256, base path, policy
   and file count) and the publication record (its SHA-256 and every condition, as committed;
   `every_condition_true` is true only when the record states exactly the publication gate's
-  eight conditions, each of them true).
+  eight conditions, each of them true; even then the gate also requires the record's version
+  and decision fields, the repository switch and a dispatch, so it is not a verdict on
+  publication).
   The tool refuses an export manifest that does not list exactly the committed answers, and a
   site manifest built from another export;
 - **`candidates`**: the earlier candidates' manifests committed beside it, here
@@ -178,8 +180,11 @@ Exit 0 prints `OK: the checkout matches docs/release/atlas-1.1.0-rc.1.json` and 
 fingerprint with the number of tracked files it covers. Compare the fingerprint with the one
 published for the candidate in pull request #13 (and, after approval, in the annotation of the
 `v1.1.0-rc.1` tag); it cannot be written into the repository, because every tracked file but
-the manifest is part of it. Exit 1 names the files that differ (the first 50, then the total),
-exit 2 a record that is malformed or contradicts another (section 4). A shallow clone, or one
+the manifest is part of it. Exit 1 means the checkout is not clean, the manifest is missing or
+is not a JSON object, or the checkout differs from it: the tool names the paths and the files
+that differ (the first 50, then the total) and the sections that differ. Exit 2 means the tool
+cannot run (no git, Python older than 3.11, not the top of a checkout) or a committed record is
+malformed or contradicts another (section 4). A shallow clone, or one
 made with `core.autocrlf=true`, verifies like any other.
 
 The M8 candidate verifies with its own tool, on its own tree, in a clone of its own (in a
@@ -204,7 +209,8 @@ tree:
 
 Any later change to the content makes `--check` fail. A change before approval, the review's
 included, is made on the pull request and the manifest is regenerated last again (the candidate
-is still `1.1.0-rc.1`); a change after approval makes a new candidate, `1.1.0-rc.2`.
+is still `1.1.0-rc.1`), and the new tree fingerprint replaces the old one in the pull request; a
+change after approval makes a new candidate, `1.1.0-rc.2`.
 
 ### 5.3 The generated artifacts match the sources
 
