@@ -1,4 +1,4 @@
-# Model card: ATLAS 1.0
+# Model card: ATLAS 1.1
 
 ATLAS is a research demonstration. It contains three models that build on each other: a daily
 demand forecaster (M2), prediction intervals around it (M3) and a hypothetical decision model
@@ -252,4 +252,5 @@ Byte-identical reproduction has two conditions:
   own commit, `a16672f`.
 
 How to reproduce: [DEVELOPMENT.md](DEVELOPMENT.md). The release-candidate manifest:
-[release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md).
+[release/RELEASE_CANDIDATE_1.1.0.md](release/RELEASE_CANDIDATE_1.1.0.md) sections 4 and 5 (the M8
+candidate's: [release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md)).

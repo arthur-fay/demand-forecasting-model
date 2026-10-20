@@ -3,7 +3,8 @@
 The version is declared by hand in ``pyproject.toml``, ``src/atlas/__init__.py`` and
 ``web/package.json``; the uv and npm locks, the committed dashboard build and the committed
 API contract carry copies, and since M9 so do the static export (its manifest and every
-recorded answer) and the static site's manifest. Without these tests a partial bump passes
+recorded answer) and the static site's manifest; the dashboard's test fixtures, recorded from
+the API, carry it too. Without these tests a partial bump passes
 the fast tests and fails late (build-release.sh in the container test or on a server) or
 never (a dashboard left on its old version). The release id, the dashboard manifest and
 build-release.sh accept only MAJOR.MINOR.PATCH, so the code carries the version being
@@ -51,6 +52,13 @@ def _declared_versions() -> dict[str, object]:
         answer = f"web/static-export/{name}"
         answers[f"{answer} provenance.atlas_version"] = _json(answer)["provenance"]["atlas_version"]
     assert len(answers) == 24
+    fixtures = {}
+    for path in sorted((REPO_ROOT / "web" / "src" / "test" / "fixtures").glob("*.json")):
+        fixture = f"web/src/test/fixtures/{path.name}"
+        fixtures[f"{fixture} provenance.atlas_version"] = _json(fixture)["provenance"][
+            "atlas_version"
+        ]
+    assert len(fixtures) == 14
     return {
         "pyproject.toml [project].version": _toml("pyproject.toml")["project"]["version"],
         "src/atlas/__init__.py __version__": atlas.__version__,
@@ -63,6 +71,7 @@ def _declared_versions() -> dict[str, object]:
         "web/static-export/atlas-static-export.json atlas_version": export["atlas_version"],
         "web/atlas-static-site.json version": _json("web/atlas-static-site.json")["version"],
         **answers,
+        **fixtures,
     }
 
 

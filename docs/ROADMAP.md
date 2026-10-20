@@ -263,7 +263,7 @@ Deliberately not done in M7:
   browser must never hold one.
 - **Live data:** the dashboard shows the committed, archived outputs only.
 
-## M8: Final audit, corrections and release candidate (under review)
+## M8: Final audit, corrections and release candidate (merged; 1.0.0-rc.1 not tagged)
 
 See [the M8 audit](audit/README.md).
 
@@ -276,8 +276,10 @@ See [the M8 audit](audit/README.md).
   Diebold-Mariano test, [BACKTESTING.md](BACKTESTING.md), section 12).
 - The README rewritten as an account of ATLAS, with the original July 2026 project kept as
   an archived, qualified section.
-- Release candidate 1.0.0, under review. The code carries the version being released
-  (1.0.0). The candidate status is carried by the release-candidate manifest
+- Release candidate 1.0.0-rc.1, merged as `7d3639c` and not tagged. At M8 the code carried
+  the version being released (1.0.0); since the 1.1.0 preparation it carries 1.1.0
+  ([1.1.0 below](#110-release-candidate-of-m0-m9-in-preparation)). The candidate status is
+  carried by its release-candidate manifest
   ([release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md)) and by a tag `v1.0.0-rc.1`,
   which only the owner creates, after approval.
 - Release documents: a [model card](MODEL_CARD.md), a [data card](DATA_CARD.md), the
@@ -306,7 +308,7 @@ results):
   evaluation;
 - the generator wording that M8 corrected only by errata (M8-15, M8-17).
 
-## M9: Static read-only demonstration, phase A (under review)
+## M9: Static read-only demonstration, phase A (merged; not published)
 
 See [STATIC_DEMO.md](STATIC_DEMO.md).
 

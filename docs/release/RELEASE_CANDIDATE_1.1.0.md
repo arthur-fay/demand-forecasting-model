@@ -1,8 +1,10 @@
 # ATLAS 1.1.0, release candidate 1
 
 **Status: a candidate in preparation for the owner's review.** Not approved, not merged, not
-tagged, not released, not deployed and not published. The verdict, the acceptance matrix and
-the owner approvals still required are in [RELEASE_GATE_1.1.0.md](RELEASE_GATE_1.1.0.md).
+tagged, not released, not deployed and not published. The verdict, the acceptance matrix, the
+NYC 311 data-use status, the owner approvals still required and what has not been verified are
+in [RELEASE_GATE_1.1.0.md](RELEASE_GATE_1.1.0.md) (sections 1, 3, 5, 6 and 7); section 8 below
+summarises the last three.
 
 | | |
 |---|---|
@@ -22,7 +24,8 @@ static export command and the static build profile. The HTTP API contract is unc
 its `info.version`, and nothing that 1.0.0 offered is removed.
 
 1.1.0 is **not** a new scientific result, a new validation, a new data snapshot, a publication
-of the website or a deployment. Every scientific statement of 1.0.0 still holds, word for word:
+of the website or a deployment. Every scientific result and status of 1.0.0, as corrected by its
+M8 erratum, is unchanged:
 
 - **M2: the forecast's advantage over simple baselines is not robustly established.** The
   selected regression's lead over the best simple baseline B\* is not significant after Holm
@@ -62,11 +65,11 @@ head `ccb93ea`). Since then, four changes reached this candidate:
      record [`PAGES_PUBLICATION.json`](PAGES_PUBLICATION.json), every condition false;
    - the M9 tests (`tests/test_m9_*.py`, the Vitest and Playwright `pages` suites) and the
      review [../audit/M9_PHASE_A_REVIEW.md](../audit/M9_PHASE_A_REVIEW.md).
-2. **The code licence** (pull request #12, merged as `98a88b5`): the root
-   [MIT License](../../LICENSE), Copyright (c) 2026 arthur-fay, for original ATLAS code only,
-   with the README, the data card, [OPEN_SOURCE_AND_DATA_TERMS.md](../OPEN_SOURCE_AND_DATA_TERMS.md)
-   and the dashboard's package metadata saying what it does and does not cover, and tests
-   that keep them so.
+2. **The code licence** (pull request #12, merged as `98a88b5`): the root [MIT
+   License](../../LICENSE), Copyright (c) 2026 arthur-fay, for original ATLAS code only, with the
+   README, the data card and [OPEN_SOURCE_AND_DATA_TERMS.md](../OPEN_SOURCE_AND_DATA_TERMS.md)
+   saying what it does and does not cover, the dashboard's package metadata set to `MIT`, and
+   tests that keep the README's wording and the licence text (`tests/test_m8_docs.py`).
 3. **The owner's NYC 311 reuse review** (`328ad08`):
    [NYC_311_REUSE_REVIEW_2026-10-20.md](NYC_311_REUSE_REVIEW_2026-10-20.md). It supports general
    reuse and leaves the dataset-specific provider conditions unverified.
@@ -81,12 +84,17 @@ head `ccb93ea`). Since then, four changes reached this candidate:
      [RELEASE_GATE_1.1.0.md](RELEASE_GATE_1.1.0.md)) and the current documents' status lines
      (README, model card, known limitations, roadmap, static demo, data card, development
      guide, code and data terms);
-   - `rc_manifest.py` schema 2 (section 3) and its tests; `test_m8_release.py` now also
-     requires the static export's and the static site's versions to equal the others;
+   - `rc_manifest.py` schema 2 (section 4) and its tests; `test_m8_release.py` now also
+     requires the static export's, every recorded answer's, the static site's and the dashboard
+     fixtures' versions to equal the others;
+   - a browser test that every page of the static site attributes the data (NYC Open Data,
+     dataset `erm2-nwe9`, the `legacy-v0` snapshot) and says that ATLAS is independent of the
+     City and recommends nothing;
    - the candidate manifest, last and alone.
 
-No dependency was added, removed or upgraded: `uv.lock` and `web/package-lock.json` change only
-in ATLAS's own version entries.
+No dependency was added, removed or upgraded since 1.0.0-rc.1: `uv.lock` changes only in ATLAS's
+own version, and `web/package-lock.json` only in its root package's version and licence field
+(`UNLICENSED` to `MIT`, pull request #12).
 
 ## 3. What did not change
 
@@ -119,13 +127,17 @@ tracked file's mode and SHA-256 with a tree fingerprint and one fingerprint per 
 locks, the toolchain, the snapshot's provenance and data fingerprint, every research run, the
 dashboard build, the API contract and the scientific status), and schema 2 adds:
 
-- **`versions`**: every declaration of the version, eleven in all (the three made by hand, the
+- **`versions`**: every declaration of the version, twelve in all (the three made by hand, the
   two locks' three entries, the dashboard build, the API contract, the static export's manifest,
-  every recorded answer and the static site's manifest). The tool refuses to write or check a
-  manifest when any differs from `pyproject.toml`'s;
+  every `atlas_version` of every recorded answer, the static site's manifest and every
+  dashboard fixture). The tool refuses to write or check a manifest when any differs from
+  `pyproject.toml`'s. (The built JavaScript also contains the version; `verify:dist` and the
+  manifests' file hashes tie it to the build manifest's.)
 - **`static_site`**: the static export (its manifest's SHA-256, every answer's, the snapshot and
   the scientific status it records), the static site's manifest (its SHA-256, base path, policy
-  and file count) and the publication record (its SHA-256 and every condition, as committed).
+  and file count) and the publication record (its SHA-256 and every condition, as committed;
+  `every_condition_true` is true only when the record states exactly the publication gate's
+  eight conditions, each of them true).
   The tool refuses an export manifest that does not list exactly the committed answers, and a
   site manifest built from another export;
 - **`candidates`**: the earlier candidates' manifests committed beside it, here
@@ -139,7 +151,11 @@ dashboard build, the API contract and the scientific status), and schema 2 adds:
   projection never scored, `validated_recommendation: false`), the M2 advantage not
   established, M3 `FAILED_CALIBRATION` (intervals not validated for operational use), every M4
   parameter `HYPOTHETICAL`, and independent research software, not an official NYC tool; and
-  the candidate's own status: "not released, not tagged, not deployed, not published".
+  the candidate's own status: "not released, not tagged, not deployed, not published". The
+  declarations are fixed text, so the tool checks them against the results it records and
+  refuses a candidate whose results contradict one: H1 significant after Holm at the
+  protocol's level (`selection.alpha` of the M2 run), intervals not `failed_calibration` or
+  decision-grade, an M4 provenance other than `HYPOTHETICAL`, or a validated M4 recommendation.
 
 The tool writes only the manifest named after the committed version
 (`atlas-<version>-rc.1.json`): at 1.1.0 it cannot touch the M8 manifest. A schema 1 manifest is
@@ -162,13 +178,16 @@ Exit 0 prints `OK: the checkout matches docs/release/atlas-1.1.0-rc.1.json` and 
 fingerprint with the number of tracked files it covers. Compare the fingerprint with the one
 published for the candidate in pull request #13 (and, after approval, in the annotation of the
 `v1.1.0-rc.1` tag); it cannot be written into the repository, because every tracked file but
-the manifest is part of it. Exit 1 names every file that differs, exit 2 a record that
-contradicts another (section 4). A shallow clone, or one made with `core.autocrlf=true`,
-verifies like any other.
+the manifest is part of it. Exit 1 names the files that differ (the first 50, then the total),
+exit 2 a record that is malformed or contradicts another (section 4). A shallow clone, or one
+made with `core.autocrlf=true`, verifies like any other.
 
-The M8 candidate verifies with its own tool, on its own tree:
+The M8 candidate verifies with its own tool, on its own tree, in a clone of its own (in a
+checkout used for section 5.3, the files that the static build writes are untracked at
+`7d3639c`, whose `.gitignore` predates M9, and the tool refuses the checkout):
 
 ```bash
+git clone https://github.com/arthur-fay/demand-forecasting-model.git atlas-m8 && cd atlas-m8
 git checkout 7d3639c && python3 docs/release/rc_manifest.py --check   # atlas-1.0.0-rc.1.json, 441 files
 ```
 
@@ -183,9 +202,9 @@ tree:
 3. the manifest committed alone, and pushed;
 4. `--check` in a fresh clone of the pushed branch.
 
-Any later change to the content makes `--check` fail, so a change before approval means
-regenerating the manifest last again, and a change after approval means a new candidate,
-`1.1.0-rc.2`.
+Any later change to the content makes `--check` fail. A change before approval, the review's
+included, is made on the pull request and the manifest is regenerated last again (the candidate
+is still `1.1.0-rc.1`); a change after approval makes a new candidate, `1.1.0-rc.2`.
 
 ### 5.3 The generated artifacts match the sources
 
@@ -213,23 +232,26 @@ change to the locks triggers).
 
 ### 5.4 The research results
 
-The committed research results reproduce byte for byte only on the CPU class of the reference
-runs (OpenBLAS SkylakeX kernels; `OPENBLAS_VERBOSE=2 uv run python -c "import numpy"` prints
-the core). The commands are in [DEVELOPMENT.md](../DEVELOPMENT.md), "Reproducing the committed
-reference results", and in the manual workflow `reproduce-research.yml`. Their run on this
-candidate is recorded in [RELEASE_GATE_1.1.0.md](RELEASE_GATE_1.1.0.md) section 4.
+The research runs that involve the regression (M2, M3 and the legacy holdout) reproduce byte for
+byte only on the CPU class of the reference runs (OpenBLAS SkylakeX kernels; `OPENBLAS_VERBOSE=2
+uv run python -c "import numpy"` prints the core); the M4 run also reproduced with OpenBLAS's AVX2
+kernels in the M8 audit. The commands are in [DEVELOPMENT.md](../DEVELOPMENT.md), "Reproducing the
+committed reference results", and in the manual workflow `reproduce-research.yml`. Their run on
+this candidate is recorded in [RELEASE_GATE_1.1.0.md](RELEASE_GATE_1.1.0.md) section 4.
 
 ## 6. Versioning policy
 
 Unchanged from 1.0.0 ([DEVELOPMENT.md](../DEVELOPMENT.md), "Versioning"): the code carries the
-version being released, `1.1.0`, in every declaration (section 4, `versions`), and the
-deployment tooling accepts `MAJOR.MINOR.PATCH` only. Candidate status lives outside the code:
-in this document, in the manifest's `candidate` field and in a tag `v1.1.0-rc.1` that **only the
-owner creates, after approval**. If the review requires changes, the next candidate is
-`1.1.0-rc.2`, which needs `rc_manifest.py` to take a candidate name (it names every candidate
-`rc.1`). The final release is tagged `v1.1.0` on the approved commit. The `v1.0.0-rc.1` tag, if
-the owner approves it, belongs on `7d3639c`, independently of 1.1.0
-([STATIC_DEMO.md](../STATIC_DEMO.md) section 11).
+version being released, `1.1.0`, in every declaration (section 4, `versions`), and the deployment
+tooling accepts `MAJOR.MINOR.PATCH` only. Candidate status lives outside the code: in this
+document, in the manifest's `candidate` field and in a tag `v1.1.0-rc.1` that **only the owner
+creates, after approval**. Changes the review requires before approval are made on the pull
+request, with the manifest regenerated last (section 5.2). A change after approval makes
+`1.1.0-rc.2`, which needs `rc_manifest.py` to take a candidate name first (it names every
+candidate `rc.1`). The final release is tagged `v1.1.0` on the approved commit. The `v1.0.0-rc.1`
+tag, if the owner approves it, belongs on `7d3639c`, separately from 1.1.0 and under the M8 gate's
+own conditions, the NYC data terms of its condition 3 included ([RELEASE_GATE.md](RELEASE_GATE.md)
+section 1; [STATIC_DEMO.md](../STATIC_DEMO.md) section 11).
 
 ## 7. Deployment, publication and rollback
 
@@ -243,3 +265,38 @@ the owner approves it, belongs on `7d3639c`, independently of 1.1.0
 - **Rollback** in the repository means not merging pull request #13, or reverting its merge:
   1.1.0 changes no research result, snapshot file or legacy artifact. On a server, rollback is
   as for 1.0.0 ([RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md) section 5).
+
+## 8. What has not been verified, and what the owner still has to approve
+
+In brief; the complete lists are [RELEASE_GATE_1.1.0.md](RELEASE_GATE_1.1.0.md) sections 5 to 7.
+
+**Not verified:**
+
+- **The NYC 311 data terms.** The dataset-specific (311 provider) conditions for `erm2-nwe9`
+  are unconfirmed, and `nyc_open_data_terms_confirmed` stays false. The preparation could not
+  reach the City's sites to read the dataset's Licensing and Attribution metadata or the NYC.gov
+  terms. Secondary sources point to possible conditions on applications that use the data (a
+  notice to the City, prescribed disclaimers, a right to require that use stop), unverified;
+  if they apply, they apply to the public repository too.
+- CI on the candidate's final head (recorded in pull request #13); Firefox and WebKit (CI only).
+- The manual reproduction workflow and the scheduled dependency audit on GitHub (their commands
+  were run locally; the gate, section 4).
+- The real GitHub Pages host, a real server, real Safari, real phones and assistive technology.
+- Schemathesis was not re-run (the API's serving code is unchanged since M8).
+- The archived projection has never been scored, and no result has been validated
+  prospectively.
+
+**Owner approvals still required** (none is given by this preparation):
+
+- **before merging** pull request #13: the gate and the limitations accepted, CI green, the
+  manifest checked in a fresh clone against the published fingerprint, the dependency caps
+  decided;
+- **before the `v1.1.0-rc.1` tag**: the NYC 311 data terms confirmed for the public repository
+  (including any condition on applications), or the repository made private; then the merge
+  and the tag, by the owner only;
+- **before `v1.1.0`**: `reproduce-research.yml` passing on the merge commit, the dependency
+  audit enabled and green;
+- **before any publication**: every condition of `PAGES_PUBLICATION.json` in a separate reviewed
+  pull request, the Pages environment and settings, the repository variable and the manual
+  dispatch;
+- **before any deployment**: the written authorisation of M6 phase B.

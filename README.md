@@ -172,7 +172,9 @@ License**. Their reuse and republication are governed by the applicable NYC Open
 terms and any additional provider-specific conditions. General City reuse policy has
 been reviewed, but any dataset-specific conditions remain to be confirmed before
 publishing the GitHub Pages demonstration. This public repository already contains
-derived historical tables.
+derived historical tables, so the same confirmation is due before the `v1.1.0-rc.1` tag, or
+the repository is made private until then ([release gate](docs/release/RELEASE_GATE_1.1.0.md)
+sections 5 and 6).
 
 ATLAS is independent and is not affiliated with or endorsed by the
 City of New York, NYC 311, or NYC Open Data. It is also not sponsored by any
