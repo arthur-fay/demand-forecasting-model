@@ -305,7 +305,7 @@ Abbreviated real responses are shown; the complete schemas are in the OpenAPI do
 ### `GET /health/live`, `GET /health/ready`
 
 ```json
-{"status": "alive", "atlas_version": "1.0.0"}
+{"status": "alive", "atlas_version": "1.1.0"}
 {"status": "ready", "components": [{"component": "snapshot", "ready": true, "detail": null}, ...,
                                    {"component": "simulation_workers", "ready": true, "detail": null}]}
 ```

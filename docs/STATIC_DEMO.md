@@ -283,7 +283,7 @@ static profile says what happened instead:
 - the footer and the Overview header: "a recorded answer of the ATLAS API … your browser
   checks each file … a static, archived copy: nothing on it is computed live";
 - each provenance footer: verified at export, and checked by the browser against this build;
-- the Methods and provenance page: the build, the data ("recorded from ATLAS 1.0.0"), a
+- the Methods and provenance page: the build, the data ("recorded from ATLAS 1.1.0"), a
   policy carried in the page, no server;
 - the navigation's line under Simulator: "Simulations off here; explore recorded results".
 
