@@ -546,6 +546,15 @@ a version change is made in one commit, with every step below:
    published, the same commit updates `release_version` in
    `docs/release/PAGES_PUBLICATION.json` ([STATIC_DEMO.md](STATIC_DEMO.md) section 12).
 
+A release candidate then adds its own release documents, named after its version
+(`docs/release/RELEASE_CANDIDATE_<version>.md` and `RELEASE_GATE_<version>.md`; the M8
+candidate's, `RELEASE_CANDIDATE.md` and `RELEASE_GATE.md`, are kept as issued), and, last and
+alone, its manifest: in a clean checkout, `python3 docs/release/rc_manifest.py --write`, then
+`--check`, the commit, and `--check` again in a fresh clone. The tool writes only the manifest
+of the committed version (`atlas-<version>-rc.1.json`) and refuses to fingerprint a tree whose
+version declarations differ ([release/RELEASE_CANDIDATE_1.1.0.md](release/RELEASE_CANDIDATE_1.1.0.md)
+sections 4 and 5).
+
 Release-candidate status is not part of the version. The release id
 (`<version>-<12 hex digits of the commit>`), the dashboard manifest and `build-release.sh`
 accept MAJOR.MINOR.PATCH only, and a pre-release would be spelled differently in the two

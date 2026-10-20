@@ -1,6 +1,6 @@
 {
   "name": "atlas-dashboard",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "ATLAS M7: the interactive web dashboard over the ATLAS HTTP API (same origin, /api/v1); M9: the same dashboard as a static, read-only build of the API's recorded answers (GitHub Pages).",
   "license": "MIT",

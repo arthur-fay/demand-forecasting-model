@@ -9,14 +9,19 @@ It is **not an operational tool**: it works on a frozen snapshot of the data who
 capacity recommendation. "Demand" means requests created per day (intake); the data hold
 nothing on closures, backlog, staffing or service levels.
 
-> **Status: ATLAS v1.0, release candidate under review.** Milestones M0-M8 are merged. M8 is
-> the final audit and its corrections: see the [audit](docs/audit/README.md) and the
-> [release gate](docs/release/RELEASE_GATE.md). The code carries the version being released
-> (1.0.0); the candidate status is carried by the release-candidate manifest and by a tag
-> `v1.0.0-rc.1` that only the owner creates after approval. M9 phase A prepares a static,
-> read-only copy of the dashboard for GitHub Pages ([STATIC_DEMO.md](docs/STATIC_DEMO.md)); it
-> is **not published**, and publishing it waits on the owner recording the code-licence
-> decision, confirming the NYC Open Data terms, deciding the version and approving
+> **Status: ATLAS 1.1.0, release candidate 1.1.0-rc.1, prepared for the owner's review.** It
+> is not approved, not tagged and not released. Milestones M0-M8 and M9 phase A are merged.
+> 1.1.0 is the 1.0.0 research demonstration with every research result unchanged, plus a
+> static, read-only copy of the dashboard for GitHub Pages ([STATIC_DEMO.md](docs/STATIC_DEMO.md))
+> and the MIT License for the original code: see the
+> [release notes](docs/release/RELEASE_CANDIDATE_1.1.0.md) and the
+> [release gate](docs/release/RELEASE_GATE_1.1.0.md). The code carries the version being
+> released (1.1.0); the candidate status is carried by the release-candidate manifest and by a
+> tag `v1.1.0-rc.1` that only the owner creates after approval. The M8 candidate, 1.0.0-rc.1
+> ([audit](docs/audit/README.md), [release gate](docs/release/RELEASE_GATE.md)), is kept as it
+> was recorded. The static copy of the dashboard is prepared and tested, but it is **not
+> published**, and publishing it waits on the owner recording the code-licence decision,
+> confirming the NYC Open Data terms, recording the version decision and approving
 > publication.
 
 ## What ATLAS found
@@ -103,6 +108,7 @@ give the protocols and the full tables.
 | M7 | An accessible web dashboard over the API (React and TypeScript, built once into the committed `web/dist`; the server needs no Node.js) | [DASHBOARD.md](docs/DASHBOARD.md) |
 | M8 | The release audit, its verified findings and their corrections | [audit](docs/audit/README.md) |
 | M9 (phase A) | A static, read-only build of the dashboard for GitHub Pages: the API's recorded answers, checked in the browser, with no server; a publication workflow that cannot publish until the owner's decisions are recorded. Not published | [STATIC_DEMO.md](docs/STATIC_DEMO.md) |
+| 1.1.0 (candidate) | Version 1.1.0 and its release candidate 1.1.0-rc.1, with its own manifest; no research result changes | [release notes](docs/release/RELEASE_CANDIDATE_1.1.0.md) |
 
 ## Run it
 
@@ -125,7 +131,8 @@ uv run atlas optimize verify docs/results/atlas-m4-optimization-v1          # M4
 
 Tests, linting and the dashboard build are described in
 [DEVELOPMENT.md](docs/DEVELOPMENT.md). The checks a release must pass, and their recorded
-results, are in the [release gate](docs/release/RELEASE_GATE.md).
+results, are in the [release gate](docs/release/RELEASE_GATE_1.1.0.md) (1.0.0-rc.1's,
+[RELEASE_GATE.md](docs/release/RELEASE_GATE.md), is kept as it was recorded).
 
 ## Documentation
 
@@ -134,7 +141,9 @@ results, are in the [release gate](docs/release/RELEASE_GATE.md).
 | [Model card](docs/MODEL_CARD.md) | The forecasting, interval and planning models: intended use, evaluation, limits |
 | [Data card](docs/DATA_CARD.md) | The `legacy-v0` data: source, extraction, contents, quality, licence status |
 | [Known limitations](docs/KNOWN_LIMITATIONS.md) | Every disclosed limitation in one place |
-| [Release gate](docs/release/RELEASE_GATE.md) | The release checks and their results |
+| [Release notes 1.1.0-rc.1](docs/release/RELEASE_CANDIDATE_1.1.0.md) | What 1.1.0 is, what changed since 1.0.0-rc.1, and how to verify the candidate |
+| [Release gate 1.1.0-rc.1](docs/release/RELEASE_GATE_1.1.0.md) | The release checks, their results and the owner approvals still required |
+| [Release gate 1.0.0-rc.1](docs/release/RELEASE_GATE.md) | The M8 candidate's checks and results, as recorded |
 | [M8 audit](docs/audit/README.md) | The release audit: baseline assessment, findings register, evidence |
 | [Data snapshot](docs/DATA_SNAPSHOT.md) | Provenance, contracts and reconciliation of the frozen data |
 | [Data quality](docs/DATA_QUALITY.md) | Calendar conventions, the reconciliation residual, data-quality flags and their limits |
@@ -163,7 +172,9 @@ License**. Their reuse and republication are governed by the applicable NYC Open
 terms and any additional provider-specific conditions. General City reuse policy has
 been reviewed, but any dataset-specific conditions remain to be confirmed before
 publishing the GitHub Pages demonstration. This public repository already contains
-derived historical tables.
+derived historical tables, so the same confirmation is due before the `v1.1.0-rc.1` tag, or
+the repository is made private until then ([release gate](docs/release/RELEASE_GATE_1.1.0.md)
+sections 5 and 6).
 
 ATLAS is independent and is not affiliated with or endorsed by the
 City of New York, NYC 311, or NYC Open Data. It is also not sponsored by any

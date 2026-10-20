@@ -1,9 +1,11 @@
-# Known limitations of ATLAS 1.0
+# Known limitations of ATLAS 1.1
 
 Everything a reader should know before relying on anything ATLAS shows, in one place. Each item
-names the document that explains it. Items marked **(M8)** were found or confirmed by the M8
-release audit ([audit/README.md](audit/README.md)). What the audit deliberately left unchanged
-is listed in section 10.
+names the document that explains it. ATLAS 1.1.0 adds the M9 static demonstration to 1.0 and
+changes no research result, so every limitation of 1.0 still applies
+([release/RELEASE_CANDIDATE_1.1.0.md](release/RELEASE_CANDIDATE_1.1.0.md)). Items marked **(M8)**
+were found or confirmed by the M8 release audit ([audit/README.md](audit/README.md)). What the
+audit deliberately left unchanged is listed in section 10.
 
 ## 1. What ATLAS is not
 
@@ -24,8 +26,11 @@ is listed in section 10.
   recorded; re-querying the live source may not reproduce the counts.
 - The NYC Open Data terms have not been confirmed for redistribution of the committed derived
   tables, although the public repository already redistributes them. The general NYC Open Data
-  policies were reviewed on 2026-10-19; any dataset-specific terms of the agency that supplies
-  `erm2-nwe9` are unverified (owner action; section 9).
+  policies were reviewed on 2026-10-19 and again by the owner on 2026-10-20; any
+  dataset-specific terms of the agency that supplies `erm2-nwe9` are unverified, the governing
+  NYC.gov terms were never read in full (the 1.1.0 preparation could not reach the City's sites),
+  and possible conditions on applications that use the data are unverified (owner action;
+  section 9).
 - City-wide totals and borough segments differ by 13,279 requests (0.11 %); shares are of the
   five-borough subset.
 - 311 counts measure reporting, not need, and reporting differs between communities.
@@ -155,7 +160,16 @@ is listed in section 10.
   but any dataset/provider-specific conditions have not been confirmed. The
   public website remains blocked pending the M9 owner publication decisions
   ([OPEN_SOURCE_AND_DATA_TERMS.md](OPEN_SOURCE_AND_DATA_TERMS.md);
-  [STATIC_DEMO.md](STATIC_DEMO.md) section 9).
+  [STATIC_DEMO.md](STATIC_DEMO.md) section 9), and the confirmation is also due before the
+  `v1.1.0-rc.1` tag, or the repository is made private
+  ([release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md) section 6).
+- **(1.1.0) Possible conditions on applications, unverified.** Secondary sources quoting
+  NYC.gov terms say that providers of software applications using the data must notify the
+  City and display prescribed disclaimers, and that the City may require that use stop. Whether
+  these terms are current and apply to `erm2-nwe9` is unknown: the 1.1.0 preparation could not
+  reach the City's sites to check. If they apply, they apply to this public repository too
+  ([release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md) section 5;
+  [release/NYC_311_REUSE_REVIEW_2026-10-20.md](release/NYC_311_REUSE_REVIEW_2026-10-20.md)).
 - The shipped dashboard bundles third-party code and a font under permissive licences (MIT, ISC,
   OFL-1.1); their notices ship with the build **(M8)** ([DASHBOARD.md](DASHBOARD.md)).
 - Source data: NYC Open Data, 311 Service Requests (`erm2-nwe9`), City of New York; ATLAS is not

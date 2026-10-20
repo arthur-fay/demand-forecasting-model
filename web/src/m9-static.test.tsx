@@ -173,7 +173,7 @@ describe('the static profile', () => {
     expect(
       await screen.findByText('STATIC_DEMO.md on the main branch (opens GitHub)'),
     ).toBeInTheDocument();
-    expect(await screen.findByText(/and was recorded from ATLAS 1\.0\.0/)).toBeInTheDocument();
+    expect(await screen.findByText(/and was recorded from ATLAS 1\.1\.0/)).toBeInTheDocument();
     for (const path of requested(fetchMock)) expect(path.startsWith(`${BASE}data/`)).toBe(true);
   });
 

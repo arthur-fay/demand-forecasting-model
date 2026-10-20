@@ -1,11 +1,18 @@
-"""Write or check the ATLAS release-candidate manifest (M8).
+"""Write or check the ATLAS release-candidate manifest (M8; schema 2 since 1.1.0-rc.1).
 
 The manifest fingerprints the committed content of a release candidate: every tracked file (its
-path, its mode and the SHA-256 of its committed content), the dependency locks, the data
-snapshot, the committed research results, the committed dashboard build and the API contract,
-together with the scientific status those results record. It is generated as the last step of
-preparing a candidate, so the candidate commit is the commit that adds it; a reviewer checks a
-checkout against it with ``--check``.
+path, its mode and the SHA-256 of its committed content), the dependency locks, every
+declaration of the version, the data snapshot, the committed research results, the committed
+dashboard build, the static export and site (M9) with the publication record, and the API
+contract, together with the scientific status those results record. It is generated as the last
+step of preparing a candidate, so the candidate commit is the commit that adds it; a reviewer
+checks a checkout against it with ``--check``.
+
+Schema 2 (from 1.1.0-rc.1) adds the sections ``versions``, ``static_site`` and ``candidates``
+to schema 1 (1.0.0-rc.1, M8), names the candidate's own release documents after its version
+(``RELEASE_GATE_<version>.md``, ``RELEASE_CANDIDATE_<version>.md``) and declares more of its
+scientific status. A manifest is checked with the tool of the commit it was generated from:
+1.0.0-rc.1's with the tool of the M8 merge (``7d3639c``), which keeps it as it was issued.
 
 What is verified:
 
@@ -26,7 +33,21 @@ What is verified:
 - The scientific status separates what the committed results record (``recorded``) from what
   the release declares (``declared``); the candidate's own status is declared as well. The
   M2, M3 and M4 results must record one data fingerprint, computed from the committed snapshot
-  manifest; otherwise the tool refuses to write or check.
+  manifest, and (schema 2) must not disprove a declared statement: H1 significant after Holm
+  at the protocol's level, M3 intervals not ``failed_calibration`` or decision-grade, an M4
+  provenance other than ``HYPOTHETICAL``, or a validated M4 recommendation. Otherwise the tool
+  refuses to write or check.
+- Every declaration of the version (docs/DEVELOPMENT.md, "Versioning") must equal
+  ``pyproject.toml``'s: the package, the two locks, the dashboard build, the API contract, the
+  static export (its manifest and every ``atlas_version`` in every recorded answer), the static
+  site's manifest and the dashboard's test fixtures. The static site's manifest must name the
+  committed export manifest, and the export manifest must list exactly the committed answers
+  with their SHA-256. Otherwise the tool refuses as well. The publication record is recorded as
+  committed; ``every_condition_true`` is true only when it states exactly the publication gate's
+  conditions, each of them true.
+- Earlier candidates' manifests committed beside this one (``docs/release/atlas-*-rc.*.json``)
+  are recorded by their SHA-256, tree fingerprint and commit, never rewritten: ``--write``
+  refuses to replace a committed manifest of another schema (1.0.0-rc.1's is schema 1).
 
 Usage (Python 3.11 or later, standard library only, and git)::
 
@@ -54,6 +75,7 @@ import hashlib
 import io
 import json
 import posixpath
+import re
 import shutil
 import subprocess
 import sys
@@ -63,7 +85,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 CANDIDATE = "rc.1"
-SCHEMA = "atlas-release-candidate/1"
+SCHEMA = "atlas-release-candidate/2"
 #: Fingerprinted separately as well as in the file map (what a reviewer compares first).
 LOCKS = (
     "uv.lock",
@@ -85,6 +107,10 @@ AREAS = (
     "snapshots",
     "docs/results",
     "docs/api",
+    "docs/release",
+    "web/static-export",
+    "web/build",
+    "web/scripts",
     ".github",
     "01 Data",
     "02 Notebooks",
@@ -93,20 +119,44 @@ AREAS = (
     "05 Screenshots",
     "06 Exports",
 )
+PUBLICATION_RECORD = "docs/release/PAGES_PUBLICATION.json"
+#: The decisions the publication gate requires, each true (.github/scripts/pages_gate.py, which
+#: this standalone tool cannot import; a test keeps the two lists equal).
+PUBLICATION_CONDITIONS = (
+    "project_licence_decided",
+    "nyc_open_data_terms_confirmed",
+    "release_version_decided",
+    "limitations_accepted",
+    "public_static_profile_approved",
+    "shared_origin_reviewed",
+    "pages_settings_configured",
+    "publication_approved",
+)
+#: The documents every candidate names besides its own gate and notes (``release_documents``).
 DOCUMENTS = {
-    "release_gate": "docs/release/RELEASE_GATE.md",
-    "release_candidate": "docs/release/RELEASE_CANDIDATE.md",
     "known_limitations": "docs/KNOWN_LIMITATIONS.md",
     "model_card": "docs/MODEL_CARD.md",
     "data_card": "docs/DATA_CARD.md",
     "audit": "docs/audit/README.md",
     "phase_b_runbook": "docs/release/VPS_PHASE_B_RUNBOOK.md",
+    "static_demo": "docs/STATIC_DEMO.md",
+    "code_and_data_terms": "docs/OPEN_SOURCE_AND_DATA_TERMS.md",
+    "nyc_311_reuse_review": "docs/release/NYC_311_REUSE_REVIEW_2026-10-20.md",
+    "publication_record": PUBLICATION_RECORD,
 }
 RESULTS = "docs/results"
 DIST = "web/dist"
 CONTRACT = "docs/api/openapi.json"
+INIT = "src/atlas/__init__.py"
+STATIC_EXPORT = "web/static-export"
+STATIC_EXPORT_MANIFEST = f"{STATIC_EXPORT}/atlas-static-export.json"
+STATIC_SITE = "web/atlas-static-site.json"
+FIXTURES = "web/src/test/fixtures"
+#: The manifests of candidates (this one's and earlier ones'), in docs/release.
+CANDIDATE_MANIFEST = re.compile(r"docs/release/atlas-[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+\.json")
 SNAPSHOT_MANIFEST = "snapshots/legacy-v0/manifest.json"
 M2_RECOMMENDATION = "docs/results/atlas-m2-rolling-origin-v1/full/recommendation.json"
+M2_CONFIG = "docs/results/atlas-m2-rolling-origin-v1/full/config.json"
 M2_PROJECTION = "docs/results/atlas-m2-rolling-origin-v1/projection"
 M3_STATUS = "docs/results/atlas-m3-intervals-v1/full/calibration_status.json"
 M4_CONFIG = "configs/optimization/atlas-m4-optimization-v1.json"
@@ -128,7 +178,15 @@ class ManifestError(Exception):
 
 
 #: What reading a committed record of an unexpected shape raises (exit 2 as well).
-MALFORMED = (AttributeError, KeyError, IndexError, TypeError, ValueError)
+MALFORMED = (
+    AttributeError,
+    KeyError,
+    IndexError,
+    TypeError,
+    ValueError,
+    RecursionError,  # a JSON document nested too deeply for the parser
+    OverflowError,  # a JSON Infinity where a count is expected
+)
 
 
 def git(root: Path, *args: str, stdin: bytes | None = None) -> bytes:
@@ -234,6 +292,17 @@ def version(tree: Committed) -> str:
 
 def manifest_name(tree: Committed) -> str:
     return f"docs/release/atlas-{version(tree)}-{CANDIDATE}.json"
+
+
+def release_documents(release: str) -> dict[str, str]:
+    """The candidate's documents: its own release gate and notes, named after its version, then
+    DOCUMENTS. (The M8 candidate, 1.0.0-rc.1, was issued with ``RELEASE_GATE.md`` and
+    ``RELEASE_CANDIDATE.md``; they stay as its historical record.)"""
+    return {
+        "release_gate": f"docs/release/RELEASE_GATE_{release}.md",
+        "release_candidate": f"docs/release/RELEASE_CANDIDATE_{release}.md",
+        **DOCUMENTS,
+    }
 
 
 def _state(code: str) -> str:
@@ -455,6 +524,11 @@ def scientific_status(tree: Committed) -> dict[str, Any]:
     declarations = Counter(provenances(tree.json(M4_CONFIG)))
     if not declarations:
         raise ManifestError(f"{M4_CONFIG} declares no parameter provenance")
+    found = contradictions(tree, recommendation, calibration, m4, declarations)
+    if found:
+        raise ManifestError(
+            f"the committed results contradict the declared scientific status: {'; '.join(found)}"
+        )
     return {
         "recorded": {
             "sources": {
@@ -477,11 +551,200 @@ def scientific_status(tree: Committed) -> dict[str, Any]:
         "declared": {
             "m2_selection_evidence": "weak: the development selection test over-rejects at "
             "h=30 (M8 erratum, docs/BACKTESTING.md)",
+            "m2_advantage": "not established: the lead over the best simple baseline B* is not "
+            "significant after Holm, and a correctly sized selection test would most likely "
+            "have kept B* (docs/BACKTESTING.md section 12)",
             "forecast": "the M2 projection is archived and has never been scored against "
             "observed demand",
+            "m3_intervals": "FAILED_CALIBRATION: no prediction interval or exceedance "
+            "probability is validated for operational use (docs/UNCERTAINTY.md)",
+            "m4_parameters": "every staffing, cost, productivity and budget parameter is "
+            "HYPOTHETICAL (docs/OPTIMIZATION.md)",
+            "nature": "independent research software on the frozen legacy-v0 snapshot: not an "
+            "official or operational NYC tool, and not affiliated with or endorsed by the City "
+            "of New York, NYC 311 or NYC Open Data",
             "validated_recommendation": False,
         },
     }
+
+
+def contradictions(
+    tree: Committed,
+    recommendation: Any,
+    calibration: Any,
+    m4: Any,
+    declarations: Counter[str],
+) -> list[str]:
+    """What in the committed results disproves a declared statement (``scientific_status``).
+
+    The declarations are fixed text, so a later candidate whose results changed could otherwise
+    declare, say, FAILED_CALIBRATION beside a recorded calibrated status; the tool refuses
+    instead, and the declarations are changed with the results.
+    """
+    found = []
+    alpha = tree.json(M2_CONFIG)["selection"]["alpha"]
+    h1 = [
+        t
+        for t in recommendation["recommendation"]["primary_tests"]
+        if t["hypothesis"].split(":")[0] == "H1"
+    ]
+    if len(h1) != 1:
+        found.append(f"{M2_RECOMMENDATION} records {len(h1)} H1 tests, not one")
+    elif h1[0]["holm_adjusted_p_value"] < alpha:
+        found.append(
+            f"{M2_RECOMMENDATION} records H1 significant after Holm "
+            f"(adjusted p {h1[0]['holm_adjusted_p_value']} < {alpha}), but the M2 advantage is "
+            "declared not established"
+        )
+    status = calibration["decision_status"]
+    if (status["interval_status"], status["decision_grade"]) != ("failed_calibration", False):
+        found.append(
+            f"{M3_STATUS} records interval_status {status['interval_status']!r} and "
+            f"decision_grade {status['decision_grade']!r}, but the intervals are declared "
+            "FAILED_CALIBRATION and not validated for operational use"
+        )
+    if set(declarations) != {"HYPOTHETICAL"}:
+        found.append(
+            f"{M4_CONFIG} declares provenance {dict(sorted(declarations.items()))}, but every "
+            "M4 parameter is declared HYPOTHETICAL"
+        )
+    if m4["validated_recommendation"] is not False:
+        found.append(
+            f"{M4_MANIFEST} records validated_recommendation "
+            f"{m4['validated_recommendation']!r}, but it is declared false"
+        )
+    return found
+
+
+def atlas_versions(node: Any) -> list[str]:
+    """Every ``atlas_version`` value anywhere in a recorded API answer."""
+    if isinstance(node, dict):
+        found = [str(node["atlas_version"])] if "atlas_version" in node else []
+        return found + [v for child in node.values() for v in atlas_versions(child)]
+    if isinstance(node, list):
+        return [v for child in node for v in atlas_versions(child)]
+    return []
+
+
+def recorded_versions(tree: Committed, paths: list[str]) -> list[str]:
+    """The distinct versions that the recorded answers at ``paths`` carry, sorted; an answer that
+    carries none counts as one more value, naming it."""
+    found: set[str] = set()
+    for path in paths:
+        found.update(atlas_versions(tree.json(path)) or [f"none, in {path}"])
+    return sorted(found) if paths else ["none: no recorded answer"]
+
+
+def versions(tree: Committed, release: str) -> dict[str, Any]:
+    """Every declaration of the version, which must all be ``release`` (docs/DEVELOPMENT.md,
+    "Versioning"): the three made by hand and every copy of them."""
+    import tomllib  # Python 3.11 or later; main() checks the version first
+
+    init = re.findall(r'^__version__ = "([^"]*)"$', tree.text(INIT), flags=re.MULTILINE)
+    lock = [
+        p.get("version")
+        for p in tomllib.loads(tree.text("uv.lock"))["package"]
+        if p.get("name") == "atlas"
+    ]
+    npm = tree.json("web/package-lock.json")
+    export = tree.json(STATIC_EXPORT_MANIFEST)
+    answers = recorded_versions(tree, [f"{STATIC_EXPORT}/{name}" for name in export["files"]])
+    fixtures = recorded_versions(tree, [p for p in tree.under(FIXTURES) if p.endswith(".json")])
+    declared: dict[str, Any] = {
+        "pyproject.toml [project].version": release,
+        "src/atlas/__init__.py __version__": init[0] if len(init) == 1 else init,
+        "uv.lock atlas version": lock[0] if len(lock) == 1 else lock,
+        "web/package.json version": tree.json("web/package.json").get("version"),
+        "web/package-lock.json version": npm.get("version"),
+        'web/package-lock.json packages[""].version': npm["packages"][""].get("version"),
+        f"{DIST}/atlas-dashboard.json version": tree.json(f"{DIST}/atlas-dashboard.json").get(
+            "version"
+        ),
+        f"{CONTRACT} info.version": tree.json(CONTRACT)["info"]["version"],
+        f"{STATIC_EXPORT_MANIFEST} atlas_version": export.get("atlas_version"),
+        f"{STATIC_EXPORT} answers' atlas_version": answers[0] if len(answers) == 1 else answers,
+        f"{FIXTURES} atlas_version": fixtures[0] if len(fixtures) == 1 else fixtures,
+        f"{STATIC_SITE} version": tree.json(STATIC_SITE).get("version"),
+    }
+    differing = [f"{name} is {value!r}" for name, value in declared.items() if value != release]
+    if differing:
+        raise ManifestError(
+            f"the committed version declarations differ from pyproject.toml's {release!r}: "
+            f"{'; '.join(differing)}"
+        )
+    return declared
+
+
+def static_site(tree: Committed) -> dict[str, Any]:
+    """The static export, the static site's manifest and the publication record (M9).
+
+    The export manifest must list exactly the committed answers, with their SHA-256, and the
+    site's manifest must name the committed export manifest: the static build refuses anything
+    else, and so does this tool. The publication record is recorded as committed, whatever it
+    states; only the owner changes it (docs/STATIC_DEMO.md, sections 10 and 12).
+    """
+    export = tree.json(STATIC_EXPORT_MANIFEST)
+    site = tree.json(STATIC_SITE)
+    export_sha256 = tree.sha256(STATIC_EXPORT_MANIFEST)
+    committed = {
+        p: tree.sha256(p) for p in tree.under(STATIC_EXPORT) if p != STATIC_EXPORT_MANIFEST
+    }
+    listed = {f"{STATIC_EXPORT}/{name}": entry["sha256"] for name, entry in export["files"].items()}
+    if listed != committed:
+        raise ManifestError(f"{STATIC_EXPORT_MANIFEST} does not list the committed answers")
+    if site.get("export_manifest_sha256") != export_sha256:
+        raise ManifestError(f"{STATIC_SITE} names another export than {STATIC_EXPORT_MANIFEST}")
+    record = tree.json(PUBLICATION_RECORD)
+    conditions = record["conditions"]
+    return {
+        "export": {
+            "manifest": STATIC_EXPORT_MANIFEST,
+            "manifest_sha256": export_sha256,
+            "format": export.get("format"),
+            "snapshot": export.get("snapshot"),
+            "scientific_status": export.get("scientific_status"),
+            "files": committed,
+        },
+        "site": {
+            "manifest": STATIC_SITE,
+            "manifest_sha256": tree.sha256(STATIC_SITE),
+            "format": site.get("format"),
+            "base": site.get("base"),
+            "content_security_policy": site.get("content_security_policy"),
+            "files": len(site["files"]),
+        },
+        "publication": {
+            "record": PUBLICATION_RECORD,
+            "sha256": tree.sha256(PUBLICATION_RECORD),
+            "conditions": dict(sorted(conditions.items())),
+            # True only for the gate's own conditions, each of them true, and no other.
+            "every_condition_true": sorted(conditions) == sorted(PUBLICATION_CONDITIONS)
+            and all(conditions[name] is True for name in PUBLICATION_CONDITIONS),
+            "release_version": record.get("release_version"),
+        },
+    }
+
+
+def candidates(tree: Committed, own: str) -> dict[str, Any]:
+    """The other candidates' manifests committed with this one, by path. Each identifies its own
+    content and is checked with the tool of the commit it was generated from, not this one."""
+    found = {}
+    for path in tree.under("docs/release"):
+        if path == own or CANDIDATE_MANIFEST.fullmatch(path) is None:
+            continue
+        record = tree.json(path)
+        source = record.get("source")
+        found[path] = {
+            "sha256": tree.sha256(path),
+            "schema": record.get("schema"),
+            "candidate": record.get("candidate"),
+            "generated_from_commit": record.get("generated_from_commit"),
+            "tree_fingerprint": source.get("tree_fingerprint")
+            if isinstance(source, dict)
+            else None,
+            "tracked_files": source.get("tracked_files") if isinstance(source, dict) else None,
+        }
+    return found
 
 
 def toolchain(tree: Committed) -> dict[str, Any]:
@@ -512,12 +775,14 @@ def toolchain(tree: Committed) -> dict[str, Any]:
 
 def build(tree: Committed, commit: str | None) -> dict[str, Any]:
     release = version(tree)
-    files = file_map(tree, exclude=manifest_name(tree))
+    own = manifest_name(tree)
+    files = file_map(tree, exclude=own)
     areas = {
         area: fingerprint({p: h for p, h in files.items() if p.startswith(area + "/")})
         for area in AREAS
     }
-    for document in DOCUMENTS.values():
+    documents = release_documents(release)
+    for document in documents.values():
         tree.content(document)
     return {
         "schema": SCHEMA,
@@ -525,7 +790,8 @@ def build(tree: Committed, commit: str | None) -> dict[str, Any]:
         "version": release,
         "candidate": f"{release}-{CANDIDATE}",
         "declared": {
-            "status": "release candidate under review: not released, not tagged, not deployed",
+            "status": "release candidate under review: not released, not tagged, not deployed, "
+            "not published",
         },
         "generated_from_commit": commit,
         "source": {
@@ -538,13 +804,16 @@ def build(tree: Committed, commit: str | None) -> dict[str, Any]:
             "areas": areas,
         },
         "locks": {p: tree.sha256(p) for p in LOCKS},
+        "versions": versions(tree, release),
         "toolchain": toolchain(tree),
         "snapshot": snapshot(tree),
         "research_artifacts": research_artifacts(tree),
         "dashboard_build": dashboard_build(tree),
+        "static_site": static_site(tree),
         "api_contract": api_contract(tree),
         "scientific_status": scientific_status(tree),
-        "documents": DOCUMENTS,
+        "documents": documents,
+        "candidates": candidates(tree, own),
     }
 
 
@@ -608,6 +877,16 @@ def run(root: Path, write: bool) -> int:
         return 1
     path = root / name
     if write:
+        if name in tree.entries:
+            issued = tree.json(name)
+            schema = issued.get("schema") if isinstance(issued, dict) else None
+            if schema != SCHEMA:
+                # An earlier tool's manifest (1.0.0-rc.1's is schema 1) is a historical record:
+                # it is checked with the tool of its own commit and never rewritten by this one.
+                raise ManifestError(
+                    f"{name} is committed with schema {schema!r}, not {SCHEMA!r}: a candidate's "
+                    "manifest is never rewritten by a later tool"
+                )
         commit = git(root, "rev-parse", "HEAD").decode("utf-8").strip()
         text = json.dumps(build(tree, commit), indent=2, sort_keys=True) + "\n"
         path.write_bytes(text.encode("utf-8"))

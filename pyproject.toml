@@ -1,6 +1,6 @@
 [project]
 name = "atlas"
-version = "1.0.0"
+version = "1.1.0"
 description = "ATLAS: a research demonstration of reproducible NYC 311 daily demand forecasting, uncertainty assessment (its prediction intervals failed calibration) and a HYPOTHETICAL decision simulation, with an HTTP API, a web dashboard and a deployment package."
 readme = "docs/DEVELOPMENT.md"
 requires-python = ">=3.12"

@@ -1,4 +1,4 @@
-# Model card: ATLAS 1.0
+# Model card: ATLAS 1.1
 
 ATLAS is a research demonstration. It contains three models that build on each other: a daily
 demand forecaster (M2), prediction intervals around it (M3) and a hypothetical decision model
@@ -47,9 +47,11 @@ backlog target. It minimises discretionary cash plus notional (hypothetical) wai
 Solved with HiGHS (dual simplex) and certified (primal and dual feasibility, duality gap) for
 every plan. Specification: [OPTIMIZATION.md](OPTIMIZATION.md) section 3.
 
-**Owner and version.** Arthur Fay. ATLAS 1.0.0 (release candidate under review; see
-[release/RELEASE_GATE.md](release/RELEASE_GATE.md)). Built with Python 3.12, NumPy 2.5, pandas
-3.0 and SciPy 1.18 (HiGHS); no other modelling library.
+**Owner and version.** Arthur Fay. ATLAS 1.1.0 (release candidate 1.1.0-rc.1, prepared for the
+owner's review and not approved; see [release/RELEASE_GATE_1.1.0.md](release/RELEASE_GATE_1.1.0.md)).
+The models, their results and their protocols are those of 1.0.0-rc.1
+([release/RELEASE_GATE.md](release/RELEASE_GATE.md)): 1.1.0 changes none of them. Built with
+Python 3.12, NumPy 2.5, pandas 3.0 and SciPy 1.18 (HiGHS); no other modelling library.
 
 ## 2. Intended use
 
@@ -250,4 +252,5 @@ Byte-identical reproduction has two conditions:
   own commit, `a16672f`.
 
 How to reproduce: [DEVELOPMENT.md](DEVELOPMENT.md). The release-candidate manifest:
-[release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md).
+[release/RELEASE_CANDIDATE_1.1.0.md](release/RELEASE_CANDIDATE_1.1.0.md) sections 4 and 5 (the M8
+candidate's: [release/RELEASE_CANDIDATE.md](release/RELEASE_CANDIDATE.md)).

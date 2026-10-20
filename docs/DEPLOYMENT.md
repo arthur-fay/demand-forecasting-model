@@ -886,7 +886,7 @@ fingerprint of two builds (`test_m6_manifest.py`); IPv6 off by default
 releases (it re-activated the current one before).
 
 M6 and M7 ran all earlier tests (M0-M5) unchanged except one line: the version literal in
-`test_m5_endpoints.py` (now 1.0.0). M8 adds regression tests for its API and line-ending
+`test_m5_endpoints.py` (now 1.1.0). M8 adds regression tests for its API and line-ending
 corrections to the M5 test files and to `test_snapshot.py` (M0), and replaces
 `test_m5_security.py`'s docs-page test with a stricter one
 ([audit/M8_CORRECTIONS.md](audit/M8_CORRECTIONS.md) section 5). CI runs the whole suite with
