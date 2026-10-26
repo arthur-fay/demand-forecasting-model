@@ -45,6 +45,12 @@ jobs:
           npm run typecheck
           npm run build
           npm run test
+      - name: Regenerate the static site manifest under the reviewed dependency lock
+        run: |
+          npm run build:pages
+          echo ATLAS_STATIC_MANIFEST_BEGIN
+          base64 -w0 atlas-static-site.json | fold -w 4000
+          echo ATLAS_STATIC_MANIFEST_END
       - name: Export audited manifest and lockfile for Git object review
         run: |
           echo ATLAS_PACKAGE_JSON_BEGIN
