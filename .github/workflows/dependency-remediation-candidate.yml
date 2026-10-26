@@ -40,10 +40,19 @@ jobs:
         run: npm audit --audit-level=high
       - name: Verify clean install reproduces the candidate
         run: npm ci
-      - name: Verify frontend TypeScript compilation and unit tests
+      - name: Verify licensed frontend build and unit tests
         run: |
           npm run typecheck
+          npm run build
           npm run test
+      - name: Export audited manifest and lockfile for Git object review
+        run: |
+          echo ATLAS_PACKAGE_JSON_BEGIN
+          base64 -w0 package.json | fold -w 4000
+          echo ATLAS_PACKAGE_JSON_END
+          echo ATLAS_PACKAGE_LOCK_BEGIN
+          base64 -w0 package-lock.json | fold -w 4000
+          echo ATLAS_PACKAGE_LOCK_END
       - name: Upload package and lockfile candidate for human review
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
