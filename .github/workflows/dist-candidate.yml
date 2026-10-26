@@ -1,0 +1,45 @@
+name: Generated dashboard patch candidate (review only)
+
+# Temporary read-only helper. The normal reproducibility and coverage gates
+# remain intact. Produces changed built-file Git blobs in this job's logs,
+# never pushes to GitHub, and has no release/deployment permissions.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/dist-candidate.yml"
+      - "web/scripts/export-dist-candidate.mjs"
+      - "web/package.json"
+      - "web/package-lock.json"
+      - ".github/workflows/ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Generate exact dashboard artifacts without committing
+    if: github.head_ref == 'fix/atlas-dependency-audit-oct2026'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22.2"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Exact clean install
+        run: npm ci
+      - name: Security audit
+        run: npm audit --audit-level=high
+      - name: Regenerate the checked-in licensed production build
+        run: npm run build
+      - name: Report changed generated dashboard bytes for review
+        run: node scripts/export-dist-candidate.mjs
