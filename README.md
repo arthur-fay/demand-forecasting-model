@@ -19,6 +19,20 @@ nothing on closures, backlog, staffing or service levels.
 > decision, confirming the NYC Open Data terms, deciding the version and approving
 > publication.
 
+## Technical review — start with the evidence
+
+| Question | Inspect |
+| --- | --- |
+| **What does the API implement?** | [FastAPI endpoints, contracts and controls](docs/API.md) |
+| **How were models compared?** | [Rolling-origin backtesting and statistical qualifications](docs/BACKTESTING.md) |
+| **Can the intervals be trusted for decisions?** | [Uncertainty audit — FAILED_CALIBRATION](docs/UNCERTAINTY.md) |
+| **What does the optimizer actually prove?** | [Hypothetical planning assumptions and limits](docs/OPTIMIZATION.md) |
+| **Is the dashboard live?** | [Static demo status and publication restrictions](docs/STATIC_DEMO.md) |
+| **What remains before any release?** | [Release gate and audit status](docs/release/RELEASE_GATE.md) |
+| **Who built the surrounding public portfolio?** | [Arthur Fay — The Architect Lab](https://arthur-fay.github.io/) |
+
+**Interpretation for hiring reviewers:** The seven-model / 822-origin evaluation is a reproducible **historical** backtest, not a prospective production result. The selected model's advantage over the strongest simple baseline is **not statistically established**, its advantage over seasonal naive is sensitive to dependence assumptions, and the prediction intervals **failed calibration**. The optimization uses hypothetical parameters and does not recommend staffing decisions. The React/TypeScript dashboard and Linux deployment package are documented engineering work, but **the static dashboard is not publicly deployed**.
+
 ## What ATLAS found
 
 Every number below comes from a committed result in [`docs/results/`](docs/results/), or,
