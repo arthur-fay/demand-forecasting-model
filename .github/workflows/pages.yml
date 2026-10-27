@@ -112,13 +112,24 @@ jobs:
       - name: The verifiers refuse planted defects (links, unlisted files, foreign names)
         run: npx vitest run build/verifiers.test.ts
 
-      - name: Playwright's browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+      # Keep static builds and Git integrity checks on the original runner.
+      # Only browser tests use the official version-matched image with all
+      # three engines and native libraries already installed.
+      - name: Prepare the matching Playwright 1.56.1 browser image
+        run: |
+          test "$(node -p "require('./node_modules/@playwright/test/package.json').version")" = "1.56.1"
+          docker pull mcr.microsoft.com/playwright:v1.56.1-noble
 
       - name: Every page in Chromium (desktop and a phone) against a local GitHub Pages stand-in
         env:
           ATLAS_E2E_PAGES: "1"
-        run: npx playwright test
+        run: |
+          docker run --rm --ipc=host \
+            --user "$(id -u):$(id -g)" --env HOME=/tmp --env CI --env ATLAS_E2E_PAGES \
+            --volume "$GITHUB_WORKSPACE:/repo" --workdir /repo/web \
+            --volume "$(command -v node):/usr/local/bin/node:ro" \
+            mcr.microsoft.com/playwright:v1.56.1-noble \
+            npx playwright test
 
       - name: The static pages and their keyboard use in Firefox and WebKit
         # WebKit is Safari's engine, not Safari; real Safari and real phones stay untested,
@@ -126,7 +137,14 @@ jobs:
         env:
           ATLAS_E2E_PAGES: "1"
           ATLAS_E2E_ALL_BROWSERS: "1"
-        run: npx playwright test --project pages-firefox --project pages-webkit
+        run: |
+          docker run --rm --ipc=host \
+            --user "$(id -u):$(id -g)" --env HOME=/tmp --env CI \
+            --env ATLAS_E2E_PAGES --env ATLAS_E2E_ALL_BROWSERS \
+            --volume "$GITHUB_WORKSPACE:/repo" --workdir /repo/web \
+            --volume "$(command -v node):/usr/local/bin/node:ro" \
+            mcr.microsoft.com/playwright:v1.56.1-noble \
+            npx playwright test --project pages-firefox --project pages-webkit
 
       - name: Keep the Playwright report of a failed run
         if: failure()
