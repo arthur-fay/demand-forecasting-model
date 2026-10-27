@@ -51,6 +51,13 @@ jobs:
   build:
     name: "A. Build and test the static site (no publication)"
     runs-on: ubuntu-24.04
+    # The locked @playwright/test is 1.56.1. This official version-matched
+    # image supplies Chromium, Firefox, WebKit and their OS dependencies.
+    # Avoid the repeated apt mirror downloads that timed out run #31.
+    # All existing build, licence, integrity, browser and release gates remain.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --ipc=host
     timeout-minutes: 45
     env:
       UV_PYTHON: "3.12"
@@ -112,8 +119,14 @@ jobs:
       - name: The verifiers refuse planted defects (links, unlisted files, foreign names)
         run: npx vitest run build/verifiers.test.ts
 
-      - name: Playwright's browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Confirm the preinstalled browsers match the locked Playwright runtime
+        run: |
+          test "$(node -p "require('./node_modules/@playwright/test/package.json').version")" = "1.56.1"
+          test "$PLAYWRIGHT_BROWSERS_PATH" = "/ms-playwright"
+          test -d "$PLAYWRIGHT_BROWSERS_PATH"
+          # The versioned image has the exact browser binaries and Linux packages;
+          # do not run apt-get or download browser binaries during each CI run.
+          npx playwright --version
 
       - name: Every page in Chromium (desktop and a phone) against a local GitHub Pages stand-in
         env:
