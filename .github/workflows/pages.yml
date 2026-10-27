@@ -51,13 +51,6 @@ jobs:
   build:
     name: "A. Build and test the static site (no publication)"
     runs-on: ubuntu-24.04
-    # The locked @playwright/test is 1.56.1. This official version-matched
-    # image supplies Chromium, Firefox, WebKit and their OS dependencies.
-    # Avoid the repeated apt mirror downloads that timed out run #31.
-    # All existing build, licence, integrity, browser and release gates remain.
-    container:
-      image: mcr.microsoft.com/playwright:v1.56.1-noble
-      options: --ipc=host
     timeout-minutes: 45
     env:
       UV_PYTHON: "3.12"
@@ -119,19 +112,24 @@ jobs:
       - name: The verifiers refuse planted defects (links, unlisted files, foreign names)
         run: npx vitest run build/verifiers.test.ts
 
-      - name: Confirm the preinstalled browsers match the locked Playwright runtime
+      # Keep static builds and Git integrity checks on the original runner.
+      # Only browser tests use the official version-matched image with all
+      # three engines and native libraries already installed.
+      - name: Prepare the matching Playwright 1.56.1 browser image
         run: |
           test "$(node -p "require('./node_modules/@playwright/test/package.json').version")" = "1.56.1"
-          test "$PLAYWRIGHT_BROWSERS_PATH" = "/ms-playwright"
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          # The versioned image has the exact browser binaries and Linux packages;
-          # do not run apt-get or download browser binaries during each CI run.
-          npx playwright --version
+          docker pull mcr.microsoft.com/playwright:v1.56.1-noble
 
       - name: Every page in Chromium (desktop and a phone) against a local GitHub Pages stand-in
         env:
           ATLAS_E2E_PAGES: "1"
-        run: npx playwright test
+        run: |
+          docker run --rm --ipc=host \
+            --user "$(id -u):$(id -g)" --env HOME=/tmp --env CI --env ATLAS_E2E_PAGES \
+            --volume "$GITHUB_WORKSPACE:/repo" --workdir /repo/web \
+            --volume "$(command -v node):/usr/local/bin/node:ro" \
+            mcr.microsoft.com/playwright:v1.56.1-noble \
+            npx playwright test
 
       - name: The static pages and their keyboard use in Firefox and WebKit
         # WebKit is Safari's engine, not Safari; real Safari and real phones stay untested,
@@ -139,7 +137,14 @@ jobs:
         env:
           ATLAS_E2E_PAGES: "1"
           ATLAS_E2E_ALL_BROWSERS: "1"
-        run: npx playwright test --project pages-firefox --project pages-webkit
+        run: |
+          docker run --rm --ipc=host \
+            --user "$(id -u):$(id -g)" --env HOME=/tmp --env CI \
+            --env ATLAS_E2E_PAGES --env ATLAS_E2E_ALL_BROWSERS \
+            --volume "$GITHUB_WORKSPACE:/repo" --workdir /repo/web \
+            --volume "$(command -v node):/usr/local/bin/node:ro" \
+            mcr.microsoft.com/playwright:v1.56.1-noble \
+            npx playwright test --project pages-firefox --project pages-webkit
 
       - name: Keep the Playwright report of a failed run
         if: failure()
